@@ -1,0 +1,5 @@
+# Store and check out text files with LF line endings on every OS
+* text=auto eol=lf
+
+# Phase 1 test files for CRLF and non-UTF-8 input must stay byte-for-byte as written
+tests/fixtures/** -text
