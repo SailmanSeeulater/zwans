@@ -8,15 +8,19 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-class  _Event(BaseModel):
+
+class _Event(BaseModel):
     model_config = ConfigDict(frozen=True)
+
 
 class TurnStarted(_Event):
     type: Literal["turn_started"] = "turn_started"
 
+
 class TextDelta(_Event):
     type: Literal["text_delta"] = "text_delta"
     text: str
+
 
 class ToolCallRequested(_Event):
     type: Literal["tool_call_requested"] = "tool_call_requested"
@@ -24,15 +28,18 @@ class ToolCallRequested(_Event):
     name: str
     args: dict[str, Any]
 
+
 class PermissionRequested(_Event):
     type: Literal["permission_requested"] = "permission_requested"
     call_id: str
     reason: str
 
+
 class PermissionResolved(_Event):
     type: Literal["permission_resolved"] = "permission_resolved"
     call_id: str
     allowed: bool
+
 
 class ToolResult(_Event):
     type: Literal["tool_result"] = "tool_result"
@@ -40,26 +47,32 @@ class ToolResult(_Event):
     content: str
     is_error: bool = False
 
+
 class ContextCompacted(_Event):
     type: Literal["context_compacted"] = "context_compacted"
     tokens_before: int
     tokens_after: int
+
 
 class UsageUpdated(_Event):
     type: Literal["usage_updated"] = "usage_updated"
     input_tokens: int
     output_tokens: int
 
+
 class TurnEnded(_Event):
     type: Literal["turn_ended"] = "turn_ended"
     stop_reason: str
+
 
 class Error(_Event):
     type: Literal["error"] = "error"
     message: str
 
+
 type Event = (
     TurnStarted
+    | TextDelta
     | ToolCallRequested
     | PermissionRequested
     | PermissionResolved

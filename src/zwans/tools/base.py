@@ -6,15 +6,18 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
+
 @dataclass(frozen=True)
 class ToolContext:
     # What a tool can use while it runs. The executor and policy decision join it later.
     cwd: Path
 
+
 @dataclass(frozen=True)
 class ToolOutput:
     content: str
     is_error: bool = False
+
 
 class Tool[InputT: BaseModel](Protocol):
     name: str
