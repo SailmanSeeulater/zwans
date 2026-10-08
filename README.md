@@ -4,9 +4,10 @@ A coding agent built from scratch: the loop that calls the model, the tools it u
 (in later phases) the sandbox and the evals that prove it works. See [SPEC.md](SPEC.md) for
 the full plan.
 
-**Status:** Phases 0 and 1 are done. Zwans can read, search, and edit a project and run its
-tests. There are no permission prompts or sandbox yet (Phase 4), so point it at a folder you
-don't mind it changing.
+**Status:** Phases 0 to 2 are done. Zwans can read, search, and edit a project and run its
+tests; it saves and resumes sessions, compacts long ones, and caches prompts. There are no
+permission prompts or sandbox yet (Phase 4), so point it at a folder you don't mind it
+changing.
 
 ## Setup
 
@@ -32,12 +33,30 @@ run `zwans` from (copy `.env.example`). Commands the agent runs never see these 
 ```bash
 zwans                                        # chat in the current folder
 zwans run "make the tests pass" -w path/to/project
+zwans sessions                               # list saved sessions
+zwans --resume 20261008-1412                 # continue one (the start of its id is enough)
+zwans --resume 20261008-1412 --rewind 3      # continue from the end of turn 3
 python examples/run_demo.py --scripted       # demo with a scripted model: free, offline
 python examples/run_demo.py                  # the same demo with the real model
 ```
 
-Ctrl+C stops the running turn and keeps the conversation. Each session's events are saved
-to `~/.zwans/transcripts/`, and the session's cost is printed at exit.
+Ctrl+C stops the running turn and keeps the conversation. After each turn Zwans prints its
+cost, the context size, and how much input came from the prompt cache.
+
+Everything is kept in `~/.zwans/`: sessions in `sessions.db`, an event log per session in
+`transcripts/`, and the full text of tool output too long for the conversation in
+`tool-output/`.
+
+### ZWANS.md
+
+Standing instructions go in `ZWANS.md`: `~/.zwans/ZWANS.md` for all projects, and one in a
+project's folder for that project. Both are added to the system prompt when a session
+starts, the project's last.
+
+### Long sessions
+
+When the conversation passes `compact_at` tokens, Zwans has the model write handoff notes
+for the older part and keeps the latest `keep_messages` messages word for word.
 
 ## Configuration
 
@@ -50,6 +69,8 @@ to `~/.zwans/transcripts/`, and the session's cost is printed at exit.
 | `effort` | `medium` | How much the model thinks: `low` to `max` |
 | `max_tokens` | `64000` | Output limit per model call, thinking included |
 | `max_steps` | `50` | Model calls allowed in one turn |
+| `compact_at` | `200000` | Estimated context tokens that trigger a compaction |
+| `keep_messages` | `8` | Recent messages kept word for word when compacting |
 | `shell` | found automatically | Path to bash |
 | `home` | `~/.zwans` | Where transcripts, saved sessions, and saved tool output go |
 
@@ -57,5 +78,5 @@ to `~/.zwans/transcripts/`, and the session's cost is printed at exit.
 
 ```bash
 ruff check . && ruff format --check . && mypy && pytest
-ZWANS_LIVE_TESTS=1 pytest tests/test_example.py   # also run against the real API
+ZWANS_LIVE_TESTS=1 pytest -s tests/test_example.py   # also run against the real API
 ```
