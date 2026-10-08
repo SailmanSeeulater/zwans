@@ -16,6 +16,9 @@ from zwans.executor.base import CommandResult
 
 MAX_OUTPUT_BYTES = 30_000
 
+# Removed from every command's environment, so the model can't read Zwans's own credentials.
+SECRET_VARS = frozenset({"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"})
+
 
 class OutsideWorkspaceError(PermissionError):
     def __init__(self, path: str) -> None:
@@ -48,7 +51,7 @@ class LocalExecutor:
             find_program(argv[0]),
             *argv[1:],
             cwd=self.root,
-            env={**os.environ, "PYTHONUTF8": "1"},  # Python programs print UTF-8, which we decode
+            env=_command_env(),
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -106,6 +109,12 @@ def find_bash() -> str:
 def _write(target: Path, data: bytes) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(data)
+
+
+def _command_env() -> dict[str, str]:
+    env = {name: value for name, value in os.environ.items() if name.upper() not in SECRET_VARS}
+    env["PYTHONUTF8"] = "1"  # Python programs print UTF-8, which is how we decode output
+    return env
 
 
 def _own_process_group() -> dict[str, Any]:

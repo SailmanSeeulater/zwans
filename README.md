@@ -19,7 +19,8 @@ pip install -e ".[dev]"
 
 On Windows, the Bash tool uses Git Bash, so Git for Windows must be installed.
 
-Set one credential:
+Set one credential, either as an environment variable or in a `.env` file in the folder you
+run `zwans` from (copy `.env.example`). Commands the agent runs never see these variables.
 
 | `auth` setting | Variable | Billed to |
 |---|---|---|

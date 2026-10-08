@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import os
 import secrets
 import sys
 from datetime import datetime
@@ -12,7 +13,7 @@ import typer
 
 from zwans import __version__
 from zwans.cli.render import Renderer
-from zwans.config import ConfigError, load_config, load_credential
+from zwans.config import ConfigError, load_config, load_credential, read_dotenv
 from zwans.executor.local import LocalExecutor, find_bash
 from zwans.pricing import CostMeter
 from zwans.prompt import system_prompt
@@ -104,7 +105,10 @@ def _start(workspace: Path, model: str | None, fake_script: Path | None, task: s
 def _open_session(
     workspace: Path, model: str | None, fake_script: Path | None
 ) -> tuple[Session, TranscriptWriter, CostMeter]:
-    config = load_config()
+    # Real environment variables win over the .env file. The merged values stay in this
+    # dictionary rather than os.environ, so commands the agent runs never inherit them.
+    env = {**read_dotenv(Path(".env")), **os.environ}
+    config = load_config(env=env)
     if model:
         config = config.model_copy(update={"model": model})
     root = workspace.resolve()
@@ -112,7 +116,7 @@ def _open_session(
     if fake_script is not None:
         provider = FakeProvider.from_file(fake_script)
     else:
-        credential = load_credential(config)
+        credential = load_credential(config, env)
         provider = AnthropicProvider(credential, config.model, config.effort, config.max_tokens)
 
     session_id = f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"

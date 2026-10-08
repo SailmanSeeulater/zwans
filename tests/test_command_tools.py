@@ -2,6 +2,7 @@ import asyncio
 import time
 from pathlib import Path
 
+import pytest
 from helpers import needs_bash, needs_rg
 
 from zwans.tools.base import ToolContext
@@ -67,3 +68,16 @@ def test_bash_shortens_long_output_in_the_middle(ctx: ToolContext) -> None:
     assert output.content.startswith("1\n2\n3\n")
     assert "bytes not shown" in output.content
     assert output.content.endswith("100000\n(exit code 0)")
+
+
+@needs_bash
+def test_commands_cannot_see_zwans_credentials(
+    ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+
+    output = asyncio.run(
+        BashTool().run(BashInput(command='echo "${ANTHROPIC_API_KEY:-hidden}"'), ctx)
+    )
+
+    assert output.content == "hidden\n(exit code 0)"

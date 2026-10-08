@@ -1,7 +1,8 @@
 """Settings from ~/.zwans/config.toml, overridden by ZWANS_* environment variables.
 
-Credentials come only from the environment, never from the config file. They use the
-same variables as NexTix: ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN.
+Credentials come only from environment variables, or a .env file in the folder you run
+zwans from, never from the config file. They use the same variables as NexTix:
+ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN.
 """
 
 import os
@@ -62,6 +63,23 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH, env: Mapping[str, str] = os.en
         if value is not None:
             data[name] = value
     return Config.model_validate(data)
+
+
+def read_dotenv(path: Path) -> dict[str, str]:
+    """Read KEY=value lines from a .env file. Lines starting with # are comments."""
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for line in path.read_text(encoding="utf-8-sig").splitlines():  # -sig: Notepad's BOM
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        values[key.removeprefix("export ").strip()] = value
+    return values
 
 
 def load_credential(config: Config, env: Mapping[str, str] = os.environ) -> Credential:

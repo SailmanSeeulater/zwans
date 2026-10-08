@@ -30,3 +30,5 @@ htmlcov/
 .idea/
 Thumbs.db
 desktop.ini
+# The committed template for .env
+!.env.example
