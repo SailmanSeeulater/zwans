@@ -1,7 +1,7 @@
 """Calls Claude through the Messages API and streams the reply."""
 
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, cast
+from typing import Any
 
 import anthropic
 from anthropic.types.beta import BetaMessage
@@ -15,7 +15,9 @@ from zwans.tools.base import Tool
 BETAS = [
     "server-side-fallback-2026-07-01",  # if a safety classifier declines, retry on another model
     "thinking-display-updates-2026-08-18",  # short progress notes between tool calls
+    "thinking-binding-controls-2026-08-01",  # lets us choose drop_block, below
 ]
+EPHEMERAL: dict[str, Any] = {"type": "ephemeral"}  # a 5-minute prompt-cache entry
 OAUTH_BETA = "oauth-2025-04-20"  # required when signing in with a Claude plan token
 JSON_ATTEMPTS = 3
 
@@ -40,17 +42,8 @@ class AnthropicProvider:
         while True:
             attempt += 1
             try:
-                async with self._client.beta.messages.stream(
-                    model=self.model,
-                    max_tokens=self.max_tokens,
-                    system=system,
-                    messages=cast(Any, [message_param(m) for m in messages]),
-                    tools=cast(Any, [tool_param(t) for t in tools]),
-                    thinking={"type": "adaptive", "display": "updates"},
-                    output_config={"effort": self.effort},
-                    fallbacks="default",
-                    betas=self.betas,
-                ) as stream:
+                request = self.request(system, messages, tools)
+                async with self._client.beta.messages.stream(**request) as stream:
                     async for event in stream:
                         if event.type == "text":
                             yield TextDelta(text=event.text)
@@ -75,6 +68,35 @@ class AnthropicProvider:
                 raise ProviderError("Couldn't reach the Claude API.") from exc
             yield to_response(message)
             return
+
+    def request(
+        self, system: str, messages: Sequence[Message], tools: Sequence[Tool[Any]]
+    ) -> dict[str, Any]:
+        return {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            # A cache breakpoint after the system prompt covers the tools too, since the API
+            # puts tools first. It survives whatever happens later in the conversation.
+            "system": [{"type": "text", "text": system, "cache_control": EPHEMERAL}]
+            if system
+            else anthropic.omit,
+            "messages": [message_param(m) for m in messages],
+            "tools": [tool_param(t) for t in tools] if tools else anthropic.omit,
+            # Automatic caching: a breakpoint on the conversation's last block, moving forward
+            # each request, so every call re-reads everything before it from the cache.
+            "cache_control": EPHEMERAL,
+            "thinking": {
+                "type": "adaptive",
+                "display": "updates",
+                # If an earlier thinking block no longer matches its conversation (after a
+                # compaction, or when Zwans's tools changed between resumes), drop it
+                # instead of failing the request.
+                "block_binding": {"prefix_mismatch_behavior": "drop_block"},
+            },
+            "output_config": {"effort": self.effort},
+            "fallbacks": "default",
+            "betas": self.betas,
+        }
 
     async def aclose(self) -> None:
         await self._client.close()

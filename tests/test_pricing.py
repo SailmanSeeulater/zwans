@@ -29,4 +29,12 @@ def test_meter_tracks_the_turn_and_the_session() -> None:
 
     assert meter.turn_dollars == pytest.approx(2.0)
     assert meter.session_dollars == pytest.approx(4.0)
-    assert meter.summary().startswith("$4.0000 (1,000,000 input")
+    assert meter.summary().startswith("$4.0000 (1,000,000 input tokens, 0% from cache")
+
+
+def test_cache_hit_rate_is_the_share_of_input_read_from_cache() -> None:
+    meter = CostMeter()
+    meter.on_event(UsageUpdated(input_tokens=100, cache_write_tokens=100, output_tokens=0))
+    meter.on_event(UsageUpdated(input_tokens=50, cache_read_tokens=750, output_tokens=0))
+
+    assert meter.cache_hit_rate == pytest.approx(0.75)

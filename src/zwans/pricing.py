@@ -46,18 +46,20 @@ class CostMeter:
     def __init__(self) -> None:
         self.turn_dollars = 0.0
         self.session_dollars = 0.0
-        self.input_tokens = 0
-        self.output_tokens = 0
+        self.input_tokens = 0  # sent at the full input price
+        self.cache_write_tokens = 0
         self.cache_read_tokens = 0
+        self.output_tokens = 0
         self.unpriced_models: set[str] = set()
 
     def on_event(self, event: Event) -> None:
         if isinstance(event, TurnStarted):
             self.turn_dollars = 0.0
         elif isinstance(event, UsageUpdated):
-            self.input_tokens += event.input_tokens + event.cache_write_tokens
-            self.output_tokens += event.output_tokens
+            self.input_tokens += event.input_tokens
+            self.cache_write_tokens += event.cache_write_tokens
             self.cache_read_tokens += event.cache_read_tokens
+            self.output_tokens += event.output_tokens
             dollars = cost(event)
             if dollars is None:
                 self.unpriced_models.add(event.model or "unknown")
@@ -65,11 +67,19 @@ class CostMeter:
                 self.turn_dollars += dollars
                 self.session_dollars += dollars
 
+    @property
+    def sent_tokens(self) -> int:
+        return self.input_tokens + self.cache_write_tokens + self.cache_read_tokens
+
+    @property
+    def cache_hit_rate(self) -> float:
+        """The share of input tokens that were read from the prompt cache."""
+        return self.cache_read_tokens / self.sent_tokens if self.sent_tokens else 0.0
+
     def summary(self) -> str:
         text = (
-            f"${self.session_dollars:.4f} "
-            f"({self.input_tokens:,} input, {self.cache_read_tokens:,} cached, "
-            f"{self.output_tokens:,} output tokens)"
+            f"${self.session_dollars:.4f} ({self.sent_tokens:,} input tokens, "
+            f"{self.cache_hit_rate:.0%} from cache; {self.output_tokens:,} output tokens)"
         )
         if self.unpriced_models:
             text += f"; no price known for {', '.join(sorted(self.unpriced_models))}"

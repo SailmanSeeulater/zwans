@@ -2,8 +2,10 @@ import anthropic
 import httpx2
 from pydantic import BaseModel, Field
 
+from zwans.config import Credential
 from zwans.messages import Message, RawBlock, TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.providers.anthropic import (
+    AnthropicProvider,
     convert_content,
     describe_api_error,
     message_param,
@@ -103,3 +105,21 @@ def test_errors_with_a_plan_token_suggest_an_api_key() -> None:
     text = describe_api_error(_rate_limit_error(), plan_token=True)
 
     assert "set ZWANS_AUTH=api_key" in text
+
+
+def test_requests_cache_the_prefix_and_drop_stale_thinking() -> None:
+    credential = Credential(mode="api_key", token="sk-test")
+    provider = AnthropicProvider(credential, "claude-opus-5-5", "medium", 64_000)
+
+    request = provider.request("You are Zwans.", [user_message("Hi")], [NoteTool()])
+
+    assert request["system"] == [
+        {"type": "text", "text": "You are Zwans.", "cache_control": {"type": "ephemeral"}}
+    ]
+    assert request["cache_control"] == {"type": "ephemeral"}  # moving breakpoint on the tail
+    assert request["thinking"]["block_binding"] == {"prefix_mismatch_behavior": "drop_block"}
+    assert "thinking-binding-controls-2026-08-01" in request["betas"]
+
+
+def user_message(text: str) -> Message:
+    return Message(role="user", content=[TextBlock(text=text)])

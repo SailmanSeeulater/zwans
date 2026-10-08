@@ -93,8 +93,8 @@ def _start(workspace: Path, model: str | None, fake_script: Path | None, task: s
     with asyncio.Runner() as runner:
         try:
             if task is None:
-                return _chat(session, runner)
-            return _run_once(session, runner, task)
+                return _chat(session, runner, meter)
+            return _run_once(session, runner, meter, task)
         finally:
             runner.run(session.provider.aclose())
             transcript.close()
@@ -135,7 +135,7 @@ def _open_session(
     return session, transcript, meter
 
 
-def _chat(session: Session, runner: asyncio.Runner) -> int:
+def _chat(session: Session, runner: asyncio.Runner, meter: CostMeter) -> int:
     typer.secho("Type a task. Ctrl+C stops a running turn; 'exit' or Ctrl+C here quits.", dim=True)
     while True:
         try:
@@ -150,14 +150,21 @@ def _chat(session: Session, runner: asyncio.Runner) -> int:
             runner.run(session.send(task))
         except KeyboardInterrupt:
             typer.secho("Interrupted. The conversation is kept, so carry on.", fg="yellow")
+        _print_turn(meter)
 
 
-def _run_once(session: Session, runner: asyncio.Runner, task: str) -> int:
+def _run_once(session: Session, runner: asyncio.Runner, meter: CostMeter, task: str) -> int:
     try:
         stop_reason = runner.run(session.send(task))
     except KeyboardInterrupt:
         return EXIT_INTERRUPTED
+    _print_turn(meter)
     return 0 if stop_reason == "end_turn" else 1
+
+
+def _print_turn(meter: CostMeter) -> None:
+    hits = f"{meter.cache_hit_rate:.0%} of input from cache so far"
+    typer.secho(f"Turn cost ${meter.turn_dollars:.4f}, {hits}", dim=True)
 
 
 def _describe_shell(configured: str | None) -> str:
