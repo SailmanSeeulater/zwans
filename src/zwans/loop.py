@@ -1,5 +1,6 @@
 """The agent loop: call the model, run the tools it asks for, repeat until it stops."""
 
+import asyncio
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
@@ -8,7 +9,6 @@ from pydantic import ValidationError
 from zwans.events import (
     Error,
     Event,
-    TextDelta,
     ToolCallRequested,
     ToolResult,
     TurnEnded,
@@ -16,8 +16,10 @@ from zwans.events import (
     UsageUpdated,
 )
 from zwans.messages import ContentBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock
-from zwans.providers.base import Provider
+from zwans.providers.base import ModelResponse, Provider, ProviderError
 from zwans.tools.base import Tool, ToolContext, ToolError, ToolOutput
+
+INTERRUPTED = "Interrupted by the user before this finished."
 
 
 async def run_turn(
@@ -25,41 +27,105 @@ async def run_turn(
     tools: Sequence[Tool[Any]],
     messages: list[Message],
     ctx: ToolContext,
+    *,
+    system: str = "",
     max_steps: int = 50,
 ) -> AsyncIterator[Event]:
     """Run one user turn and yield events as they happen.
 
-    `messages` must end with the user's message. The loop appends the model's replies and
-    the tool results to it, so the caller keeps the whole conversation.
+    `messages` must end with the user's message. The loop only ever appends to it: the
+    model's replies, then the tool results. Earlier turns are never edited, which the API
+    requires before it accepts the model's earlier thinking blocks back.
     """
     tools_by_name = {tool.name: tool for tool in tools}
-    yield TurnStarted()
+    yield TurnStarted(prompt=_last_user_text(messages))
 
     for _ in range(max_steps):
-        response = await provider.complete(messages, tools)
-        yield UsageUpdated(input_tokens=response.input_tokens, output_tokens=response.output_tokens)
-        messages.append(Message(role="assistant", content=list(response.content)))
+        response: ModelResponse | None = None
+        try:
+            async for item in provider.stream(system, messages, tools):
+                if isinstance(item, ModelResponse):
+                    response = item
+                else:
+                    yield item
+        except ProviderError as exc:
+            yield Error(message=str(exc))
+            return
+        if response is None:
+            yield Error(message="The model's stream ended without a response.")
+            return
 
-        results: list[ContentBlock] = []
-        for block in response.content:
-            if isinstance(block, TextBlock):
-                yield TextDelta(text=block.text)
-                continue
-            yield ToolCallRequested(call_id=block.id, name=block.name, args=block.input)
-            output = await _run_tool(tools_by_name, block, ctx)
-            yield ToolResult(call_id=block.id, content=output.content, is_error=output.is_error)
-            results.append(
-                ToolResultBlock(
-                    tool_use_id=block.id, content=output.content, is_error=output.is_error
-                )
-            )
+        yield UsageUpdated(
+            model=response.model,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+            cache_read_tokens=response.cache_read_tokens,
+            cache_write_tokens=response.cache_write_tokens,
+        )
+        messages.append(Message(role="assistant", content=list(response.content)))
+        calls = [block for block in response.content if isinstance(block, ToolUseBlock)]
 
         if response.stop_reason != "tool_use":
-            yield TurnEnded(stop_reason=response.stop_reason)
+            if calls:
+                # A cut-off response can hold half-written tool calls. Don't run them, but
+                # answer each one, because the API rejects a tool_use without a tool_result.
+                reason = f"Not run: the response stopped early ({response.stop_reason})."
+                skipped = ToolOutput(reason, is_error=True)
+                messages.append(_results_message(calls, {}, default=skipped))
+            yield TurnEnded(stop_reason=response.stop_reason, detail=response.stop_detail)
             return
-        messages.append(Message(role="user", content=results))
 
-    yield Error(message=f"Stopped after {max_steps} model calls without finishing")
+        outputs: dict[str, ToolOutput] = {}
+        try:
+            for batch in _batches(calls, tools_by_name):
+                for call in batch:
+                    yield ToolCallRequested(call_id=call.id, name=call.name, args=call.input)
+                results = await asyncio.gather(*(_run_tool(tools_by_name, c, ctx) for c in batch))
+                for call, output in zip(batch, results, strict=True):
+                    outputs[call.id] = output
+                    yield ToolResult(
+                        call_id=call.id, content=output.content, is_error=output.is_error
+                    )
+        finally:
+            # Also runs when Ctrl+C cancels the turn mid-tool, so the conversation stays valid
+            # and the session can carry on.
+            interrupted = ToolOutput(INTERRUPTED, is_error=True)
+            messages.append(_results_message(calls, outputs, default=interrupted))
+
+    yield Error(message=f"Stopped after {max_steps} model calls without finishing.")
+
+
+def _batches(calls: list[ToolUseBlock], tools: dict[str, Tool[Any]]) -> list[list[ToolUseBlock]]:
+    """Group calls so neighbouring read-only calls run together and every other call runs alone."""
+    batches: list[list[ToolUseBlock]] = []
+    previous_read_only = False
+    for call in calls:
+        tool = tools.get(call.name)
+        read_only = tool is not None and tool.read_only
+        if read_only and previous_read_only:
+            batches[-1].append(call)
+        else:
+            batches.append([call])
+        previous_read_only = read_only
+    return batches
+
+
+def _results_message(
+    calls: list[ToolUseBlock], outputs: dict[str, ToolOutput], default: ToolOutput
+) -> Message:
+    content: list[ContentBlock] = []
+    for call in calls:
+        output = outputs.get(call.id, default)
+        content.append(
+            ToolResultBlock(tool_use_id=call.id, content=output.content, is_error=output.is_error)
+        )
+    return Message(role="user", content=content)
+
+
+def _last_user_text(messages: list[Message]) -> str:
+    if not messages:
+        return ""
+    return "".join(block.text for block in messages[-1].content if isinstance(block, TextBlock))
 
 
 async def _run_tool(

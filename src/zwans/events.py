@@ -15,10 +15,18 @@ class _Event(BaseModel):
 
 class TurnStarted(_Event):
     type: Literal["turn_started"] = "turn_started"
+    prompt: str = ""
 
 
 class TextDelta(_Event):
     type: Literal["text_delta"] = "text_delta"
+    text: str
+
+
+class ThinkingDelta(_Event):
+    """A short progress note the model writes between tool calls."""
+
+    type: Literal["thinking_delta"] = "thinking_delta"
     text: str
 
 
@@ -58,11 +66,15 @@ class UsageUpdated(_Event):
     type: Literal["usage_updated"] = "usage_updated"
     input_tokens: int
     output_tokens: int
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    model: str = ""
 
 
 class TurnEnded(_Event):
     type: Literal["turn_ended"] = "turn_ended"
-    stop_reason: str
+    stop_reason: str  # "end_turn", "max_tokens", "refusal", "interrupted", ...
+    detail: str = ""
 
 
 class Error(_Event):
@@ -73,6 +85,7 @@ class Error(_Event):
 type Event = (
     TurnStarted
     | TextDelta
+    | ThinkingDelta
     | ToolCallRequested
     | PermissionRequested
     | PermissionResolved

@@ -1,29 +1,13 @@
 import asyncio
 import time
-from collections.abc import Callable
 from pathlib import Path
 
-import pytest
+from helpers import needs_bash, needs_rg
 
-from zwans.executor.local import find_bash, find_program
 from zwans.tools.base import ToolContext
 from zwans.tools.bash import BashInput, BashTool
 from zwans.tools.glob import GlobInput, GlobTool
 from zwans.tools.grep import GrepInput, GrepTool
-
-
-def _available(find: Callable[[], str]) -> bool:
-    try:
-        find()
-    except FileNotFoundError:
-        return False
-    return True
-
-
-needs_rg = pytest.mark.skipif(
-    not _available(lambda: find_program("rg")), reason="ripgrep is not installed"
-)
-needs_bash = pytest.mark.skipif(not _available(find_bash), reason="bash is not installed")
 
 
 @needs_rg

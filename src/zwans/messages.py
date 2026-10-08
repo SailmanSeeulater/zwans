@@ -24,7 +24,17 @@ class ToolResultBlock(BaseModel):
     is_error: bool = False
 
 
-type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock
+class RawBlock(BaseModel):
+    """A block the loop doesn't read, such as thinking, kept exactly as the API sent it.
+
+    Thinking blocks must go back to the API unchanged, or later requests are rejected.
+    """
+
+    type: str
+    data: dict[str, Any]
+
+
+type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | RawBlock
 
 
 class Message(BaseModel):
