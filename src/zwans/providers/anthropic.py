@@ -69,7 +69,8 @@ class AnthropicProvider:
                     "CLAUDE_CODE_OAUTH_TOKEN when auth is 'subscription'."
                 ) from exc
             except anthropic.APIStatusError as exc:
-                raise ProviderError(f"Claude API error {exc.status_code}: {exc.message}") from exc
+                plan_token = OAUTH_BETA in self.betas
+                raise ProviderError(describe_api_error(exc, plan_token)) from exc
             except anthropic.APIConnectionError as exc:
                 raise ProviderError("Couldn't reach the Claude API.") from exc
             yield to_response(message)
@@ -77,6 +78,19 @@ class AnthropicProvider:
 
     async def aclose(self) -> None:
         await self._client.close()
+
+
+def describe_api_error(exc: anthropic.APIStatusError, plan_token: bool) -> str:
+    error = exc.body.get("error", {}) if isinstance(exc.body, dict) else {}
+    kind = error.get("type", "error")
+    detail = error.get("message", exc.message)
+    text = f"Claude API error {exc.status_code} ({kind}): {detail} [request {exc.request_id}]"
+    if plan_token and exc.status_code in (400, 403, 429):
+        text += (
+            "\nPlan tokens are meant for Claude Code, and Claude may refuse them from other "
+            "tools. Use an API key instead: set ZWANS_AUTH=api_key and ANTHROPIC_API_KEY."
+        )
+    return text
 
 
 def to_response(message: BetaMessage) -> ModelResponse:

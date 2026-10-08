@@ -1,7 +1,14 @@
+import anthropic
+import httpx2
 from pydantic import BaseModel, Field
 
 from zwans.messages import Message, RawBlock, TextBlock, ToolResultBlock, ToolUseBlock
-from zwans.providers.anthropic import convert_content, message_param, tool_param
+from zwans.providers.anthropic import (
+    convert_content,
+    describe_api_error,
+    message_param,
+    tool_param,
+)
 from zwans.tools.base import ToolContext, ToolOutput
 
 THINKING = {"type": "thinking", "thinking": "", "signature": "sig-abc"}
@@ -77,3 +84,22 @@ def test_tool_definitions_carry_the_schema_and_stream_their_input() -> None:
     assert param["name"] == "Note"
     assert param["input_schema"]["properties"]["text"]["description"] == "What to note."
     assert param["eager_input_streaming"] is True
+
+
+def _rate_limit_error() -> anthropic.RateLimitError:
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx2.Response(429, request=request, headers={"request-id": "req_123"})
+    body = {"type": "error", "error": {"type": "rate_limit_error", "message": "Error"}}
+    return anthropic.RateLimitError("Error code: 429", response=response, body=body)
+
+
+def test_api_errors_are_short_and_name_the_request() -> None:
+    text = describe_api_error(_rate_limit_error(), plan_token=False)
+
+    assert text == "Claude API error 429 (rate_limit_error): Error [request req_123]"
+
+
+def test_errors_with_a_plan_token_suggest_an_api_key() -> None:
+    text = describe_api_error(_rate_limit_error(), plan_token=True)
+
+    assert "set ZWANS_AUTH=api_key" in text
