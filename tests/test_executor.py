@@ -21,3 +21,14 @@ def test_paths_outside_the_workspace_are_refused(tmp_path: Path) -> None:
     for path in ["../outside.txt", "sub/../../outside.txt", str(tmp_path / "outside.txt")]:
         with pytest.raises(OutsideWorkspaceError):
             asyncio.run(executor.read_bytes(path))
+
+
+def test_spilled_output_can_be_read_but_not_written(tmp_path: Path) -> None:
+    executor = LocalExecutor(tmp_path / "workspace", spill_dir=tmp_path / "spill")
+
+    path = asyncio.run(executor.spill("toolu_1.txt", "the full output"))
+
+    assert not Path(path).is_relative_to(tmp_path / "workspace")
+    assert asyncio.run(executor.read_bytes(path)) == b"the full output"
+    with pytest.raises(OutsideWorkspaceError):
+        asyncio.run(executor.write_bytes(path, b"changed"))

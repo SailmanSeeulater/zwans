@@ -4,17 +4,20 @@ import asyncio
 import contextlib
 import errno
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from zwans.executor.base import CommandResult
 
-MAX_OUTPUT_BYTES = 30_000
+# A memory guard for runaway commands. The loop decides how much output reaches the model.
+MAX_OUTPUT_BYTES = 2_000_000
 
 # Removed from every command's environment, so the model can't read Zwans's own credentials.
 SECRET_VARS = frozenset({"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"})
@@ -26,22 +29,35 @@ class OutsideWorkspaceError(PermissionError):
 
 
 class LocalExecutor:
-    def __init__(self, root: Path, shell: str | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        shell: str | None = None,
+        spill_dir: Path | None = None,
+        max_output_bytes: int = MAX_OUTPUT_BYTES,
+    ) -> None:
         self.root = root.resolve()
         self._shell = shell
+        # Where large tool output is saved. It's outside the workspace, so the user's project
+        # stays clean, and the model can Read it but not write there.
+        default_spill = Path(tempfile.gettempdir()) / "zwans-tool-output"
+        self.spill_dir = (spill_dir or default_spill).resolve()
+        self.max_output_bytes = max_output_bytes
 
-    def resolve(self, path: str) -> Path:
+    def resolve(self, path: str, *, reading: bool = False) -> Path:
         """Turn a path from the model into an absolute path, refusing anything outside the root."""
         resolved = (self.root / path).resolve()
-        if not resolved.is_relative_to(self.root):
-            raise OutsideWorkspaceError(path)
-        return resolved
+        if resolved.is_relative_to(self.root):
+            return resolved
+        if reading and resolved.is_relative_to(self.spill_dir):
+            return resolved
+        raise OutsideWorkspaceError(path)
 
     def relative(self, path: str) -> str:
         return self.resolve(path).relative_to(self.root).as_posix()
 
     async def read_bytes(self, path: str) -> bytes:
-        return await asyncio.to_thread(self.resolve(path).read_bytes)
+        return await asyncio.to_thread(self.resolve(path, reading=True).read_bytes)
 
     async def write_bytes(self, path: str, data: bytes) -> None:
         await asyncio.to_thread(_write, self.resolve(path), data)
@@ -58,7 +74,7 @@ class LocalExecutor:
             **_own_process_group(),
         )
         assert process.stdout is not None
-        output = _Output(MAX_OUTPUT_BYTES)
+        output = _Output(self.max_output_bytes)
         pump = asyncio.create_task(_pump(process.stdout, output))
         timed_out = False
         try:
@@ -76,6 +92,11 @@ class LocalExecutor:
 
     async def run_shell(self, command: str, timeout: float) -> CommandResult:
         return await self.run([self._shell or find_bash(), "-c", command], timeout)
+
+    async def spill(self, name: str, text: str) -> str:
+        target = self.spill_dir / re.sub(r"[^\w.-]", "_", name)
+        await asyncio.to_thread(_write, target, text.encode("utf-8"))
+        return str(target)
 
 
 def find_program(name: str) -> str:

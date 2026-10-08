@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from helpers import needs_bash, needs_rg
 
+from zwans.executor.local import LocalExecutor
 from zwans.tools.base import ToolContext
 from zwans.tools.bash import BashInput, BashTool
 from zwans.tools.glob import GlobInput, GlobTool
@@ -62,7 +63,9 @@ def test_bash_stops_a_command_that_runs_too_long(ctx: ToolContext) -> None:
 
 
 @needs_bash
-def test_bash_shortens_long_output_in_the_middle(ctx: ToolContext) -> None:
+def test_bash_keeps_the_start_and_end_of_runaway_output(tmp_path: Path) -> None:
+    ctx = ToolContext(executor=LocalExecutor(tmp_path, max_output_bytes=10_000))
+
     output = asyncio.run(BashTool().run(BashInput(command="seq 1 100000"), ctx))
 
     assert output.content.startswith("1\n2\n3\n")

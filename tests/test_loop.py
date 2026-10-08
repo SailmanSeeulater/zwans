@@ -20,7 +20,7 @@ from zwans.providers.base import ModelResponse
 from zwans.providers.fake import FakeProvider
 from zwans.tools.base import ToolContext, ToolOutput
 from zwans.tools.bash import BashTool
-from zwans.tools.read import ReadTool
+from zwans.tools.read import ReadInput, ReadTool
 
 
 class EchoInput(BaseModel):
@@ -205,3 +205,35 @@ def test_ctrl_c_stops_the_command_and_the_session_carries_on(ctx: ToolContext) -
     messages.append(user("Never mind"))
     events = asyncio.run(collect(run_turn(provider, [BashTool()], messages, ctx)))
     assert events[-1] == TurnEnded(stop_reason="end_turn")
+
+
+class FloodTool:
+    name = "flood"
+    description = "Return a lot of text."
+    input_model = ProbeInput
+    read_only = True
+
+    async def run(self, args: ProbeInput, ctx: ToolContext) -> ToolOutput:
+        return ToolOutput(content="".join(f"line {n}\n" for n in range(10_000)))
+
+
+def test_huge_results_are_shortened_and_saved_for_read(ctx: ToolContext) -> None:
+    provider = FakeProvider(
+        [
+            ModelResponse(
+                content=[ToolUseBlock(id="call_1", name="flood", input={})],
+                stop_reason="tool_use",
+            ),
+            ModelResponse(content=[TextBlock(text="Done.")], stop_reason="end_turn"),
+        ]
+    )
+
+    events = asyncio.run(collect(run_turn(provider, [FloodTool()], [user("Go")], ctx)))
+
+    result = next(event for event in events if isinstance(event, ToolResult))
+    assert len(result.content) < 20_000
+    assert result.content.startswith("line 0\n")
+    assert result.content.endswith("line 9999\n")
+    saved_path = result.content.split("saved at ")[1].split(". Use Read")[0]
+    full = asyncio.run(ReadTool().run(ReadInput(path=saved_path, offset=5000, limit=1), ctx))
+    assert full.content.startswith("  5000\tline 4999\n(Showing lines 5000-5000 of 10000.")

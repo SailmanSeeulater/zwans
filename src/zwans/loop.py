@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from zwans.context.truncation import fit_output
 from zwans.events import (
     Error,
     Event,
@@ -140,11 +141,12 @@ async def _run_tool(
     except ValidationError as exc:
         return ToolOutput(content=f"Invalid input for {call.name}: {exc}", is_error=True)
     try:
-        return await tool.run(args, ctx)
+        output = await tool.run(args, ctx)
     except ToolError as exc:
         return ToolOutput(content=str(exc), is_error=True)
     except OSError as exc:  # missing file, permission denied, path outside the workspace, ...
         return ToolOutput(content=_describe_os_error(exc), is_error=True)
+    return await fit_output(output, call.id, ctx.executor)
 
 
 def _describe_os_error(exc: OSError) -> str:
