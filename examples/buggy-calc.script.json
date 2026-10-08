@@ -1,0 +1,40 @@
+[
+  {
+    "model": "scripted",
+    "stop_reason": "tool_use",
+    "content": [
+      {"type": "text", "text": "I'll run the tests first to see what fails."},
+      {"type": "tool_use", "id": "call_1", "name": "Bash", "input": {"command": "python -m pytest -q -p no:cacheprovider"}}
+    ]
+  },
+  {
+    "model": "scripted",
+    "stop_reason": "tool_use",
+    "content": [
+      {"type": "text", "text": "test_average fails. Reading calc.py."},
+      {"type": "tool_use", "id": "call_2", "name": "Read", "input": {"path": "calc.py"}}
+    ]
+  },
+  {
+    "model": "scripted",
+    "stop_reason": "tool_use",
+    "content": [
+      {"type": "text", "text": "average() divides by len(numbers) + 1 instead of len(numbers). Fixing that."},
+      {"type": "tool_use", "id": "call_3", "name": "Edit", "input": {"path": "calc.py", "old_string": "return sum(numbers) / (len(numbers) + 1)", "new_string": "return sum(numbers) / len(numbers)"}}
+    ]
+  },
+  {
+    "model": "scripted",
+    "stop_reason": "tool_use",
+    "content": [
+      {"type": "tool_use", "id": "call_4", "name": "Bash", "input": {"command": "python -m pytest -q -p no:cacheprovider"}}
+    ]
+  },
+  {
+    "model": "scripted",
+    "stop_reason": "end_turn",
+    "content": [
+      {"type": "text", "text": "Fixed average() in calc.py: it divided by len(numbers) + 1 instead of len(numbers). Both tests pass now."}
+    ]
+  }
+]
