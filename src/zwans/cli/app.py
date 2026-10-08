@@ -14,6 +14,7 @@ import typer
 from zwans import __version__
 from zwans.cli.render import Renderer
 from zwans.config import ConfigError, load_config, load_credential, read_dotenv
+from zwans.context.instructions import load_instructions
 from zwans.executor.local import LocalExecutor, find_bash
 from zwans.pricing import CostMeter
 from zwans.prompt import system_prompt
@@ -120,18 +121,24 @@ def _open_session(
         provider = AnthropicProvider(credential, config.model, config.effort, config.max_tokens)
 
     session_id = f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
-    transcript = TranscriptWriter(config.transcript_dir / f"{session_id}.jsonl")
+    transcript = TranscriptWriter(config.home / "transcripts" / f"{session_id}.jsonl")
     meter = CostMeter()
+    instructions = load_instructions(root, config.home)
+    executor = LocalExecutor(
+        root, shell=config.shell, spill_dir=config.home / "tool-output" / session_id
+    )
     session = Session(
         provider=provider,
         tools=[ReadTool(), WriteTool(), EditTool(), GlobTool(), GrepTool(), BashTool()],
-        ctx=ToolContext(executor=LocalExecutor(root, shell=config.shell)),
-        system=system_prompt(root, _describe_shell(config.shell)),
+        ctx=ToolContext(executor=executor),
+        system=system_prompt(root, _describe_shell(config.shell), instructions),
         listeners=[Renderer().on_event, transcript.on_event, meter.on_event],
         max_steps=config.max_steps,
     )
     label = "scripted responses" if fake_script else f"{config.model}, effort {config.effort}"
     typer.secho(f"Zwans {__version__} | {label} | {root}", dim=True)
+    for path, _ in instructions:
+        typer.secho(f"Following {path}", dim=True)
     return session, transcript, meter
 
 

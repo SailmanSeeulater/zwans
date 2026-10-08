@@ -26,12 +26,12 @@ def test_run_does_the_task_and_writes_a_transcript(tmp_path: Path) -> None:
     ]
     script_path = tmp_path / "script.json"
     script_path.write_text(json.dumps([r.model_dump(mode="json") for r in script]), "utf-8")
-    transcripts = tmp_path / "transcripts"
+    transcripts = tmp_path / "home" / "transcripts"
 
     result = CliRunner().invoke(
         app,
         ["run", "Say hi in a file", "-w", str(workspace), "--fake-script", str(script_path)],
-        env={"ZWANS_TRANSCRIPT_DIR": str(transcripts)},
+        env={"ZWANS_HOME": str(tmp_path / "home")},
     )
 
     assert result.exit_code == 0, result.output
@@ -52,7 +52,7 @@ def test_run_explains_a_missing_credential(tmp_path: Path) -> None:
         env={
             "ZWANS_AUTH": "api_key",
             "ANTHROPIC_API_KEY": "",
-            "ZWANS_TRANSCRIPT_DIR": str(tmp_path),
+            "ZWANS_HOME": str(tmp_path),
         },
     )
 

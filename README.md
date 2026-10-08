@@ -51,7 +51,7 @@ to `~/.zwans/transcripts/`, and the session's cost is printed at exit.
 | `max_tokens` | `64000` | Output limit per model call, thinking included |
 | `max_steps` | `50` | Model calls allowed in one turn |
 | `shell` | found automatically | Path to bash |
-| `transcript_dir` | `~/.zwans/transcripts` | Where transcripts go |
+| `home` | `~/.zwans` | Where transcripts, saved sessions, and saved tool output go |
 
 ## Development
 

@@ -24,7 +24,7 @@ def _copy_example(tmp_path: Path) -> Path:
 def _env_with_this_python(tmp_path: Path) -> dict[str, str]:
     """The agent runs `python -m pytest`, so put the Python running these tests first on PATH."""
     path = f"{Path(sys.executable).parent}{os.pathsep}{os.environ['PATH']}"
-    return {"PATH": path, "ZWANS_TRANSCRIPT_DIR": str(tmp_path / "transcripts")}
+    return {"PATH": path, "ZWANS_HOME": str(tmp_path / "home")}
 
 
 def _tests_pass(workspace: Path) -> bool:

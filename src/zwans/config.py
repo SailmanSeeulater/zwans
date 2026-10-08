@@ -44,7 +44,7 @@ class Config(BaseModel):
     max_tokens: int = 64_000  # per model call, thinking included
     max_steps: int = 50  # model calls allowed in one turn
     shell: str | None = None  # path to bash; found automatically when unset
-    transcript_dir: Path = ZWANS_HOME / "transcripts"
+    home: Path = ZWANS_HOME  # transcripts, saved sessions, and saved tool output live here
 
 
 @dataclass(frozen=True)
