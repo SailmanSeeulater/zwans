@@ -1,6 +1,5 @@
 import asyncio
 from collections.abc import AsyncIterator
-from pathlib import Path
 
 from pydantic import BaseModel
 
@@ -18,6 +17,7 @@ from zwans.messages import Message, TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse
 from zwans.providers.fake import FakeProvider
 from zwans.tools.base import ToolContext, ToolOutput
+from zwans.tools.read import ReadTool
 
 
 class EchoInput(BaseModel):
@@ -38,7 +38,7 @@ async def collect(events: AsyncIterator[Event]) -> list[Event]:
     return [event async for event in events]
 
 
-def test_one_full_turn(tmp_path: Path) -> None:
+def test_one_full_turn(ctx: ToolContext) -> None:
     provider = FakeProvider(
         [
             ModelResponse(
@@ -53,9 +53,7 @@ def test_one_full_turn(tmp_path: Path) -> None:
     )
     messages = [Message(role="user", content=[TextBlock(text="Echo hi")])]
 
-    events = asyncio.run(
-        collect(run_turn(provider, [EchoTool()], messages, ToolContext(cwd=tmp_path)))
-    )
+    events = asyncio.run(collect(run_turn(provider, [EchoTool()], messages, ctx)))
 
     assert events == [
         TurnStarted(),
@@ -73,7 +71,7 @@ def test_one_full_turn(tmp_path: Path) -> None:
     )
 
 
-def test_unknown_tool_goes_back_to_the_model_as_an_error(tmp_path: Path) -> None:
+def test_unknown_tool_goes_back_to_the_model_as_an_error(ctx: ToolContext) -> None:
     provider = FakeProvider(
         [
             ModelResponse(
@@ -85,6 +83,27 @@ def test_unknown_tool_goes_back_to_the_model_as_an_error(tmp_path: Path) -> None
     )
     messages = [Message(role="user", content=[TextBlock(text="Use a tool")])]
 
-    events = asyncio.run(collect(run_turn(provider, [], messages, ToolContext(cwd=tmp_path))))
+    events = asyncio.run(collect(run_turn(provider, [], messages, ctx)))
 
     assert ToolResult(call_id="call_1", content="Unknown tool: missing", is_error=True) in events
+
+
+def test_tool_failures_go_back_to_the_model_as_errors(ctx: ToolContext) -> None:
+    provider = FakeProvider(
+        [
+            ModelResponse(
+                content=[ToolUseBlock(id="call_1", name="Read", input={"path": "missing.txt"})],
+                stop_reason="tool_use",
+            ),
+            ModelResponse(
+                content=[TextBlock(text="That file doesn't exist.")], stop_reason="end_turn"
+            ),
+        ]
+    )
+    messages = [Message(role="user", content=[TextBlock(text="Read missing.txt")])]
+
+    events = asyncio.run(collect(run_turn(provider, [ReadTool()], messages, ctx)))
+
+    result = next(event for event in events if isinstance(event, ToolResult))
+    assert result.is_error
+    assert "missing.txt" in result.content

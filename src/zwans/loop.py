@@ -17,7 +17,7 @@ from zwans.events import (
 )
 from zwans.messages import ContentBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.providers.base import Provider
-from zwans.tools.base import Tool, ToolContext, ToolOutput
+from zwans.tools.base import Tool, ToolContext, ToolError, ToolOutput
 
 
 async def run_turn(
@@ -65,7 +65,7 @@ async def run_turn(
 async def _run_tool(
     tools: dict[str, Tool[Any]], call: ToolUseBlock, ctx: ToolContext
 ) -> ToolOutput:
-    """Run one tool call. Unknown tools and bad input go back to the model as error results."""
+    """Run one tool call. Every expected failure goes back to the model as an error result."""
     tool = tools.get(call.name)
     if tool is None:
         return ToolOutput(content=f"Unknown tool: {call.name}", is_error=True)
@@ -73,4 +73,14 @@ async def _run_tool(
         args = tool.input_model.model_validate(call.input)
     except ValidationError as exc:
         return ToolOutput(content=f"Invalid input for {call.name}: {exc}", is_error=True)
-    return await tool.run(args, ctx)
+    try:
+        return await tool.run(args, ctx)
+    except ToolError as exc:
+        return ToolOutput(content=str(exc), is_error=True)
+    except OSError as exc:  # missing file, permission denied, path outside the workspace, ...
+        return ToolOutput(content=_describe_os_error(exc), is_error=True)
+
+
+def _describe_os_error(exc: OSError) -> str:
+    message = exc.strerror or str(exc)
+    return f"{message}: {exc.filename}" if exc.filename else message
