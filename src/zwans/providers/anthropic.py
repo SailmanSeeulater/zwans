@@ -75,6 +75,9 @@ class AnthropicProvider:
             yield to_response(message)
             return
 
+    async def aclose(self) -> None:
+        await self._client.close()
+
 
 def to_response(message: BetaMessage) -> ModelResponse:
     usage = message.usage

@@ -31,3 +31,7 @@ class Provider(Protocol):
     ) -> AsyncIterator[TextDelta | ThinkingDelta | ModelResponse]:
         """Yield text and progress notes as they arrive, then the complete response last."""
         ...
+
+    async def aclose(self) -> None:
+        """Release network connections at the end of a session."""
+        ...

@@ -33,3 +33,6 @@ class FakeProvider:
             if isinstance(block, TextBlock):
                 yield TextDelta(text=block.text)
         yield response
+
+    async def aclose(self) -> None:
+        pass
