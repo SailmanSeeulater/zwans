@@ -23,7 +23,10 @@ def main() -> int:
     command = [sys.executable, "-m", "zwans", "run", "make the tests pass", "-w", str(workspace)]
     if "--scripted" in sys.argv[1:]:
         command += ["--fake-script", str(EXAMPLES / "buggy-calc.script.json")]
-    subprocess.run(command, env=env)
+    agent = subprocess.run(command, env=env)
+    if agent.returncode != 0:
+        print(f"\nZwans exited with code {agent.returncode}. See its message above.", flush=True)
+        return agent.returncode
 
     check = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
     print("\nChecking the result independently:", flush=True)

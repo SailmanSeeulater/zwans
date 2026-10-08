@@ -87,5 +87,8 @@ def load_credential(config: Config, env: Mapping[str, str] = os.environ) -> Cred
     token = env.get(var, "").strip()
     if not token:
         hint = CREDENTIAL_HINTS[config.auth]
+        other: AuthMode = "subscription" if config.auth == "api_key" else "api_key"
+        if env.get(CREDENTIAL_VARS[other], "").strip():
+            hint = f"{CREDENTIAL_VARS[other]} is set, so to use it, set ZWANS_AUTH={other}."
         raise ConfigError(f"auth is {config.auth!r} but {var} is not set. {hint}")
     return Credential(mode=config.auth, token=token)

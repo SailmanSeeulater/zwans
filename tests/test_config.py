@@ -47,3 +47,10 @@ def test_dotenv_reads_values_and_skips_comments(tmp_path: Path) -> None:
 
 def test_a_missing_dotenv_is_empty(tmp_path: Path) -> None:
     assert read_dotenv(tmp_path / ".env") == {}
+
+
+def test_missing_credential_points_to_the_one_that_is_set() -> None:
+    env = {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-test"}
+
+    with pytest.raises(ConfigError, match="set ZWANS_AUTH=subscription"):
+        load_credential(Config(auth="api_key"), env)
