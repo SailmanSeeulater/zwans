@@ -14,6 +14,7 @@ import typer
 from zwans import __version__
 from zwans.cli.render import Renderer
 from zwans.config import ConfigError, load_config, load_credential, read_dotenv
+from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
 from zwans.executor.local import LocalExecutor, find_bash
 from zwans.pricing import CostMeter
@@ -134,6 +135,7 @@ def _open_session(
         system=system_prompt(root, _describe_shell(config.shell), instructions),
         listeners=[Renderer().on_event, transcript.on_event, meter.on_event],
         max_steps=config.max_steps,
+        compactor=Compactor(provider, config.compact_at, config.keep_messages),
     )
     label = "scripted responses" if fake_script else f"{config.model}, effort {config.effort}"
     typer.secho(f"Zwans {__version__} | {label} | {root}", dim=True)
@@ -157,7 +159,7 @@ def _chat(session: Session, runner: asyncio.Runner, meter: CostMeter) -> int:
             runner.run(session.send(task))
         except KeyboardInterrupt:
             typer.secho("Interrupted. The conversation is kept, so carry on.", fg="yellow")
-        _print_turn(meter)
+        _print_turn(session, meter)
 
 
 def _run_once(session: Session, runner: asyncio.Runner, meter: CostMeter, task: str) -> int:
@@ -165,13 +167,14 @@ def _run_once(session: Session, runner: asyncio.Runner, meter: CostMeter, task: 
         stop_reason = runner.run(session.send(task))
     except KeyboardInterrupt:
         return EXIT_INTERRUPTED
-    _print_turn(meter)
+    _print_turn(session, meter)
     return 0 if stop_reason == "end_turn" else 1
 
 
-def _print_turn(meter: CostMeter) -> None:
+def _print_turn(session: Session, meter: CostMeter) -> None:
+    context = f"context about {session.context_tokens():,} tokens"
     hits = f"{meter.cache_hit_rate:.0%} of input from cache so far"
-    typer.secho(f"Turn cost ${meter.turn_dollars:.4f}, {hits}", dim=True)
+    typer.secho(f"Turn cost ${meter.turn_dollars:.4f}, {context}, {hits}", dim=True)
 
 
 def _describe_shell(configured: str | None) -> str:

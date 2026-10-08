@@ -43,6 +43,8 @@ class Config(BaseModel):
     effort: Effort = "medium"  # how much the model thinks; the main cost and latency control
     max_tokens: int = 64_000  # per model call, thinking included
     max_steps: int = 50  # model calls allowed in one turn
+    compact_at: int = 200_000  # estimated context tokens that trigger a compaction
+    keep_messages: int = 8  # recent messages kept word for word when compacting
     shell: str | None = None  # path to bash; found automatically when unset
     home: Path = ZWANS_HOME  # transcripts, saved sessions, and saved tool output live here
 

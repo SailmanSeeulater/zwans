@@ -5,7 +5,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel
 
-from zwans.events import TextDelta, ThinkingDelta
+from zwans.events import TextDelta, ThinkingDelta, UsageUpdated
 from zwans.messages import Message, RawBlock, TextBlock, ToolUseBlock
 from zwans.tools.base import Tool
 
@@ -19,6 +19,15 @@ class ModelResponse(BaseModel):
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+
+    def usage_event(self) -> UsageUpdated:
+        return UsageUpdated(
+            model=self.model,
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            cache_read_tokens=self.cache_read_tokens,
+            cache_write_tokens=self.cache_write_tokens,
+        )
 
 
 class ProviderError(Exception):

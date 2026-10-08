@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from zwans.context.compaction import Compactor
 from zwans.context.truncation import fit_output
 from zwans.events import (
     Error,
@@ -14,7 +15,6 @@ from zwans.events import (
     ToolResult,
     TurnEnded,
     TurnStarted,
-    UsageUpdated,
 )
 from zwans.messages import ContentBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse, Provider, ProviderError
@@ -31,6 +31,7 @@ async def run_turn(
     *,
     system: str = "",
     max_steps: int = 50,
+    compactor: Compactor | None = None,
 ) -> AsyncIterator[Event]:
     """Run one user turn and yield events as they happen.
 
@@ -44,6 +45,9 @@ async def run_turn(
     for _ in range(max_steps):
         response: ModelResponse | None = None
         try:
+            if compactor is not None:
+                for event in await compactor.maybe_compact(messages):
+                    yield event
             async for item in provider.stream(system, messages, tools):
                 if isinstance(item, ModelResponse):
                     response = item
@@ -56,14 +60,10 @@ async def run_turn(
             yield Error(message="The model's stream ended without a response.")
             return
 
-        yield UsageUpdated(
-            model=response.model,
-            input_tokens=response.input_tokens,
-            output_tokens=response.output_tokens,
-            cache_read_tokens=response.cache_read_tokens,
-            cache_write_tokens=response.cache_write_tokens,
-        )
+        yield response.usage_event()
         messages.append(Message(role="assistant", content=list(response.content)))
+        if compactor is not None:
+            compactor.observe(response, len(messages))
         calls = [block for block in response.content if isinstance(block, ToolUseBlock)]
 
         if response.stop_reason != "tool_use":

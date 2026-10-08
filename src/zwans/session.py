@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from zwans.context.compaction import Compactor
 from zwans.events import Event, TurnEnded
 from zwans.loop import run_turn
 from zwans.messages import Message, TextBlock
@@ -22,6 +23,7 @@ class Session:
         system: str,
         listeners: Sequence[Listener],
         max_steps: int = 50,
+        compactor: Compactor | None = None,
     ) -> None:
         self.provider = provider
         self.tools = list(tools)
@@ -29,7 +31,12 @@ class Session:
         self.system = system  # fixed for the whole session, so earlier turns stay valid
         self.listeners = list(listeners)
         self.max_steps = max_steps
+        self.compactor = compactor
         self.messages: list[Message] = []
+
+    def context_tokens(self) -> int:
+        """About how many tokens the next request will send."""
+        return self.compactor.estimate(self.messages) if self.compactor else 0
 
     async def send(self, prompt: str) -> str:
         """Run one turn and return why it ended: "end_turn", "interrupted", "error", ..."""
@@ -42,6 +49,7 @@ class Session:
             self.ctx,
             system=self.system,
             max_steps=self.max_steps,
+            compactor=self.compactor,
         )
         try:
             async for event in turn:

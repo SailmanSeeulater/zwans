@@ -5,6 +5,7 @@ from typing import Any
 import typer
 
 from zwans.events import (
+    ContextCompacted,
     Error,
     Event,
     TextDelta,
@@ -41,6 +42,9 @@ class Renderer:
                 self._line(f"[stopped: {reason}{f', {detail}' if detail else ''}]", fg="yellow")
             case Error(message=message):
                 self._line(f"Error: {message}", fg="red")
+            case ContextCompacted(tokens_before=before, tokens_after=after):
+                note = f"[Summarized older messages: about {before:,} -> {after:,} tokens]"
+                self._line(note, fg="magenta")
 
     def _stream(self, text: str, style: str) -> None:
         if style != self._style:
