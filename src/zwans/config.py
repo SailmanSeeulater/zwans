@@ -14,8 +14,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 
 type AuthMode = Literal["api_key", "subscription"]
+type Effort = Literal["low", "medium", "high", "xhigh", "max"]
 
-DEFAULT_CONFIG_PATH = Path.home() / ".zwans" / "config.toml"
+ZWANS_HOME = Path.home() / ".zwans"
+DEFAULT_CONFIG_PATH = ZWANS_HOME / "config.toml"
 
 CREDENTIAL_VARS: dict[AuthMode, str] = {
     "api_key": "ANTHROPIC_API_KEY",
@@ -37,6 +39,11 @@ class Config(BaseModel):
 
     model: str = "claude-opus-5-5"
     auth: AuthMode = "api_key"
+    effort: Effort = "medium"  # how much the model thinks; the main cost and latency control
+    max_tokens: int = 64_000  # per model call, thinking included
+    max_steps: int = 50  # model calls allowed in one turn
+    shell: str | None = None  # path to bash; found automatically when unset
+    transcript_dir: Path = ZWANS_HOME / "transcripts"
 
 
 @dataclass(frozen=True)

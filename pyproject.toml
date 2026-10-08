@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A coding agent built from scratch: the loop, the tools, the sandbox, and the evals."
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic>=1.12",
     "pydantic>=2.10",
     "typer>=0.15",
 ]
