@@ -21,6 +21,7 @@ from zwans.providers.base import ModelResponse, Provider, ProviderError
 from zwans.tools.base import Tool, ToolContext, ToolError, ToolOutput
 
 INTERRUPTED = "Interrupted by the user before this finished."
+STOPPED = "Zwans stopped before this finished, so it may or may not have run."
 
 
 async def run_turn(
@@ -94,6 +95,21 @@ async def run_turn(
             messages.append(_results_message(calls, outputs, default=interrupted))
 
     yield Error(message=f"Stopped after {max_steps} model calls without finishing.")
+
+
+def answer_pending_calls(messages: list[Message]) -> bool:
+    """Answer tool calls left without results, as when Zwans was killed mid-tool.
+
+    Returns whether it had to. A saved session needs this before it can continue, because
+    the API rejects a tool_use without a matching tool_result.
+    """
+    if not messages or messages[-1].role != "assistant":
+        return False
+    calls = [block for block in messages[-1].content if isinstance(block, ToolUseBlock)]
+    if not calls:
+        return False
+    messages.append(_results_message(calls, {}, default=ToolOutput(STOPPED, is_error=True)))
+    return True
 
 
 def _batches(calls: list[ToolUseBlock], tools: dict[str, Tool[Any]]) -> list[list[ToolUseBlock]]:

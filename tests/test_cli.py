@@ -58,3 +58,35 @@ def test_run_explains_a_missing_credential(tmp_path: Path) -> None:
 
     assert result.exit_code == 2
     assert "ANTHROPIC_API_KEY is not set" in result.output
+
+
+def _script(path: Path, *texts: str) -> Path:
+    responses = [ModelResponse(content=[TextBlock(text=t)], stop_reason="end_turn") for t in texts]
+    path.write_text(json.dumps([r.model_dump(mode="json") for r in responses]), "utf-8")
+    return path
+
+
+def test_sessions_are_saved_listed_and_resumed(tmp_path: Path) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    env = {"ZWANS_HOME": str(tmp_path / "home")}
+    runner = CliRunner()
+
+    first = _script(tmp_path / "first.json", "Hi.")
+    started = runner.invoke(
+        app, ["run", "Say hi", "-w", str(workspace), "--fake-script", str(first)], env=env
+    )
+    listing = runner.invoke(app, ["sessions"], env=env)
+    session_id = listing.output.split()[0]
+    second = _script(tmp_path / "second.json", "Hi again.")
+    resumed = runner.invoke(
+        app, ["run", "Again", "--resume", session_id, "--fake-script", str(second)], env=env
+    )
+    relisted = runner.invoke(app, ["sessions"], env=env)
+
+    assert started.exit_code == 0, started.output
+    assert "1 turn " in listing.output
+    assert "Say hi" in listing.output
+    assert resumed.exit_code == 0, resumed.output
+    assert f"Resumed {session_id} after 1 turn: Say hi" in resumed.output
+    assert "2 turns" in relisted.output

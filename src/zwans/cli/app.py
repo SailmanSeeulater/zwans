@@ -5,6 +5,7 @@ import io
 import os
 import secrets
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -13,16 +14,18 @@ import typer
 
 from zwans import __version__
 from zwans.cli.render import Renderer
-from zwans.config import ConfigError, load_config, load_credential, read_dotenv
+from zwans.config import Config, ConfigError, load_config, load_credential, read_dotenv
 from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
 from zwans.executor.local import LocalExecutor, find_bash
+from zwans.messages import Message
 from zwans.pricing import CostMeter
 from zwans.prompt import system_prompt
 from zwans.providers.anthropic import AnthropicProvider
 from zwans.providers.base import Provider
 from zwans.providers.fake import FakeProvider
 from zwans.session import Session
+from zwans.store import SessionError, SessionInfo, SessionRecorder, SessionStore, load_session
 from zwans.tools.base import ToolContext
 from zwans.tools.bash import BashTool
 from zwans.tools.edit import EditTool
@@ -43,6 +46,13 @@ Workspace = Annotated[
     ),
 ]
 Model = Annotated[str | None, typer.Option(help="Model to use instead of the configured one.")]
+Resume = Annotated[
+    str | None,
+    typer.Option(help="Continue a saved session: its id from `zwans sessions`, or its start."),
+]
+Rewind = Annotated[
+    int | None, typer.Option(min=1, help="With --resume, first drop every turn after this one.")
+]
 FakeScript = Annotated[
     Path | None,
     typer.Option(hidden=True, help="Replay model responses from a JSON file, for demos and tests."),
@@ -66,11 +76,13 @@ def main(
     ] = False,
     workspace: Workspace = Path("."),
     model: Model = None,
+    resume: Resume = None,
+    rewind: Rewind = None,
     fake_script: FakeScript = None,
 ) -> None:
     """Zwans: a coding agent built from scratch. With no command, starts a chat."""
     if ctx.invoked_subcommand is None:
-        raise typer.Exit(_start(workspace, model, fake_script, task=None))
+        raise typer.Exit(_start(None, workspace, model, resume, rewind, fake_script))
 
 
 @app.command()
@@ -78,73 +90,135 @@ def run(
     task: Annotated[str, typer.Argument(help="What the agent should do.")],
     workspace: Workspace = Path("."),
     model: Model = None,
+    resume: Resume = None,
+    rewind: Rewind = None,
     fake_script: FakeScript = None,
 ) -> None:
     """Do one task, then exit. The exit code is 0 when the model finished normally."""
-    raise typer.Exit(_start(workspace, model, fake_script, task=task))
+    raise typer.Exit(_start(task, workspace, model, resume, rewind, fake_script))
 
 
-def _start(workspace: Path, model: str | None, fake_script: Path | None, task: str | None) -> int:
+@app.command()
+def sessions(limit: Annotated[int, typer.Option(min=1, help="How many to list.")] = 20) -> None:
+    """List saved sessions, most recent first."""
+    config, _ = _load_config()
+    store = SessionStore(config.home / "sessions.db")
+    found = store.recent(limit)
+    store.close()
+    if not found:
+        typer.echo("No saved sessions yet.")
+    for info in found:
+        when = info.updated_at.replace("T", " ")[:16]
+        dollars = float(info.usage.get("dollars", 0.0))
+        turns = _count(info.turns, "turn")
+        typer.echo(f"{info.id}  {when}  {turns:>9}  ${dollars:7.4f}  {info.title}")
+
+
+@dataclass
+class _Opened:
+    session: Session
+    meter: CostMeter
+    transcript: TranscriptWriter
+    store: SessionStore
+    session_id: str
+
+
+def _start(
+    task: str | None,
+    workspace: Path,
+    model: str | None,
+    resume: str | None,
+    rewind: int | None,
+    fake_script: Path | None,
+) -> int:
     _tolerate_unprintable_text()
+    if rewind is not None and resume is None:
+        typer.secho("--rewind only works together with --resume.", fg="red", err=True)
+        return 2
     try:
-        session, transcript, meter = _open_session(workspace, model, fake_script)
-    except ConfigError as exc:
+        opened = _open(workspace, model, resume, rewind, fake_script)
+    except (ConfigError, SessionError) as exc:
         typer.secho(str(exc), fg="red", err=True)
         return 2
     # One event loop for the whole session, so the API client's connections stay usable.
     with asyncio.Runner() as runner:
         try:
             if task is None:
-                return _chat(session, runner, meter)
-            return _run_once(session, runner, meter, task)
+                return _chat(opened, runner)
+            return _run_once(opened, runner, task)
         finally:
-            runner.run(session.provider.aclose())
-            transcript.close()
-            typer.secho(f"\nSession cost: {meter.summary()}", dim=True)
-            typer.secho(f"Transcript: {transcript.path}", dim=True)
+            runner.run(opened.session.provider.aclose())
+            opened.transcript.close()
+            opened.store.close()
+            typer.secho(f"\nSession cost: {opened.meter.summary()}", dim=True)
+            typer.secho(f"To continue it: zwans --resume {opened.session_id}", dim=True)
 
 
-def _open_session(
-    workspace: Path, model: str | None, fake_script: Path | None
-) -> tuple[Session, TranscriptWriter, CostMeter]:
-    # Real environment variables win over the .env file. The merged values stay in this
-    # dictionary rather than os.environ, so commands the agent runs never inherit them.
-    env = {**read_dotenv(Path(".env")), **os.environ}
-    config = load_config(env=env)
-    if model:
-        config = config.model_copy(update={"model": model})
-    root = workspace.resolve()
+def _open(
+    workspace: Path,
+    model: str | None,
+    resume: str | None,
+    rewind: int | None,
+    fake_script: Path | None,
+) -> _Opened:
+    config, env = _load_config()
+    store = SessionStore(config.home / "sessions.db")
+    messages: list[Message] = []
+    repaired = False
+    if resume is not None:
+        info, messages, repaired = load_session(store, resume, rewind)
+        meter = CostMeter.restore(info.usage)
+    else:
+        root = workspace.resolve()
+        instructions = load_instructions(root, config.home)
+        system = system_prompt(root, _describe_shell(config.shell), instructions)
+        session_id = f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
+        info = SessionInfo(id=session_id, workspace=str(root), model=config.model, system=system)
+        meter = CostMeter()
+        for path, _ in instructions:
+            typer.secho(f"Following {path}", dim=True)
+    model = model or info.model
+
     provider: Provider
     if fake_script is not None:
         provider = FakeProvider.from_file(fake_script)
     else:
         credential = load_credential(config, env)
-        provider = AnthropicProvider(credential, config.model, config.effort, config.max_tokens)
+        provider = AnthropicProvider(credential, model, config.effort, config.max_tokens)
+    if resume is None:
+        store.create(info)  # only once the credential is known to be there
 
-    session_id = f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
-    transcript = TranscriptWriter(config.home / "transcripts" / f"{session_id}.jsonl")
-    meter = CostMeter()
-    instructions = load_instructions(root, config.home)
+    root = Path(info.workspace)
+    transcript = TranscriptWriter(config.home / "transcripts" / f"{info.id}.jsonl")
     executor = LocalExecutor(
-        root, shell=config.shell, spill_dir=config.home / "tool-output" / session_id
+        root, shell=config.shell, spill_dir=config.home / "tool-output" / info.id
     )
     session = Session(
         provider=provider,
         tools=[ReadTool(), WriteTool(), EditTool(), GlobTool(), GrepTool(), BashTool()],
         ctx=ToolContext(executor=executor),
-        system=system_prompt(root, _describe_shell(config.shell), instructions),
+        system=info.system,  # a resumed session keeps the exact prompt it started with
         listeners=[Renderer().on_event, transcript.on_event, meter.on_event],
         max_steps=config.max_steps,
         compactor=Compactor(provider, config.compact_at, config.keep_messages),
     )
-    label = "scripted responses" if fake_script else f"{config.model}, effort {config.effort}"
+    session.messages = messages
+    session.turn = info.turns
+    saved = len(messages) - (1 if repaired else 0)
+    recorder = SessionRecorder(store, info.id, session, meter, saved=saved, title=info.title)
+    session.listeners.append(recorder.on_event)
+    recorder.save()  # saves the answers to any cut-off tool calls right away
+
+    label = "scripted responses" if fake_script else f"{model}, effort {config.effort}"
     typer.secho(f"Zwans {__version__} | {label} | {root}", dim=True)
-    for path, _ in instructions:
-        typer.secho(f"Following {path}", dim=True)
-    return session, transcript, meter
+    if resume is not None:
+        typer.secho(f"Resumed {info.id} after {_count(info.turns, 'turn')}: {info.title}", dim=True)
+    if repaired:
+        typer.secho("Its last turn was cut off mid-tool; those calls are marked unfinished.")
+    return _Opened(session, meter, transcript, store, info.id)
 
 
-def _chat(session: Session, runner: asyncio.Runner, meter: CostMeter) -> int:
+def _chat(opened: _Opened, runner: asyncio.Runner) -> int:
     typer.secho("Type a task. Ctrl+C stops a running turn; 'exit' or Ctrl+C here quits.", dim=True)
     while True:
         try:
@@ -156,25 +230,36 @@ def _chat(session: Session, runner: asyncio.Runner, meter: CostMeter) -> int:
         if not task:
             continue
         try:
-            runner.run(session.send(task))
+            runner.run(opened.session.send(task))
         except KeyboardInterrupt:
             typer.secho("Interrupted. The conversation is kept, so carry on.", fg="yellow")
-        _print_turn(session, meter)
+        _print_turn(opened)
 
 
-def _run_once(session: Session, runner: asyncio.Runner, meter: CostMeter, task: str) -> int:
+def _run_once(opened: _Opened, runner: asyncio.Runner, task: str) -> int:
     try:
-        stop_reason = runner.run(session.send(task))
+        stop_reason = runner.run(opened.session.send(task))
     except KeyboardInterrupt:
         return EXIT_INTERRUPTED
-    _print_turn(session, meter)
+    _print_turn(opened)
     return 0 if stop_reason == "end_turn" else 1
 
 
-def _print_turn(session: Session, meter: CostMeter) -> None:
-    context = f"context about {session.context_tokens():,} tokens"
-    hits = f"{meter.cache_hit_rate:.0%} of input from cache so far"
-    typer.secho(f"Turn cost ${meter.turn_dollars:.4f}, {context}, {hits}", dim=True)
+def _print_turn(opened: _Opened) -> None:
+    context = f"context about {opened.session.context_tokens():,} tokens"
+    hits = f"{opened.meter.cache_hit_rate:.0%} of input from cache so far"
+    typer.secho(f"Turn cost ${opened.meter.turn_dollars:.4f}, {context}, {hits}", dim=True)
+
+
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def _load_config() -> tuple[Config, dict[str, str]]:
+    # Real environment variables win over the .env file. The merged values stay in this
+    # dictionary rather than os.environ, so commands the agent runs never inherit them.
+    env = {**read_dotenv(Path(".env")), **os.environ}
+    return load_config(env=env), env
 
 
 def _describe_shell(configured: str | None) -> str:

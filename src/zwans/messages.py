@@ -40,3 +40,4 @@ type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | RawBlock
 class Message(BaseModel):
     role: Literal["user", "assistant"]
     content: list[ContentBlock]
+    turn: int | None = None  # which user turn it belongs to; saved, never sent to the API

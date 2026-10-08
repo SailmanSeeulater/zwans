@@ -33,6 +33,7 @@ class Session:
         self.max_steps = max_steps
         self.compactor = compactor
         self.messages: list[Message] = []
+        self.turn = 0  # how many user turns the session has had
 
     def context_tokens(self) -> int:
         """About how many tokens the next request will send."""
@@ -40,7 +41,8 @@ class Session:
 
     async def send(self, prompt: str) -> str:
         """Run one turn and return why it ended: "end_turn", "interrupted", "error", ..."""
-        self.messages.append(Message(role="user", content=[TextBlock(text=prompt)]))
+        self.turn += 1
+        self.messages.append(Message(role="user", content=[TextBlock(text=prompt)], turn=self.turn))
         stop_reason = "error"
         turn = run_turn(
             self.provider,

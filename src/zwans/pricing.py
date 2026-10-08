@@ -1,6 +1,8 @@
 """API prices, used to show what a turn and a session cost."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any, Self
 
 from zwans.events import Event, TurnStarted, UsageUpdated
 
@@ -66,6 +68,28 @@ class CostMeter:
             else:
                 self.turn_dollars += dollars
                 self.session_dollars += dollars
+
+    def snapshot(self) -> dict[str, Any]:
+        """The session totals, for saving."""
+        return {
+            "dollars": self.session_dollars,
+            "input_tokens": self.input_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
+            "output_tokens": self.output_tokens,
+            "unpriced_models": sorted(self.unpriced_models),
+        }
+
+    @classmethod
+    def restore(cls, saved: Mapping[str, Any]) -> Self:
+        meter = cls()
+        meter.session_dollars = float(saved.get("dollars", 0.0))
+        meter.input_tokens = int(saved.get("input_tokens", 0))
+        meter.cache_write_tokens = int(saved.get("cache_write_tokens", 0))
+        meter.cache_read_tokens = int(saved.get("cache_read_tokens", 0))
+        meter.output_tokens = int(saved.get("output_tokens", 0))
+        meter.unpriced_models = set(saved.get("unpriced_models", []))
+        return meter
 
     @property
     def sent_tokens(self) -> int:

@@ -65,7 +65,9 @@ class Compactor:
         if not summary:
             return [response.usage_event()]  # e.g. a refusal: carry on uncompacted
         kept = [_without_thinking(message) for message in messages[cut:]]
-        summary_message = Message(role="user", content=[TextBlock(text=SUMMARY_HEADER + summary)])
+        summary_message = Message(
+            role="user", content=[TextBlock(text=SUMMARY_HEADER + summary)], turn=kept[0].turn
+        )
         messages[:] = [summary_message, *kept]
         self._counted_tokens = self._counted_messages = 0  # the next response recounts
         compacted = ContextCompacted(tokens_before=before, tokens_after=approx_tokens(messages))
