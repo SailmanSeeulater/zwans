@@ -1,0 +1,6 @@
+# average() divides by the wrong count. A one-line fix.
+prompt = "make the test pass"
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 300
+max_cost = 0.50
