@@ -104,6 +104,14 @@ def run_command(
     _print_report(report)
     (out / "report.html").write_text(render_html(report, out), encoding="utf-8")
     typer.secho(f"Report: {out / 'report.html'} (and report.json)", dim=True)
+    broken = [a for a in report.attempts if a.stop_reason == "error" and a.errors]
+    if broken:
+        # Usually the API refusing the request, which says nothing about the agent's skill.
+        typer.secho(
+            f"{_count(len(broken), 'attempt')} ended with an error, so their failures may not "
+            f"be the agent's. First one: {broken[0].errors[0]}",
+            fg="yellow",
+        )
     if report.out_of_budget:
         typer.secho("The budget ran out before every attempt finished.", fg="yellow")
         raise typer.Exit(1)

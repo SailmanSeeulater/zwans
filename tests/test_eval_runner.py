@@ -207,3 +207,29 @@ def test_eval_run_command(tmp_path: Path) -> None:
     assert "Pass rate 100% (1/1)" in result.output
     report = Report.model_validate_json((out / "report.json").read_text("utf-8"))
     assert report.config.name == "vague-edit"
+
+
+def test_eval_run_points_out_attempts_that_ended_in_an_error(tmp_path: Path) -> None:
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "buggy-calc.json").write_text("[]", "utf-8")  # the fake model has nothing to say
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "eval",
+            "run",
+            "--tasks",
+            str(ROOT / "evals" / "tasks"),
+            "--only",
+            "buggy-calc",
+            "--fake-scripts",
+            str(scripts),
+            "--out",
+            str(tmp_path / "report"),
+        ],
+        env={"ZWANS_HOME": str(tmp_path / "home")},
+    )
+
+    assert "1 attempt ended with an error" in result.output
+    assert "ran out of scripted responses" in result.output
