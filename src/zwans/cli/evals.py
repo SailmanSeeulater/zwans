@@ -8,6 +8,8 @@ from typing import Annotated
 import typer
 
 from zwans.config import Config, ConfigError, load_credential, load_settings
+from zwans.eval.compare import MIN_TASKS, Difference, compare
+from zwans.eval.html import render_html
 from zwans.eval.runner import (
     AttemptResult,
     EvalConfig,
@@ -53,7 +55,7 @@ def run_command(
         typer.Option(hidden=True, help="Replay <task>.json from this folder instead of a model."),
     ] = None,
 ) -> None:
-    """Run every task, check each attempt, and save a JSON report."""
+    """Run every task, check each attempt, and save a JSON and an HTML report."""
     try:
         base, env = load_settings()
         eval_config = load_eval_config(config_path) if config_path else EvalConfig(name="default")
@@ -67,10 +69,9 @@ def run_command(
     out = out or Path("evals/reports") / f"{datetime.now():%Y%m%d-%H%M%S}-{eval_config.name}"
     attempts = len(tasks) * repeats
     limit = f", budget ${budget:.2f}" if budget is not None else ""
-    noun = "task" if len(tasks) == 1 else "tasks"
     typer.secho(
-        f"{len(tasks)} {noun} x {repeats} = {attempts} attempts | config {eval_config.name} | "
-        f"{config.model}, effort {config.effort}{limit}",
+        f"{_count(len(tasks), 'task')} x {repeats} = {attempts} attempts | "
+        f"config {eval_config.name} | {config.model}, effort {config.effort}{limit}",
         dim=True,
     )
     report = asyncio.run(
@@ -87,10 +88,78 @@ def run_command(
         )
     )
     _print_report(report)
-    typer.secho(f"Report: {out / 'report.json'}", dim=True)
+    (out / "report.html").write_text(render_html(report, out), encoding="utf-8")
+    typer.secho(f"Report: {out / 'report.html'} (and report.json)", dim=True)
     if report.out_of_budget:
         typer.secho("The budget ran out before every attempt finished.", fg="yellow")
         raise typer.Exit(1)
+
+
+ReportPath = Annotated[
+    Path, typer.Argument(exists=True, help="A run's report folder, or its report.json.")
+]
+
+
+@eval_app.command("compare")
+def compare_command(a: ReportPath, b: ReportPath) -> None:
+    """Show how run B differs from run A, with 95% confidence intervals.
+
+    A difference is marked significant only when its interval leaves out zero.
+    """
+    try:
+        report_a, report_b = _load_report(a), _load_report(b)
+    except (OSError, ValueError) as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(2) from exc
+    result = compare(report_a, report_b)
+    typer.secho(
+        f"A: {report_a.config.name} ({report_a.started_at})\n"
+        f"B: {report_b.config.name} ({report_b.started_at})\n"
+        f"{_count(len(result.tasks), 'task')} in both",
+        dim=True,
+    )
+    if len(result.tasks) < MIN_TASKS:
+        typer.secho(
+            f"Fewer than {MIN_TASKS} tasks in common, too few to call any difference real.",
+            fg="yellow",
+        )
+    for name, missing in (("A", result.only_in_a), ("B", result.only_in_b)):
+        if missing:
+            typer.secho(f"Only in {name}, left out: {', '.join(missing)}", fg="yellow")
+
+    typer.echo(f"\n{'':<12} {'A':>8} {'B':>8} {'B - A':>9}   95% interval")
+    for diff in result.differences:
+        typer.echo(_difference_line(diff))
+
+    changed = {t: ab for t, ab in result.task_pass_rates.items() if ab[0] != ab[1]}
+    if changed:
+        typer.echo("\nTasks whose pass rate changed:")
+        width = max(len(t) for t in changed)
+        for task, (rate_a, rate_b) in sorted(changed.items(), key=lambda i: i[1][1] - i[1][0]):
+            typer.echo(f"  {task:<{width}}  {rate_a:4.0%} -> {rate_b:4.0%}")
+
+
+def _load_report(path: Path) -> Report:
+    file = path / "report.json" if path.is_dir() else path
+    return Report.model_validate_json(file.read_text(encoding="utf-8"))
+
+
+def _difference_line(diff: Difference) -> str:
+    if diff.metric == "pass rate":
+        values = (f"{diff.a:.0%}", f"{diff.b:.0%}", f"{diff.delta * 100:+.0f} pts")
+        interval = f"[{diff.low * 100:+.0f}, {diff.high * 100:+.0f}] pts"
+    else:
+        digits = 4 if diff.metric == "dollars" else 1
+        values = (f"{diff.a:.{digits}f}", f"{diff.b:.{digits}f}", f"{diff.delta:+.{digits}f}")
+        interval = f"[{diff.low:+.{digits}f}, {diff.high:+.{digits}f}]"
+    line = f"{diff.metric:<12} {values[0]:>8} {values[1]:>8} {values[2]:>9}   {interval}"
+    if diff.significant:
+        line += "  " + typer.style("significant", bold=True)
+    return line
+
+
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
 def _select(tasks: list[Task], only: list[str] | None) -> list[Task]:

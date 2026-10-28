@@ -68,13 +68,19 @@ works on its own fresh copy of the repo.
 zwans eval run --repeats 3 --budget 5                  # every task, three times, at most $5
 zwans eval run --only buggy-calc                       # one task
 zwans eval run --config evals/configs/vague-edit.toml  # a variant to compare
+zwans eval compare evals/reports/<run A> evals/reports/<run B>
 ```
 
 A config in `evals/configs/` overrides settings such as `model` or `effort` for the run, and
 can replace a tool's description under `[tool_descriptions]`. Each task's `max_cost` and
 `timeout` limit one attempt; going over either fails it. `--budget` stops the whole run once
-it has spent that much; attempts it cut off are reported as stopped and don't count. The
-report and a transcript per attempt go to `evals/reports/`.
+it has spent that much; attempts it cut off are reported as stopped and don't count. Each
+run writes `report.html`, `report.json` and a transcript per attempt to `evals/reports/`.
+
+`compare` shows how run B differs from run A in pass rate, cost, model calls, tool calls and
+time, each with a 95% confidence interval from a paired bootstrap over tasks. It calls a
+difference significant only when the interval leaves out zero and the runs share at least 5
+tasks. Use `--repeats 3` or more: a single attempt per task is mostly noise.
 
 ## Configuration
 
