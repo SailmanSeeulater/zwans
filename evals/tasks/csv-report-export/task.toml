@@ -1,0 +1,20 @@
+# Add CSV export to the sales report: to_csv(report) -> str and a --format csv option on the
+# CLI. A correct answer writes the header, one row per report line in the same order as the
+# text table, then a TOTAL row; money with two decimals; "\n" line endings; and proper CSV
+# quoting for names with commas, quotes or newlines (the csv module does this for free).
+prompt = """
+Finance wants the sales report as a CSV they can open in a spreadsheet. Could you add:
+
+1. `to_csv(report: Report) -> str` in sales/report.py. Header row \
+`region,product,units,revenue`, then one row per report row in the same order as the text \
+table, then a total row `TOTAL,,<total units>,<total revenue>`. Revenue is written with exactly \
+two decimals and no currency sign or thousands separator (e.g. `1234.50`). Lines end with "\\n". \
+Product and region names can contain commas, double quotes and even line breaks, so it has to \
+be valid CSV that a spreadsheet reads back correctly.
+2. A `--format` option on the CLI with the choices `text` (the default, what it prints now) and \
+`csv`.
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 600
+max_cost = 1.00

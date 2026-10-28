@@ -1,0 +1,12 @@
+# Implement timer.durations.parse_duration from the spec in the README. A correct answer
+# turns "1h30m", "2d 4h", "45S" into seconds and raises DurationError (a ValueError) for
+# everything the README calls invalid: empty text, bare numbers, unknown, repeated or
+# out-of-order units, signs and decimals.
+prompt = """
+parse_duration in timer/durations.py is still a stub. Can you implement it? The README has \
+the spec for the format. Reminder.from_text depends on it, so that should start working too.
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 300
+max_cost = 0.50

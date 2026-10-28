@@ -1,0 +1,3 @@
+notes.storage
+notes.tags
+notes.search

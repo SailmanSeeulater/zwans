@@ -1,0 +1,12 @@
+# Machine.fire() publishes the change to listeners before it sets job.state. RetryPolicy
+# listens for FAILED and fires "retry", but the job still looks RUNNING, so the retry raises
+# InvalidTransition; the event bus logs and swallows it, and the job stays FAILED. The same
+# bug breaks ArchivePolicy. Fix: commit the change (state and history) before publishing.
+# Hidden tests catch workarounds in RetryPolicy/Scheduler (archiving still broken, or the
+# outer fire overwrites PENDING with FAILED) and a fix that appends history after
+# publishing (history out of order).
+prompt = "Retries are broken: a job that fails once never gets its second attempt, it just stays failed, even with max_attempts set. Can you fix it?"
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 900
+max_cost = 1.50

@@ -1,0 +1,14 @@
+# Add a `--json` flag to `todo list`. A correct answer prints a JSON array of
+# {"id", "title", "done"} objects (an empty list prints []), honours --pending,
+# and leaves the plain text output alone.
+prompt = """
+I'd like to script against my todo CLI. Could you add a `--json` flag to the `list` command? \
+With it, `todo list --json` should print the tasks as a JSON array, one object per task with \
+the keys `id` (int), `title` (str) and `done` (bool), and nothing else on stdout so I can pipe \
+it into jq. It has to work together with `--pending`. The normal text output without the flag \
+should stay exactly as it is.
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 300
+max_cost = 0.50

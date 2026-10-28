@@ -1,0 +1,24 @@
+# Add retry with exponential backoff to WeatherClient. A correct answer retries every
+# request (forecast and current) on connection failures, 429 and 5xx, waits
+# backoff * 2**(n-1) capped at max_delay through the injected sleep, never sleeps after
+# the last attempt, re-raises the last TransportError, and does not retry other 4xx
+# (404 still becomes CityNotFound straight away).
+prompt = """
+The weather API we call is flaky, so I want WeatherClient to retry failed requests with \
+exponential backoff. Please give the constructor these keyword-only options: \
+`WeatherClient(transport, *, retries=3, backoff=0.5, max_delay=8.0, sleep=time.sleep)`.
+
+- `retries` is how many extra attempts to make after the first one (so 0 means no retrying).
+- Retry when the transport raises a TransportError whose `status` is None (connection \
+problem), 429, or 500 and up. Any other status (like 404 or 400) should fail right away, \
+as it does now.
+- Before retry number n (counting from 1), wait `backoff * 2 ** (n - 1)` seconds, but never \
+more than `max_delay`. Do the waiting by calling the `sleep` function, so tests can pass a fake.
+- Don't sleep after the last attempt. If every attempt fails, raise the last TransportError.
+
+This should apply to every request the client makes.
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 600
+max_cost = 1.00

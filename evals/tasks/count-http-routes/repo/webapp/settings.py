@@ -1,0 +1,3 @@
+ENABLE_ADMIN = False
+ENABLE_METRICS = True
+API_PREFIX = "/api"

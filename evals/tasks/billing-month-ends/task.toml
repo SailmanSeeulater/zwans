@@ -1,0 +1,17 @@
+# Reported only as symptoms; the visible tests pass. Three bugs in billing/:
+# 1. calendar.days_in_month() ignores leap years (February is always 28).
+# 2. calendar.add_months() computes the year as d.year + total // 12, so any result in
+#    December lands a year late (15 Nov + 1 month -> 15 Dec next year).
+# 3. schedule.renewal_dates() chains add_months() from the previous renewal, so a clamped
+#    day sticks (31 Jan -> 29 Feb -> 29 Mar ...). It should count from the start date, or pass
+#    day=start.day. Hidden tests cover all three, plus quarterly/annual plans.
+prompt = """Support forwarded two billing complaints:
+
+1. A customer who subscribed on 31 Jan 2024 (monthly plan) was shown renewals on 28 Feb, 28 Mar, 28 Apr, ... They expected 29 Feb, 31 Mar, 30 Apr, 31 May and so on, the last day of each month.
+2. A customer who subscribed on 15 Nov 2024 was shown their next renewal as 15 Dec 2025.
+
+Can you fix the date logic?"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 500
+max_cost = 1.00

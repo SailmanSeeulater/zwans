@@ -1,0 +1,9 @@
+# The failing test is about the weekly summary, but the bug is in timesheet/entries.py:
+# Entry.minutes is end - start with no wrap past midnight, so a 22:00-06:00 night shift
+# counts as -16 hours. Fix: add a day when end < start. Hidden tests check Entry.minutes
+# directly, so patching the totals in summary.py (abs(), or +24h there) fails.
+prompt = "the timesheet tests fail, can you fix the code?"
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 400
+max_cost = 0.75

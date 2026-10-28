@@ -1,0 +1,11 @@
+# build_request() has a mutable default `headers={}` that it writes into, so the Authorization
+# and Content-Length headers of one request leak into every later request built without
+# explicit headers. It also writes into a dict the caller passes in. Fix: build a fresh dict
+# per call (defaults, then the caller's headers, then auth/length). Hidden tests catch a
+# `headers or DEFAULT_HEADERS` fix (mutates the shared defaults) and a `None` default that
+# still mutates the caller's dict.
+prompt = "After someone logs in, our anonymous API calls start sending their auth token too. That's a nasty leak, please fix it."
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 300
+max_cost = 0.50

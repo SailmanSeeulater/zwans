@@ -1,0 +1,18 @@
+# `python -m notes.cli list` fails with "cannot import name 'Store' from partially initialized
+# module 'notes.storage'". Which modules form the import cycle? Answer: notes.storage,
+# notes.tags, notes.search (storage -> tags -> search -> storage, all top-level imports).
+# Decoys: cli and export are on the import path but not in the cycle; models <-> render and
+# models <-> storage look like cycles but one side is a function-level import or under
+# TYPE_CHECKING. check_answer.py also verifies every original file is unchanged.
+prompt = """\
+`python -m notes.cli list` dies with an ImportError about a "partially initialized module". \
+Before I decide how to fix it: which modules make up the circular import that's causing \
+this? Only the modules that are actually part of the cycle, not ones that merely import into it.
+
+Write their full module names (like `notes.example`) to answer.txt, one per line, in any \
+order. Please don't fix or change anything yet.\
+"""
+check = "python check_answer.py"
+category = "question"
+timeout = 300
+max_cost = 0.50

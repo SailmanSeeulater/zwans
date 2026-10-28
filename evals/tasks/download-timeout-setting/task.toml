@@ -1,0 +1,19 @@
+# Which config key limits a single download attempt, and what is it in seconds with no config
+# file and no FETCHER_* environment variables? Answer: http.attempt_timeout=1.5.
+# Downloader._attempt passes min(http.attempt_timeout, time left) to Transport.fetch. DEFAULTS
+# says "5s", but Settings applies the profile, which defaults to "standard", whose
+# "1500ms" overrides it. Decoys: http.timeout (whole download, 120s), http.connect_timeout
+# (stored on Transport but never used), transport.DEFAULT_TIMEOUT (only when None is passed).
+# check_answer.py also verifies every original file is unchanged.
+prompt = """\
+Downloads sometimes time out too quickly for one of our users. Which config key controls \
+how long a single download attempt may take before it times out, and what is that limit \
+in seconds when there's no config file and no FETCHER_ environment variables are set?
+
+Write the answer to answer.txt as `key=seconds` on one line (for example `some.key=12`), \
+using the key as it would be written in the config file. Don't change any code.\
+"""
+check = "python check_answer.py"
+category = "question"
+timeout = 300
+max_cost = 0.50

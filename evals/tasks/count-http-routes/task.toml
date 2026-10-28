@@ -1,0 +1,19 @@
+# How many distinct (method, path) routes does create_app() serve with default settings?
+# Answer: 22. users: GET/HEAD/POST /api/users (3); GET/HEAD/PUT/DELETE /api/users/<> (4,
+# "/<id>/" normalises onto the same path); GET/HEAD/PUT .../avatar (3). orders: GET/HEAD
+# /api/orders (2); GET/HEAD/PATCH /api/orders/<> (3, lower-case methods are upper-cased);
+# POST cancel (1); POST refund (1, registered twice). /health GET+HEAD (2, added twice);
+# metrics on by default: GET/HEAD/OPTIONS (3). Admin is off by default and legacy is never
+# mounted. 10 + 7 + 2 + 3 = 22. check_answer.py also verifies the files are unchanged.
+prompt = """\
+I'm writing up our API surface. With the default settings, how many distinct routes does \
+the app returned by `webapp.app.create_app()` serve? Count each (HTTP method, path) \
+combination once, the way the router itself identifies routes, so GET and HEAD on the same \
+path count as two.
+
+Write just the number to answer.txt, and leave the code as it is.\
+"""
+check = "python check_answer.py"
+category = "question"
+timeout = 300
+max_cost = 0.50

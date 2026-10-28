@@ -1,0 +1,21 @@
+# Convert the hand-written Address and Parcel classes in shipping/models.py to dataclasses:
+# Address as @dataclass(frozen=True), Parcel as @dataclass with tags as
+# field(default_factory=list) and the validation moved into __post_init__. Check: hidden
+# behaviour tests (field order, repr, equality, hashing, immutability, fresh default list,
+# validation) plus check_structure.py (both decorated, Address frozen, no hand-written
+# __init__/__repr__/__eq__/__hash__/__setattr__/__delattr__).
+prompt = """\
+Address and Parcel in shipping/models.py are a pile of boilerplate. Convert both to \
+dataclasses: Address should be a frozen dataclass and Parcel a regular (mutable) one. \
+Drop the hand-written __init__, __repr__, __eq__, __hash__, __setattr__ and __delattr__ \
+and let the dataclass generate them.
+
+Nothing that uses these classes should notice: same fields in the same order, same \
+defaults (every new Parcel gets its own empty tags list), same repr and equality, Address \
+still hashable and read-only, Parcel still unhashable, and the weight/size validation \
+still raising the same errors. The properties and billable_weight stay as they are.\
+"""
+check = "python -m pytest -q -p no:cacheprovider && python check_structure.py"
+category = "refactor"
+timeout = 400
+max_cost = 0.75

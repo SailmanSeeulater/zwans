@@ -1,0 +1,11 @@
+# lookup_many() collects results with asyncio.as_completed(), which yields in completion
+# order, but callers zip the results with the input usernames. When lookups finish out of
+# order, people get each other's profiles. The local fake client is instant, so the visible
+# tests pass. Fix: asyncio.gather() (keeps input order) or index the results. Hidden tests
+# use per-user delays, and check the semaphore limit is still reached and never exceeded
+# (so a sequential "fix" fails).
+prompt = "Sometimes the team page shows people with someone else's name and title. It looks random and I can't reproduce it locally, where the fake client answers instantly. Can you find and fix it?"
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 500
+max_cost = 1.00

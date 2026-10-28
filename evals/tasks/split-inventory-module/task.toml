@@ -1,0 +1,24 @@
+# inventory/__init__.py is a ~190-line god module. Split it into models.py (Item,
+# StockMovement, UnknownSku, InsufficientStock), storage.py (Warehouse, load_items,
+# dump_items), pricing.py (markup_price, bulk_discount, quote_price) and reports.py
+# (stock_value, low_stock, movement_summary, render_report); __init__.py keeps only
+# re-exports and __all__. Check: hidden behaviour tests (public imports, identity with the
+# new modules, __all__, CLI) plus check_structure.py (each name defined in exactly its module,
+# nothing defined in __init__.py).
+prompt = """\
+inventory/__init__.py has turned into a dumping ground. Split it into four modules in the \
+inventory package:
+
+- `inventory/models.py`: Item, StockMovement, UnknownSku, InsufficientStock
+- `inventory/storage.py`: Warehouse, load_items, dump_items
+- `inventory/pricing.py`: markup_price, bulk_discount, quote_price
+- `inventory/reports.py`: stock_value, low_stock, movement_summary, render_report
+
+After the split, `__init__.py` should only re-export these names (with `__all__`), so \
+`from inventory import Warehouse` and friends keep working for existing code. Pure \
+restructuring: no behaviour changes, and the tests must still pass.\
+"""
+check = "python -m pytest -q -p no:cacheprovider && python check_structure.py"
+category = "refactor"
+timeout = 600
+max_cost = 1.00

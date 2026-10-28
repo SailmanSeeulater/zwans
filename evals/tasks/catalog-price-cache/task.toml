@@ -1,0 +1,10 @@
+# The failing test is in the views, but the bug is in shop/cache.py: memoize() builds its
+# cache key from positional args only and ignores kwargs, so price("MUG", currency="EUR")
+# returns the cached USD price. Fix: include the keyword arguments in the key (e.g. a sorted
+# tuple of kwargs items). Hidden tests call memoize directly (so changing the views to pass
+# currency positionally fails) and check that results are still cached.
+prompt = "The product page shows the wrong price after you switch currency. It keeps showing whatever it showed first. Can you fix it?"
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 400
+max_cost = 0.75

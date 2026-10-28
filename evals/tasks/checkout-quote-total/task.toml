@@ -1,0 +1,18 @@
+# What does quote() charge a gold customer in Germany for 5 x TEA-01 and 12 x MUG-02 with
+# coupon SPRING10? Answer: 109.40. Trace: tiers apply only when quantity is strictly *above*
+# the threshold (despite the "at least" comment), so tea stays 4.95 (24.75) and mugs get the
+# 6-tier 6.90, not 6.40 (82.80). SPRING10 is goods-only: mugs 74.52. Gold loyalty 5% per
+# line, rounded: tea 23.51, mugs 70.79; net 94.30 >= 75 so shipping is free. VAT DE: 7% of
+# 23.51 = 1.65, 19% of 70.79 = 13.45. Total 94.30 + 15.10 = 109.40.
+# check_answer.py also verifies every original file is unchanged.
+prompt = """\
+A customer asked us to double-check their bill. They're a gold-tier customer in Germany \
+(country code DE) and ordered 5 × TEA-01 and 12 × MUG-02 with coupon code SPRING10. What \
+total does `checkout.quote.quote` charge them, in euros, VAT and shipping included?
+
+Write just the amount (like 12.34) to answer.txt. Don't change the code, I only want the number.\
+"""
+check = "python check_answer.py"
+category = "question"
+timeout = 300
+max_cost = 0.50

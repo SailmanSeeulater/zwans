@@ -1,0 +1,14 @@
+# Rename ledger.money.parse_amt to parse_amount and update every caller (invoice, importer,
+# budget's `as to_cents` import, cli's fully qualified call), the tests and the README.
+# No alias may remain. Check: hidden behaviour tests written against the new name, plus
+# check_structure.py (no "parse_amt" in any .py/.md file; money.py defines parse_amount).
+prompt = """\
+`parse_amt` is a lousy name. Rename it to `parse_amount` across the whole project: the \
+definition in ledger/money.py, every place that uses it, the tests and the README. Don't \
+leave an alias with the old name behind, and don't change what it does. The tests should \
+still pass afterwards.\
+"""
+check = "python -m pytest -q -p no:cacheprovider && python check_structure.py"
+category = "refactor"
+timeout = 400
+max_cost = 0.75

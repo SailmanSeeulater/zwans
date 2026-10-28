@@ -1,0 +1,28 @@
+# Add undo/redo to the editor's Buffer, plus grouping and a history limit, and bind the keys.
+# A correct answer restores text AND cursor on undo (to before the edit) and redo (to after
+# it), treats each editing call as one step, ignores cursor moves and no-op edits, clears
+# redo on a real new edit, merges everything in `with buffer.group():` (nested too) into
+# one step, keeps at most history_limit steps, and maps ctrl+z / ctrl+y / ctrl+shift+z.
+prompt = """
+Our little editor needs undo and redo. Please add them to `Buffer` in editor/buffer.py:
+
+- `undo() -> bool` and `redo() -> bool`. They return False (and do nothing) when there is \
+nothing to undo or redo, True otherwise. Also add read-only properties `can_undo` and `can_redo`.
+- Every call to an editing method (`insert`, `backspace`, `delete_forward`, `replace_all`) is \
+one undo step. Undo puts back both the text and the cursor exactly as they were right before \
+that edit; redo puts back the text and the cursor as they were right after it.
+- Moving the cursor with `move_to` is not an undo step and doesn't affect redo.
+- An edit that doesn't change the text (inserting "", backspace at the start, a replace_all \
+with no matches...) isn't recorded and leaves the redo history alone. Any real edit after an \
+undo throws away the redo history, like in every other editor.
+- `with buffer.group():` makes all the edits inside it a single undo step. Groups can nest; \
+the outermost one is what counts.
+- `Buffer(text="", history_limit=100)`: keep at most `history_limit` undo steps, forgetting \
+the oldest ones first.
+
+Then bind the keys in editor/keymap.py: ctrl+z undoes, ctrl+y and ctrl+shift+z redo.
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 900
+max_cost = 2.00

@@ -4,7 +4,7 @@ A coding agent built from scratch: the loop that calls the model, the tools it u
 (in later phases) the sandbox and the evals that prove it works. See [SPEC.md](SPEC.md) for
 the full plan.
 
-**Status:** Phases 0 to 2 are done; Phase 3 (evals) is under way. Zwans can read, search, and edit a project and run its
+**Status:** Phases 0 to 2 are done; Phase 3 (evals) is under way, with a starter suite of 27 tasks. Zwans can read, search, and edit a project and run its
 tests; it saves and resumes sessions, compacts long ones, and caches prompts. There are no
 permission prompts or sandbox yet (Phase 4), so point it at a folder you don't mind it
 changing.

@@ -1,0 +1,21 @@
+# Bound GeoService's cache with least-recently-used eviction. A correct answer adds
+# max_size (default 1024, 0 disables caching, negative raises ValueError), evicts the
+# entry least recently looked up (hits count as use), counts evictions in CacheStats,
+# keeps size accurate, and still does not cache failed lookups.
+prompt = """
+GeoService in geo/service.py caches every lookup forever, and in production the cache keeps \
+growing. Please give it a size limit with least-recently-used eviction:
+
+- New constructor argument `max_size` (default 1024): `GeoService(database, max_size=...)`.
+- When the cache is full and a new address is looked up, drop the entry that was used least \
+recently. A cache hit counts as a use.
+- `max_size=0` turns caching off. A negative max_size should raise ValueError.
+- Add an `evictions` field to CacheStats that counts how many entries were dropped. \
+`clear_cache()` should reset it along with the other counters.
+
+Everything else should keep behaving as it does now.
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 600
+max_cost = 1.00

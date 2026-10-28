@@ -1,0 +1,10 @@
+# The settings parser splits on "\n" only and decodes with plain "utf-8". Files saved by
+# Windows Notepad have CRLF line endings (so "[server]\r" fails the closing-bracket check)
+# and often a UTF-8 byte order mark (so the first line is "﻿[server]" and is read as a
+# bad key = value line). Fix: decode with "utf-8-sig" (or strip a leading BOM) and split
+# with splitlines(). Hidden tests check CRLF and BOM separately and together.
+prompt = "Settings files that people edit on Windows (in Notepad) won't load. We get errors like 'line 1: expected key = value' or 'unclosed section header', but the same settings typed on a Mac load fine. Can you fix it?"
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 300
+max_cost = 0.50

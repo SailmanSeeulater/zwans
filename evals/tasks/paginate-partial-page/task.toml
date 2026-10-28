@@ -1,0 +1,8 @@
+# count_pages() floors total / per_page, so a partial last page is dropped and asking for it
+# raises PageNotFound. Fix: round up (ceil division), keeping one page for an empty listing.
+# Hidden tests catch a "+1" fix, which adds a phantom page when total is an exact multiple.
+prompt = "The last page of search results is missing. With 45 results at 20 per page we only show two pages, and going to page 3 says page not found. Can you fix it?"
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 300
+max_cost = 0.50

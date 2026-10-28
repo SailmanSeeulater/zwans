@@ -1,0 +1,18 @@
+# Add a SQLite backend to the key-value store: SqliteStore in kvstore/sqlite.py implementing
+# the Store interface, registered in the factory under "sqlite://". A correct answer passes
+# the shared contract tests (overwrite, KeyNotFound on missing get/delete, sorted keys with a
+# literal, case-sensitive prefix: a naive LIKE fails on "_", "%" and case), persists across
+# reopening the file, works with sqlite://:memory:, and works through the CLI.
+prompt = """
+I'd like a SQLite backend for kvstore, next to the memory and JSON ones. Please add a \
+`SqliteStore` class in a new module kvstore/sqlite.py that implements the `Store` interface \
+from kvstore/base.py; its constructor takes the database path as a string. Register it in the \
+factory under the `sqlite` scheme so `open_store("sqlite://data.db")` (and \
+`sqlite://:memory:`) works, using the same URL rules as the json backend, and the CLI picks \
+it up from there. It must behave exactly like the other backends, and data has to survive \
+closing and reopening the file. Add it to the README too. Standard library only.
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 900
+max_cost = 2.00

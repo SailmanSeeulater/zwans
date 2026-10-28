@@ -1,0 +1,15 @@
+# Money is a float throughout books/. Three symptoms come from that one cause:
+# - ledger.post() compares float sums with !=, so invoices whose lines add up in a different
+#   order than the total was computed are rejected ("debits 36.99 != credits 36.99");
+# - round(x, 2) on floats rounds 2.675 (stored as 2.67499...) and 0.125 (half-even) down,
+#   but the books must round halves up, so tax and discounts can be a cent short;
+# - allocate() does int(amount * 100), which truncates 4.35 to 434 cents, so split
+#   expenses lose a cent and their entries don't balance.
+# Fix: make Money a Decimal (parse_amount, ZERO, round_cents with ROUND_HALF_UP, integer
+# cents in allocate), or integer cents everywhere. Tolerance comparisons or epsilon
+# rounding are caught by the hidden tests' half-cent cases and exact sums.
+prompt = "Accounting is unhappy with the books module. Some invoice totals are a cent off from their spreadsheet, posting some invoices fails with 'debits 36.99 != credits 36.99' (which obviously balance), and a shared expense split three ways didn't add up either. Can you sort out the money handling?"
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 900
+max_cost = 1.50

@@ -1,0 +1,17 @@
+# Add Account.transfer(other, amount, note="") next to deposit/withdraw. A correct answer
+# validates like its neighbours (InvalidAmount, InsufficientFunds), records a
+# "transfer_out" entry on the sender and a "transfer_in" entry on the receiver, returns
+# the sender's entry, refuses a transfer to the same account with ValueError, and leaves
+# both accounts untouched when it fails.
+prompt = """
+In bank/account.py, please add a `transfer(self, other, amount, note="")` method to `Account` \
+that moves money from this account to `other`. Follow the style of `deposit` and `withdraw`: \
+same validation and errors (`InvalidAmount`, `InsufficientFunds`), and it should record a \
+history entry on both sides, kind "transfer_out" on the sender and "transfer_in" on the \
+receiver, both with the given note. Return the sender's entry. Transferring to the same \
+account should raise ValueError. If a transfer fails, neither account may change.
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 300
+max_cost = 0.50

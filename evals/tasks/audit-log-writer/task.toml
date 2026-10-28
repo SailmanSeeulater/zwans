@@ -1,0 +1,19 @@
+# Which function writes the audit line to disk when reset_password runs with default settings?
+# Answer: RotatingFileSink._write_line. The trace: reset_password publishes PasswordReset; the
+# bus walks the MRO, so audit_credentials (subscribed to "CredentialEvent") runs and calls
+# AuditTrail.record -> sink.emit. load_settings() defaults to the "production" profile, which
+# overrides audit_sink "plain" with "rotating", so the sink is RotatingFileSink, whose emit
+# calls _write_line. Decoys: PlainFileSink.emit, write_audit_line (unused), Outbox.send.
+# check_answer.py also verifies every original file is byte-for-byte unchanged.
+prompt = """\
+Quick question about this codebase. With the default settings, when something calls \
+`AccountService().reset_password(...)`, a line gets appended to audit.log. Which function \
+or method actually writes that line to the file?
+
+Put just its name in answer.txt: `ClassName.method_name` if it's a method, or the plain \
+name if it's a module-level function. Please don't change any of the code.\
+"""
+check = "python check_answer.py"
+category = "question"
+timeout = 300
+max_cost = 0.50

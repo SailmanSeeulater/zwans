@@ -1,0 +1,21 @@
+# users.py, orders.py and products.py each repeat the same inline payload checks. Extract them
+# into shopapi/validation.py as require_text / require_positive_int / require_email(payload,
+# field), with identical messages and field order. Check: hidden behaviour tests (every error
+# message, field order, the helpers called directly) plus check_structure.py (the helpers
+# exist; the three modules import from shopapi.validation and contain no raise or isinstance).
+prompt = """\
+users.py, orders.py and products.py in shopapi/ all copy-paste the same payload checks. \
+Please pull them out into a new module, shopapi/validation.py, with three functions:
+
+- `require_text(payload, field)`: the field must be present, a string, and not blank; returns it stripped.
+- `require_positive_int(payload, field)`: present, an int (not a bool), and > 0; returns it.
+- `require_email(payload, field)`: same as require_text plus the address check; returns it lower-cased.
+
+Then make the three modules use these helpers so they don't raise ValidationError or do \
+type checks themselves anymore. Behaviour must stay exactly the same: same error messages, \
+same fields checked in the same order, same returned records.\
+"""
+check = "python -m pytest -q -p no:cacheprovider && python check_structure.py"
+category = "refactor"
+timeout = 500
+max_cost = 0.75
