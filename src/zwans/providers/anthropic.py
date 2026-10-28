@@ -1,9 +1,11 @@
 """Calls Claude through the Messages API and streams the reply."""
 
+import asyncio
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
 import anthropic
+import httpx2
 from anthropic.types.beta import BetaMessage
 
 from zwans.config import Credential, Effort
@@ -20,6 +22,9 @@ BETAS = [
 EPHEMERAL: dict[str, Any] = {"type": "ephemeral"}  # a 5-minute prompt-cache entry
 OAUTH_BETA = "oauth-2025-04-20"  # required when signing in with a Claude plan token
 JSON_ATTEMPTS = 3
+# The SDK retries a request that fails to connect, but not a stream cut off partway through.
+# Ask again this many times in all, waiting 1, 2, ... seconds in between.
+CUT_OFF_ATTEMPTS = 3
 
 
 class AnthropicProvider:
@@ -39,6 +44,7 @@ class AnthropicProvider:
         self, system: str, messages: Sequence[Message], tools: Sequence[Tool[Any]]
     ) -> AsyncIterator[TextDelta | ThinkingDelta | ModelResponse]:
         attempt = 0
+        cut_offs = 0
         while True:
             attempt += 1
             try:
@@ -66,6 +72,16 @@ class AnthropicProvider:
                 raise ProviderError(describe_api_error(exc, plan_token)) from exc
             except anthropic.APIConnectionError as exc:
                 raise ProviderError("Couldn't reach the Claude API.") from exc
+            except httpx2.TransportError as exc:
+                # Nothing from the cut-off reply was added to the conversation, so it's
+                # safe to ask again; the user may see its first words twice.
+                cut_offs += 1
+                if cut_offs < CUT_OFF_ATTEMPTS:
+                    await asyncio.sleep(2 ** (cut_offs - 1))
+                    continue
+                raise ProviderError(
+                    f"The connection to the Claude API kept dropping mid-reply ({exc!r})."
+                ) from exc
             yield to_response(message)
             return
 

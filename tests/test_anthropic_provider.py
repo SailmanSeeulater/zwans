@@ -1,16 +1,23 @@
+import asyncio
+from types import SimpleNamespace
+
 import anthropic
 import httpx2
+import pytest
+from anthropic.types.beta import BetaMessage
 from pydantic import BaseModel, Field
 
 from zwans.config import Credential
 from zwans.messages import Message, RawBlock, TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.providers.anthropic import (
+    CUT_OFF_ATTEMPTS,
     AnthropicProvider,
     convert_content,
     describe_api_error,
     message_param,
     tool_param,
 )
+from zwans.providers.base import ModelResponse, ProviderError
 from zwans.tools.base import ToolContext, ToolOutput
 
 THINKING = {"type": "thinking", "thinking": "", "signature": "sig-abc"}
@@ -123,3 +130,81 @@ def test_requests_cache_the_prefix_and_drop_stale_thinking() -> None:
 
 def user_message(text: str) -> Message:
     return Message(role="user", content=[TextBlock(text=text)])
+
+
+class _CutOffStream:
+    """Stands in for the SDK's message stream; the first `drops` streams break mid-reply."""
+
+    def __init__(self, owner: "_FakeMessages") -> None:
+        self.owner = owner
+
+    async def __aenter__(self) -> "_CutOffStream":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    def __aiter__(self) -> "_CutOffStream":
+        return self
+
+    async def __anext__(self) -> object:
+        self.owner.calls += 1
+        if self.owner.calls <= self.owner.drops:
+            raise httpx2.ReadError("connection reset")
+        raise StopAsyncIteration
+
+    async def get_final_message(self) -> BetaMessage:
+        return BetaMessage.model_validate(
+            {
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-opus-5-5",
+                "content": [{"type": "text", "text": "Done."}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
+        )
+
+
+class _FakeMessages:
+    def __init__(self, drops: int) -> None:
+        self.drops = drops
+        self.calls = 0
+
+    def stream(self, **request: object) -> _CutOffStream:
+        return _CutOffStream(self)
+
+
+def _provider_with_drops(drops: int, monkeypatch: pytest.MonkeyPatch) -> AnthropicProvider:
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+    provider = AnthropicProvider(Credential("api_key", "key"), "claude-opus-5-5", "low", 1000)
+    fake = SimpleNamespace(beta=SimpleNamespace(messages=_FakeMessages(drops)))
+    provider._client = fake  # type: ignore[assignment]
+    return provider
+
+
+async def _no_sleep(seconds: float) -> None:
+    pass
+
+
+async def _collect(provider: AnthropicProvider) -> list[object]:
+    return [item async for item in provider.stream("", [], [])]
+
+
+def test_a_stream_cut_off_mid_reply_is_asked_for_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = _provider_with_drops(2, monkeypatch)
+
+    items = asyncio.run(_collect(provider))
+
+    assert isinstance(items[-1], ModelResponse)
+    assert items[-1].stop_reason == "end_turn"
+
+
+def test_a_connection_that_keeps_dropping_becomes_a_provider_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _provider_with_drops(CUT_OFF_ATTEMPTS, monkeypatch)
+
+    with pytest.raises(ProviderError, match="kept dropping"):
+        asyncio.run(_collect(provider))
