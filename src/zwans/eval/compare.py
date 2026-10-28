@@ -25,6 +25,7 @@ METRICS: dict[str, Metric] = {
     "dollars": lambda a: a.dollars,
     "model calls": lambda a: float(a.model_calls),
     "tool calls": lambda a: float(a.tool_calls),
+    "tool errors": lambda a: float(a.tool_errors),
     "seconds": lambda a: a.seconds,
 }
 

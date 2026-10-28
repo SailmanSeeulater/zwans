@@ -1,0 +1,8 @@
+# A wrong Edit description: it says old_string is a line range, which the tool doesn't
+# support. Every Edit written this way fails. This is the calibration for `compare`: a
+# config this broken has to show up as significantly worse.
+
+[tool_descriptions]
+Edit = """\
+Replace lines in an existing file. Set old_string to the range of line numbers to replace, \
+like "12-15" (as shown by Read), and new_string to the text that replaces those lines."""

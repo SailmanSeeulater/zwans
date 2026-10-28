@@ -16,8 +16,9 @@ from zwans.eval.task import (
 from zwans.executor.base import CommandResult
 from zwans.executor.local import LocalExecutor
 
-TASKS = Path(__file__).resolve().parents[1] / "evals" / "tasks"
-SUITE = load_suite(TASKS)
+EVALS = Path(__file__).resolve().parents[1] / "evals"
+TASKS = EVALS / "tasks"
+SUITE = load_suite(TASKS) + load_suite(EVALS / "tasks-hard")
 
 
 def check(task: Task, workspace: Path) -> CommandResult:
@@ -77,3 +78,8 @@ def test_hidden_files_catch_an_agent_that_edits_the_test(tmp_path: Path) -> None
     test_file.write_text(test_file.read_text("utf-8").replace("== 4", "== 3"), "utf-8")
 
     assert check(task, workspace).exit_code != 0
+
+
+def test_task_names_are_unique_across_suites() -> None:
+    names = [task.name for task in SUITE]
+    assert len(names) == len(set(names))
