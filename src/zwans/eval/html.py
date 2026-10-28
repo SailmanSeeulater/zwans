@@ -36,8 +36,9 @@ def render_html(report: Report, out_dir: Path) -> str:
     s = report.summary
     budget = f"${report.budget:.2f}" if report.budget is not None else "none"
     meta = (
-        f"{escape(report.model)}, effort {escape(report.effort)} &middot; started "
-        f"{escape(report.started_at)} &middot; {report.repeats} repeats &middot; budget {budget}"
+        f"{escape(report.agent)} &middot; {escape(report.model)}, effort "
+        f"{escape(report.effort)} &middot; started {escape(report.started_at)} &middot; "
+        f"{report.repeats} repeats &middot; budget {budget}"
     )
     warning = (
         '<p class="stopped">The budget ran out before every attempt finished.</p>'

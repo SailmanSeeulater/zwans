@@ -1,21 +1,27 @@
 """`zwans eval`: run the eval suite and report how the agent did."""
 
 import asyncio
+import shutil
+import subprocess
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from zwans.config import Config, ConfigError, load_credential, load_settings
+from zwans.eval.claude_code import ClaudeCodeAgent
 from zwans.eval.compare import MIN_TASKS, Difference, compare
 from zwans.eval.html import render_html
 from zwans.eval.runner import (
+    Agent,
     AttemptResult,
     EvalConfig,
     EvalConfigError,
     ProviderFactory,
     Report,
+    ZwansAgent,
     load_eval_config,
     run_suite,
 )
@@ -29,12 +35,20 @@ eval_app = typer.Typer(no_args_is_help=True, help="Run eval tasks and report the
 STATUS_MARKS = {"passed": "PASS", "failed": "FAIL", "stopped": "STOP"}
 
 
+class AgentName(StrEnum):
+    zwans = "zwans"
+    claude_code = "claude-code"
+
+
 @eval_app.command("run")
 def run_command(
     config_path: Annotated[
         Path | None,
         typer.Option("--config", "-c", exists=True, dir_okay=False, help="An evals/configs file."),
     ] = None,
+    agent_name: Annotated[
+        AgentName, typer.Option("--agent", help="Who does the tasks: claude-code for the baseline.")
+    ] = AgentName.zwans,
     tasks_dir: Annotated[
         Path, typer.Option("--tasks", exists=True, file_okay=False, help="Folder of tasks.")
     ] = Path("evals/tasks"),
@@ -61,7 +75,7 @@ def run_command(
         eval_config = load_eval_config(config_path) if config_path else EvalConfig(name="default")
         config = eval_config.apply(base)
         tasks = _select(load_suite(tasks_dir), only)
-        make_provider = _provider_factory(config, env, fake_scripts)
+        agent = _agent(agent_name, config, eval_config, env, fake_scripts)
     except (ConfigError, EvalConfigError, TaskError) as exc:
         typer.secho(str(exc), fg="red", err=True)
         raise typer.Exit(2) from exc
@@ -71,15 +85,15 @@ def run_command(
     limit = f", budget ${budget:.2f}" if budget is not None else ""
     typer.secho(
         f"{_count(len(tasks), 'task')} x {repeats} = {attempts} attempts | "
-        f"config {eval_config.name} | {config.model}, effort {config.effort}{limit}",
+        f"{agent.name} | config {eval_config.name} | {config.model}, effort {config.effort}{limit}",
         dim=True,
     )
     report = asyncio.run(
         run_suite(
             tasks,
+            agent,
             config,
             eval_config,
-            make_provider,
             out,
             repeats=repeats,
             parallel=parallel,
@@ -113,8 +127,8 @@ def compare_command(a: ReportPath, b: ReportPath) -> None:
         raise typer.Exit(2) from exc
     result = compare(report_a, report_b)
     typer.secho(
-        f"A: {report_a.config.name} ({report_a.started_at})\n"
-        f"B: {report_b.config.name} ({report_b.started_at})\n"
+        f"A: {report_a.agent}, config {report_a.config.name} ({report_a.started_at})\n"
+        f"B: {report_b.agent}, config {report_b.config.name} ({report_b.started_at})\n"
         f"{_count(len(result.tasks), 'task')} in both",
         dim=True,
     )
@@ -170,6 +184,28 @@ def _select(tasks: list[Task], only: list[str] | None) -> list[Task]:
     if missing:
         raise TaskError(f"No such task: {', '.join(missing)}")
     return [by_name[name] for name in only]
+
+
+def _agent(
+    name: AgentName,
+    config: Config,
+    eval_config: EvalConfig,
+    env: dict[str, str],
+    fake_scripts: Path | None,
+) -> Agent:
+    if name is AgentName.zwans:
+        return ZwansAgent(config, eval_config, _provider_factory(config, env, fake_scripts))
+    if eval_config.tool_descriptions:
+        raise EvalConfigError("Tool descriptions only apply to Zwans, not to Claude Code.")
+    claude = shutil.which("claude")
+    if claude is None:
+        raise ConfigError("Claude Code isn't installed: there's no `claude` on PATH.")
+    # --bare takes only an API key, so ask for one whatever `auth` is set to.
+    credential = load_credential(config.model_copy(update={"auth": "api_key"}), env)
+    version = subprocess.run(
+        [claude, "--version"], capture_output=True, text=True, timeout=60, check=False
+    ).stdout.split()
+    return ClaudeCodeAgent(config, credential.token, [claude], version[0] if version else "")
 
 
 def _provider_factory(

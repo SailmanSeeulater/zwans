@@ -69,6 +69,7 @@ zwans eval run --repeats 3 --budget 5                  # every task, three times
 zwans eval run --only buggy-calc                       # one task
 zwans eval run --config evals/configs/vague-edit.toml  # a variant to compare
 zwans eval compare evals/reports/<run A> evals/reports/<run B>
+zwans eval run --agent claude-code --repeats 3          # the Claude Code baseline
 ```
 
 A config in `evals/configs/` overrides settings such as `model` or `effort` for the run, and
@@ -81,6 +82,13 @@ run writes `report.html`, `report.json` and a transcript per attempt to `evals/r
 time, each with a 95% confidence interval from a paired bootstrap over tasks. It calls a
 difference significant only when the interval leaves out zero and the runs share at least 5
 tasks. Use `--repeats 3` or more: a single attempt per task is mostly noise.
+
+`--agent claude-code` runs the same tasks through `claude -p` instead, with the same model,
+effort, limits and checks, to see how far Zwans is from a production harness. It runs with
+`--bare`, so your own CLAUDE.md, hooks, plugins and MCP servers stay out of it; `--bare` only
+accepts `ANTHROPIC_API_KEY`, so the baseline is billed per token whatever `auth` says. Its
+cost is charged to `--budget` when each attempt ends, so a run can go over by up to one
+task's `max_cost` per parallel attempt.
 
 ## Configuration
 

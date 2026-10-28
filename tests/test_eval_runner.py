@@ -12,6 +12,7 @@ from zwans.eval.runner import (
     EvalConfig,
     EvalConfigError,
     Report,
+    ZwansAgent,
     load_eval_config,
     make_tools,
     run_suite,
@@ -73,9 +74,9 @@ def run(
     return asyncio.run(
         run_suite(
             tasks,
+            ZwansAgent(settings, config, provider),
             settings,
             config,
-            provider,
             out,
             repeats=repeats,
             parallel=parallel,

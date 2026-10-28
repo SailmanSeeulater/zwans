@@ -71,7 +71,7 @@ class LocalExecutor:
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            **_own_process_group(),
+            **own_process_group(),
         )
         assert process.stdout is not None
         output = _Output(self.max_output_bytes)
@@ -83,7 +83,7 @@ class LocalExecutor:
             timed_out = True
         finally:
             # Runs after a timeout and after a cancel (Ctrl+C): stop the command and its children.
-            await _kill_tree(process)
+            await kill_tree(process)
             # A leftover background process can hold the pipe open, so don't wait on it forever.
             await asyncio.wait([pump], timeout=2)
             pump.cancel()
@@ -138,14 +138,14 @@ def _command_env() -> dict[str, str]:
     return env
 
 
-def _own_process_group() -> dict[str, Any]:
+def own_process_group() -> dict[str, Any]:
     """Start a command in its own process group, so it can be stopped with everything it started."""
     if sys.platform == "win32":
         return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     return {"start_new_session": True}
 
 
-async def _kill_tree(process: asyncio.subprocess.Process) -> None:
+async def kill_tree(process: asyncio.subprocess.Process) -> None:
     if process.returncode is not None:
         return
     if sys.platform == "win32":

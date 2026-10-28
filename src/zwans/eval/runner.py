@@ -13,7 +13,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -147,6 +147,7 @@ class Summary(BaseModel):
 
 
 class Report(BaseModel):
+    agent: str = "zwans"  # or "claude-code", for the baseline
     config: EvalConfig
     model: str
     effort: str
@@ -169,6 +170,90 @@ class Budget:
     @property
     def exhausted(self) -> bool:
         return self.limit is not None and self.spent >= self.limit
+
+
+@dataclass
+class AgentRun:
+    """What an agent did in one attempt, whichever agent it was."""
+
+    stop_reason: str  # "end_turn", "timeout", "over_budget", "suite_budget", ...
+    dollars: float = 0.0
+    model_calls: int = 0
+    tool_calls: int = 0
+    tool_errors: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+class Agent(Protocol):
+    name: str
+
+    async def attempt(
+        self, task: Task, workspace: Path, scratch: Path, budget: Budget, transcript: Path
+    ) -> AgentRun:
+        """Work on the task in `workspace`, keeping within its timeout, its max_cost, and the
+        run's budget, which it charges as it spends. `scratch` is a folder outside the
+        workspace for the agent's own files. The event log goes to `transcript`."""
+        ...
+
+
+class ZwansAgent:
+    name = "zwans"
+
+    def __init__(
+        self, config: Config, eval_config: EvalConfig, make_provider: ProviderFactory
+    ) -> None:
+        self.config = config
+        self.eval_config = eval_config
+        self.make_provider = make_provider
+
+    async def attempt(
+        self, task: Task, workspace: Path, scratch: Path, budget: Budget, transcript: Path
+    ) -> AgentRun:
+        executor = LocalExecutor(workspace, shell=self.config.shell, spill_dir=scratch / "output")
+        watch = _Watch(task, budget)
+        writer = TranscriptWriter(transcript)
+        provider = self.make_provider(task, self.config)
+        session = self._session(workspace, provider, executor, [watch.on_event, writer.on_event])
+        try:
+            watch.turn = asyncio.create_task(session.send(task.prompt))
+            stop_reason = await asyncio.wait_for(watch.turn, task.timeout)
+        except TimeoutError:
+            stop_reason = "timeout"
+        except asyncio.CancelledError:
+            if not watch.stopped_by:
+                raise  # cancelled from outside, not by a budget
+            stop_reason = watch.stopped_by
+        finally:
+            await provider.aclose()
+            writer.close()
+        return AgentRun(
+            stop_reason=stop_reason,
+            dollars=watch.dollars,
+            model_calls=watch.model_calls,
+            tool_calls=watch.tool_calls,
+            tool_errors=watch.tool_errors,
+            errors=watch.errors,
+        )
+
+    def _session(
+        self,
+        workspace: Path,
+        provider: Provider,
+        executor: LocalExecutor,
+        listeners: list[Callable[[Event], None]],
+    ) -> Session:
+        # Only the task's own ZWANS.md, never the user's, so every attempt gets the same prompt.
+        instructions = load_instructions(workspace, home=workspace)
+        shell = self.config.shell or _find_bash()
+        return Session(
+            provider=provider,
+            tools=make_tools(self.eval_config),
+            ctx=ToolContext(executor=executor),
+            system=system_prompt(workspace, shell, instructions),
+            listeners=listeners,
+            max_steps=self.config.max_steps,
+            compactor=Compactor(provider, self.config.compact_at, self.config.keep_messages),
+        )
 
 
 @dataclass
@@ -209,99 +294,6 @@ class _Watch:
             self.turn.cancel()
 
 
-async def run_attempt(
-    task: Task,
-    repeat: int,
-    config: Config,
-    eval_config: EvalConfig,
-    make_provider: ProviderFactory,
-    budget: Budget,
-    transcript_path: Path,
-) -> AttemptResult:
-    if budget.exhausted:
-        return AttemptResult(
-            task=task.name,
-            category=task.category,
-            repeat=repeat,
-            status="stopped",
-            stop_reason="suite_budget",
-        )
-    with tempfile.TemporaryDirectory(prefix=f"zwans-eval-{task.name}-") as temp:
-        workspace = Path(temp) / "work"
-        prepare_workspace(task, workspace)
-        executor = LocalExecutor(workspace, shell=config.shell, spill_dir=Path(temp) / "output")
-        watch = _Watch(task, budget)
-        transcript = TranscriptWriter(transcript_path)
-        provider = make_provider(task, config)
-        session = _session(
-            workspace,
-            config,
-            eval_config,
-            provider,
-            executor,
-            [watch.on_event, transcript.on_event],
-        )
-        started = time.monotonic()
-        try:
-            watch.turn = asyncio.create_task(session.send(task.prompt))
-            stop_reason = await asyncio.wait_for(watch.turn, task.timeout)
-        except TimeoutError:
-            stop_reason = "timeout"
-        except asyncio.CancelledError:
-            if not watch.stopped_by:
-                raise  # cancelled from outside, not by a budget
-            stop_reason = watch.stopped_by
-        finally:
-            seconds = time.monotonic() - started
-            await provider.aclose()
-            transcript.close()
-
-        result = AttemptResult(
-            task=task.name,
-            category=task.category,
-            repeat=repeat,
-            status="failed",
-            stop_reason=stop_reason,
-            dollars=watch.dollars,
-            model_calls=watch.model_calls,
-            tool_calls=watch.tool_calls,
-            tool_errors=watch.tool_errors,
-            seconds=round(seconds, 2),
-            errors=watch.errors,
-            transcript=str(transcript_path),
-        )
-        if stop_reason == "suite_budget":
-            result.status = "stopped"
-        elif stop_reason not in ("timeout", "over_budget"):  # running out of limits is a fail
-            check = await run_check(task, executor)
-            result.check_exit = check.exit_code
-            result.check_output = check.output[-CHECK_OUTPUT_CHARS:]
-            result.status = "passed" if check.exit_code == 0 else "failed"
-        return result
-
-
-def _session(
-    workspace: Path,
-    config: Config,
-    eval_config: EvalConfig,
-    provider: Provider,
-    executor: LocalExecutor,
-    listeners: list[Callable[[Event], None]],
-) -> Session:
-    # Only the task's own ZWANS.md, never the user's, so every attempt gets the same prompt.
-    instructions = load_instructions(workspace, home=workspace)
-    shell = config.shell or _find_bash()
-    return Session(
-        provider=provider,
-        tools=make_tools(eval_config),
-        ctx=ToolContext(executor=executor),
-        system=system_prompt(workspace, shell, instructions),
-        listeners=listeners,
-        max_steps=config.max_steps,
-        compactor=Compactor(provider, config.compact_at, config.keep_messages),
-    )
-
-
 def _find_bash() -> str:
     try:
         return find_bash()
@@ -309,11 +301,48 @@ def _find_bash() -> str:
         return "none found, so the Bash tool will fail"
 
 
+async def run_attempt(
+    task: Task, repeat: int, agent: Agent, budget: Budget, transcript: Path, shell: str | None
+) -> AttemptResult:
+    result = AttemptResult(
+        task=task.name,
+        category=task.category,
+        repeat=repeat,
+        status="stopped",
+        stop_reason="suite_budget",
+    )
+    if budget.exhausted:
+        return result
+    with tempfile.TemporaryDirectory(prefix=f"zwans-eval-{task.name}-") as temp:
+        workspace = Path(temp) / "work"
+        prepare_workspace(task, workspace)
+        started = time.monotonic()
+        run = await agent.attempt(task, workspace, Path(temp), budget, transcript)
+        result.seconds = round(time.monotonic() - started, 2)
+        result.stop_reason = run.stop_reason
+        result.dollars = run.dollars
+        result.model_calls = run.model_calls
+        result.tool_calls = run.tool_calls
+        result.tool_errors = run.tool_errors
+        result.errors = run.errors
+        result.transcript = str(transcript)
+        if run.stop_reason == "suite_budget":
+            return result  # stays "stopped"
+        result.status = "failed"
+        if run.stop_reason not in ("timeout", "over_budget"):  # running out of limits is a fail
+            executor = LocalExecutor(workspace, shell=shell, spill_dir=Path(temp) / "output")
+            check = await run_check(task, executor)
+            result.check_exit = check.exit_code
+            result.check_output = check.output[-CHECK_OUTPUT_CHARS:]
+            result.status = "passed" if check.exit_code == 0 else "failed"
+        return result
+
+
 async def run_suite(
     tasks: Sequence[Task],
+    agent: Agent,
     config: Config,
     eval_config: EvalConfig,
-    make_provider: ProviderFactory,
     out_dir: Path,
     *,
     repeats: int = 1,
@@ -331,9 +360,7 @@ async def run_suite(
     async def attempt(task: Task, repeat: int) -> AttemptResult:
         async with slots:
             path = out_dir / "transcripts" / f"{task.name}-{repeat}.jsonl"
-            result = await run_attempt(
-                task, repeat, config, eval_config, make_provider, spend, path
-            )
+            result = await run_attempt(task, repeat, agent, spend, path, config.shell)
         if on_result is not None:
             on_result(result)
         return result
@@ -342,6 +369,7 @@ async def run_suite(
     results = sorted(await asyncio.gather(*jobs), key=lambda r: (r.task, r.repeat))
 
     report = Report(
+        agent=agent.name,
         config=eval_config,
         model=config.model,
         effort=config.effort,
