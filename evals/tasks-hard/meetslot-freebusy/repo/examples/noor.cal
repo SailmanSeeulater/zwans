@@ -1,0 +1,8 @@
+# Noor runs the night on-call desk in Toronto.
+name: Noor Haddad
+email: noor@example.com
+offset: -05:00
+hours: 22:00-06:00
+days: sun-thu
+
+2025-03-04 08:00 - 08:45   Handover

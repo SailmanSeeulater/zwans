@@ -1,0 +1,26 @@
+# meetslot finds meeting slots from people's working hours and busy time. It has 8 planted
+# bugs; the user reports two symptoms (tests/test_finder.py has two failing tests for them).
+# Right answer (solution/): intervals.py: add() must find candidates with bisect_left (an
+# interval touching the previous one on its left is not merged) and must loop to merge
+# *every* overlapped interval, not just one; remove() must keep both halves when the
+# removed range is strictly inside an interval (`elif` -> `if`). people.py: local->UTC is
+# `- utc_offset`, not `+`; a shift whose end is not after its start ends the next day
+# (including end == start, a 24h shift). finder.py: the buffer applies before busy time
+# too; starts round *up* to the step grid; free_time() must copy the cached working-time
+# set before removing busy time from it (otherwise one call changes the next).
+# Why it's hard: only remove() and the rounding are visible from the failing tests. The
+# other six bugs need the docstrings read against the code (normalised "overlap or touch",
+# utc_offset sign, overnight shifts, buffer "before and after", "an earlier call never
+# changes a later one") and none of them show up with UTC people on day shifts.
+prompt = """\
+People keep getting meeting suggestions from meetslot that clash with things already in \
+their calendar, and some afternoons show up as fully booked when they're actually empty. \
+tests/test_finder.py has two failing tests that reproduce what was reported. I don't trust \
+this code much, so please don't stop at those two: the docstrings say how everything is \
+supposed to behave, and I'd like it actually doing that, for our people in other time \
+zones and on the night desk too.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1500
+max_cost = 3.00

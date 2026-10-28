@@ -1,0 +1,26 @@
+zone = "Europe/Amsterdam"
+
+[[job]]
+name = "backup"
+schedule = "daily 02:30"
+command = "shell"
+args = ["./scripts/backup.sh"]
+
+[[job]]
+name = "morning-report"
+schedule = "weekdays 08:00"
+command = "shell"
+args = ["./scripts/report.sh", "--email", "team@example.org"]
+
+[[job]]
+name = "ny-standup-reminder"
+schedule = "weekdays 09:45"
+zone = "America/New_York"
+command = "echo"
+args = ["standup in 15 minutes"]
+
+[[job]]
+name = "warm-cache"
+schedule = "every 30m"
+command = "shell"
+args = ["./scripts/warm-cache.sh"]

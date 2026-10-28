@@ -1,0 +1,31 @@
+# A ~1530-line library circulation system (27 files) plus a 150-row sample export. Since
+# Hillside's rows were merged into the nightly file, loans go missing. Two bugs:
+# 1. config.BranchDirectory.resolve() normalises with str.title() and falls back to the
+#    default branch for anything it doesn't know. Names work ("hillside" -> "Hillside")
+#    but codes don't ("HIL" -> "Hil"), so every Hillside row silently becomes a Harbour
+#    row (Harbour is the default, so its own codes only work by accident). Loans are keyed
+#    by (branch, number) and both desks number from ~1000, so Hillside loans overwrite
+#    Harbour's (M-1043's loan is replaced by HIL-1043) and get Harbour's 21-day period.
+#    README: codes or names in any case; unknown branches are rejected, not defaulted.
+# 2. util.group_by() uses itertools.groupby + setdefault, which keeps only the first run
+#    of each key. Its docstring says input needn't be sorted. The importer groups events
+#    by branch, so the late corrections the merge job appends after both desks' rows are
+#    dropped; notices group overdue loans (sorted by due date) by member, so M-2210's
+#    notice lists only her first book. Bug 2 hides behind bug 1 in the importer: while
+#    every row resolves to HAR there is a single run.
+# Right fix: case-insensitive alias lookup that raises for unknown branches (importer
+# rejects the row), and a group_by that collects all runs.
+# Why it's hard: the symptom (report/loans) is far from both causes; fixing resolve()
+# alone makes the sample import silently drop its tail; fixing notices locally or sorting
+# in the importer leaves group_by broken (hidden unit test of its documented contract);
+# keeping the silent default for unknown branches, or adding a "Hil" alias, fails the
+# rejection test. Red herrings: the fines TODO, local_date/timezone handling (correct).
+prompt = """Since we started merging Hillside's desk export into our nightly import (the merge job puts both branches into one file), the overdue report has been wrong and the import doesn't complain about anything.
+
+Example: member M-1043 borrowed The Left Hand of Darkness from Harbour on 6 Feb. It was due 27 Feb and hasn't come back, but it's not on this morning's overdue report, and `libsys loans M-1043` doesn't list it at all. Also, M-2210 phoned: her overdue notice only listed one of her two overdue books.
+
+Last night's file is in samples/nightly-2026-03-02.csv; importing it into a fresh `--db` shows the problem (report as of 2026-03-02). Please find out what's going on and fix it."""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1500
+max_cost = 3.00

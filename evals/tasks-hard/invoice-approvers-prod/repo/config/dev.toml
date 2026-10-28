@@ -1,0 +1,8 @@
+# Development: everything runs locally against the files in data/.
+
+[plugins]
+"enabled+" = ["legacy_superuser", "debug_grants"]
+
+[debug]
+# Extra senior approvers for trying things out locally (debug_grants plugin).
+grant_senior = ["tbauer", "rweber"]

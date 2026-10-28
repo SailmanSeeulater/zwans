@@ -1,0 +1,22 @@
+# Implement cadence.expand() and cadence.load_holidays() against SPEC.md: an invented rule
+# language for recurring dates ("every 2 weeks on mon, fri; from 2025-03-05; closed: next")
+# plus a holiday-file format. payroll/schedule.py uses both.
+# Right answer: solution/cadence/{rules,holidays}.py; hidden tests have ~95 cases.
+# Why it's hard: each rule is one sentence in a 3-page spec and they interact. Weeks run
+# Monday-Sunday and period 0 drops dates before the anchor; `day 31` clamps but `5th fri`
+# never moves; `day -31` clamps to the 1st; the anchor defaults to `start`, so phase depends
+# on it; `until` and `except` look at the scheduled date but the window looks at the final
+# (moved) date, so `closed: previous` can pull an occurrence scheduled after `end` into the
+# window; `count` counts from the anchor, after except/skip/merging, not from `start`;
+# every-year holidays on a weekend are also observed on the Friday before or Monday after
+# (even across a year boundary), but dated ones are not; `#` comments may start mid-token.
+prompt = """\
+We need cadence/ working so payroll can move off the spreadsheet. SPEC.md describes the rule \
+language and the holiday file format; `expand` and `load_holidays` are still stubs. Please \
+implement them so they follow the spec to the letter: payroll dates are the kind of thing \
+where "almost right" isn't good enough. There are a few starter tests in tests/.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 1500
+max_cost = 3.00

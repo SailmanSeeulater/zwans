@@ -1,0 +1,37 @@
+# Production.
+
+[features]
+strict_delegation = true
+
+[plugins]
+"enabled+" = ["business_hours"]
+
+[business_hours]
+# Contractors may only approve on weekdays, between these local hours.
+start = 9
+end = 17
+
+[[bindings]]
+group = "finance-approvers"
+role = "approver"
+
+[[bindings]]
+group = "finance-seniors"
+role = "senior_approver"
+
+[[bindings]]
+group = "ap-team"
+role = "ap_clerk"
+
+[[bindings]]
+group = "controllers"
+role = "controller"
+
+[[bindings]]
+group = "ap-team-leads"
+role = "approver"
+
+[money]
+# Finance policy FP-12: foreign-currency invoices are valued at the rate of the day we
+# received them, not the date printed on the invoice.
+valuation = "received"

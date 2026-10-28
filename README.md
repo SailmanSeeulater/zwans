@@ -70,6 +70,7 @@ zwans eval run --only buggy-calc                       # one task
 zwans eval run --config evals/configs/vague-edit.toml  # a variant to compare
 zwans eval compare evals/reports/<run A> evals/reports/<run B>
 zwans eval run --agent claude-code --repeats 3          # the Claude Code baseline
+zwans eval run --tasks evals/tasks-hard                # the hard tier
 ```
 
 A config in `evals/configs/` overrides settings such as `model` or `effort` for the run, and
@@ -82,6 +83,11 @@ run writes `report.html`, `report.json` and a transcript per attempt to `evals/r
 time, each with a 95% confidence interval from a paired bootstrap over tasks. It calls a
 difference significant only when the interval leaves out zero and the runs share at least 5
 tasks. Use `--repeats 3` or more: a single attempt per task is mostly noise.
+
+`evals/tasks/` is the starter suite; strong models pass all of it, so it mostly measures cost.
+`evals/tasks-hard/` is a harder tier (larger repos, bugs far from their symptoms, long specs)
+where Sonnet at low effort passes about 80%. On a Mac, keep it awake during long runs
+(`caffeinate -s -i zwans eval run ...`): a model call that spans a sleep fails.
 
 `--agent claude-code` runs the same tasks through `claude -p` instead, with the same model,
 effort, limits and checks, to see how far Zwans is from a production harness. It runs with

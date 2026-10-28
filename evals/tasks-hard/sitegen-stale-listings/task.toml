@@ -1,0 +1,26 @@
+# A ~2200-line static-site generator (26 files). Incremental builds leave listings (home,
+# tag pages, archive, feed) stale after a post's title/date/tags/excerpt changes. Two
+# independent causes, both needed for the symptom to go away:
+# 1. plan.listing_key() signs a listing with its members' source paths only, so the
+#    builder sees the listing as fresh unless posts are added, removed or reordered.
+# 2. summaries.summarize() is @lru_cache'd on (page, max_words), and Page hashes and
+#    compares by source path (the taxonomy relies on that), so any rebuild in the same
+#    process (`sitegen serve`, or two Builders/main() calls) reuses the old summary.
+# Right fix: sign listings with everything they show about each post (e.g. asdict of the
+# summary) and key the summary cache on the page's content (or drop/clear it per build).
+# Rendering every output and comparing hashes is also accepted.
+# Why it's hard: fixing (1) with summarize() still renders and signs stale summaries
+# in-process; fixing it with title/date only misses excerpt, `summary:`, tags and
+# reading time; signing with the whole file's fingerprint breaks the visible "typo in the
+# third paragraph rewrites only that post" test; always rewriting listings fails the
+# hidden "only the listings the post is on" checks. Red herrings: Engine's TODO about its
+# template cache, markup.render's lru_cache (keyed by text, fine), slugify's lru_cache.
+prompt = """Something's wrong with incremental builds in sitegen. I changed the title of one of my posts (just the `title:` line in its front matter) and ran `sitegen build`. The post's own page has the new title, but the home page, the tag pages, the archive and the feed all still show the old title, and their links point to the old URL, which now 404s.
+
+`sitegen serve` has the same problem: I edit a post, it rebuilds, and the listings stay stale. Restarting serve doesn't always help either. Changing a post's date or its first paragraph seems to have the same issue.
+
+`sitegen build --clean` fixes it every time, but I don't want to go back to clean builds; the whole point is that my uploader only sends the files that changed. Can you fix it properly?"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1500
+max_cost = 3.00

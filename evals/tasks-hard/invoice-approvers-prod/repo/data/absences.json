@@ -1,0 +1,5 @@
+[
+  {"user": "jwagner", "from": "2025-11-10T00:00:00Z", "until": "2025-11-22T00:00:00Z", "reason": "annual leave"},
+  {"user": "lfischer", "from": "2025-11-14T11:00:00Z", "until": "2025-11-14T16:00:00Z", "reason": "training"},
+  {"user": "tbauer", "from": "2025-11-17T00:00:00Z", "until": "2025-11-19T00:00:00Z", "reason": "conference"}
+]

@@ -1,0 +1,58 @@
+# Settings shared by every environment. dev.toml / prod.toml are merged over this file;
+# see ledgerdesk/config/loader.py for how merging works.
+
+[data]
+directory = "data/directory.json"
+invoices = "data/invoices.json"
+rates = "data/rates.json"
+delegations = "data/delegations.json"
+absences = "data/absences.json"
+
+[money]
+currency = "EUR"
+# Which date's exchange rate values a foreign-currency invoice: "invoice_date" or "received".
+valuation = "invoice_date"
+
+[features]
+# When on, a delegation only counts if the delegate works in the delegator's department.
+strict_delegation = false
+
+[plugins]
+enabled = ["four_eyes", "conflicts", "availability"]
+
+[roles.viewer]
+permissions = ["invoice.view"]
+
+[roles.ap_clerk]
+inherits = ["viewer"]
+permissions = ["invoice.submit"]
+
+[roles.approver]
+inherits = ["viewer"]
+permissions = ["invoice.approve"]
+limit_eur = 10_000
+
+[roles.senior_approver]
+inherits = ["approver"]
+limit_eur = 25_000
+
+[roles.controller]
+inherits = ["senior_approver"]
+permissions = ["invoice.void"]
+limit_eur = 100_000
+
+[[bindings]]
+group = "finance-approvers"
+role = "approver"
+
+[[bindings]]
+group = "finance-seniors"
+role = "senior_approver"
+
+[[bindings]]
+group = "ap-team"
+role = "ap_clerk"
+
+[[bindings]]
+group = "controllers"
+role = "controller"

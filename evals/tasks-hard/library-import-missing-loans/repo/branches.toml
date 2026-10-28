@@ -1,0 +1,19 @@
+default = "HAR"
+
+[[branch]]
+code = "HAR"
+name = "Harbour"
+utc_offset = "+13:00"
+loan_days = 21
+max_renewals = 2
+fine_per_day = "0.25"
+fine_cap = "6.00"
+
+[[branch]]
+code = "HIL"
+name = "Hillside"
+utc_offset = "+13:00"
+loan_days = 14
+max_renewals = 1
+fine_per_day = "0.20"
+fine_cap = "5.00"

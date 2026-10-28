@@ -1,0 +1,93 @@
+{
+  "alerts": [
+    {
+      "at": "2025-11-05T10:00:00Z",
+      "on_hand": 9,
+      "reorder_level": 10,
+      "sku": "MUG-01"
+    },
+    {
+      "at": "2025-11-07T10:00:00Z",
+      "on_hand": 2,
+      "reorder_level": 2,
+      "sku": "KET-02"
+    }
+  ],
+  "counters": {
+    "movement": 6
+  },
+  "movements": [
+    {
+      "at": "2025-11-01T10:00:00Z",
+      "id": "MV-000001",
+      "kind": "receive",
+      "qty": 40,
+      "ref": "PO-1001",
+      "sku": "MUG-01"
+    },
+    {
+      "at": "2025-11-02T10:00:00Z",
+      "id": "MV-000002",
+      "kind": "receive",
+      "qty": 5,
+      "ref": "PO-1001",
+      "sku": "KET-02"
+    },
+    {
+      "at": "2025-11-03T10:00:00Z",
+      "id": "MV-000003",
+      "kind": "receive",
+      "qty": 120,
+      "ref": "PO-1002",
+      "sku": "TEA-07"
+    },
+    {
+      "at": "2025-11-04T10:00:00Z",
+      "id": "MV-000004",
+      "kind": "ship",
+      "qty": -31,
+      "ref": "web-5521",
+      "sku": "MUG-01"
+    },
+    {
+      "at": "2025-11-06T10:00:00Z",
+      "id": "MV-000005",
+      "kind": "ship",
+      "qty": -3,
+      "ref": "web-5522",
+      "sku": "KET-02"
+    },
+    {
+      "at": "2025-11-08T10:00:00Z",
+      "id": "MV-000006",
+      "kind": "adjust",
+      "qty": -2,
+      "ref": "stocktake",
+      "sku": "TEA-07"
+    }
+  ],
+  "products": [
+    {
+      "name": "Blue mug",
+      "reorder_level": 10,
+      "sku": "MUG-01",
+      "unit": "pcs",
+      "unit_cost_cents": 425
+    },
+    {
+      "name": "Red kettle",
+      "reorder_level": 2,
+      "sku": "KET-02",
+      "unit": "pcs",
+      "unit_cost_cents": 1999
+    },
+    {
+      "name": "Green tea, 100 g",
+      "reorder_level": 0,
+      "sku": "TEA-07",
+      "unit": "pcs",
+      "unit_cost_cents": 350
+    }
+  ],
+  "version": 1
+}

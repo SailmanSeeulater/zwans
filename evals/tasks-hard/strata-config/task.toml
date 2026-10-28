@@ -1,0 +1,23 @@
+# Implement strata.load() against SPEC.md, a 3-page definition of an invented config format
+# with sections, `=`/`+=`/`?=`, typed bare values, quoting, lists, trailing comments,
+# lazy `${...}` interpolation (absolute, section-relative, env with fallback), @include with
+# base sections, @include?, @unset, and errors carrying file/line.
+# Right answer: solution/strata/loader.py; hidden/tests/test_spec.py has ~100 cases.
+# Why it's hard: the common cases are easy, but the spec has many one-sentence rules a skim
+# misses: leading-zero integers stay strings; `#` is a comment only after whitespace; text
+# after a closing quote is an error; `${.x}` is relative to the current section, not the
+# dotted key; references resolve lazily against final values; a whole bare reference keeps
+# its type (and copies tables); an included file's headers and `[]` are relative to the
+# section current at the @include, and the includer's section is restored afterwards;
+# resolution errors must point at the file and line of the assignment that holds the
+# failing reference; include cycles and reference cycles both say "cycle".
+prompt = """\
+I've written up the spec for our config format in SPEC.md, but strata/loader.py is still \
+just a stub. Can you implement `strata.load` so it follows the spec exactly? The ingest \
+service under config/ is going to be the first thing to use it, and tests/test_load.py has \
+a few basic tests to get started.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 1500
+max_cost = 3.00

@@ -1,0 +1,30 @@
+# Who could approve INV-2291 in production at 16:30 Berlin time (UTC+1, = 15:30 UTC) on Fri
+# 2025-11-14? Answer: ahoffmann, dlopez, hkrueger, ngarcia, pschmidt, tbauer.
+# Trace: prod = base.toml + prod.toml (never local.toml). prod's [[bindings]] list replaces
+# base's and adds ap-team-leads -> approver; plugins are base's list plus "enabled+"
+# business_hours (no legacy_superuser/debug_grants); strict_delegation is on; and
+# money.valuation = "received", so 11,500 USD is valued at the 2025-11-01 rate 0.80 = 9,200
+# EUR (not 10,695 at the invoice date), which lets 10k approvers in: tbauer. Seniors via
+# nested groups add ngarcia (obraun is inactive); controllers inherit approve: hkrueger.
+# Out: mkoch (four eyes), rweber (submitter), sneumann (vendor owner), jwagner (away),
+# lfischer (away until 16:00 UTC), wtan (contractor, 23:30 in UTC+8), kyilmaz (strict
+# delegation, other department), fkrause (delegations don't chain). In by delegation:
+# pschmidt from jwagner (until 16:00 UTC), dlopez from ngarcia (10:30 in New York).
+# ahoffmann is a contractor at 16:30 local, inside 9-17.
+# Why it's hard: ~1,150 lines of layered config, plugins and delegations. Running the CLI
+# naively misleads: the default env is dev (10 users, incl. admins); `--at 2025-11-14T16:30`
+# is read as UTC (drops ahoffmann and pschmidt, adds lfischer); no --at uses today. The
+# `matrix` report looks like an answer but ignores delegations and plugins.
+# check_answer.py also verifies every original file is unchanged.
+prompt = """\
+Audit is asking who could have approved invoice INV-2291 in production at 16:30 Berlin \
+time (UTC+1) on Friday 14 November 2025. Assume the files in data/ are exactly what \
+production had at that moment.
+
+Write the usernames of everyone who could have approved it at that moment to answer.txt, \
+one per line. Please don't change any of the code, config or data.\
+"""
+check = "python check_answer.py"
+category = "question"
+timeout = 1200
+max_cost = 2.00

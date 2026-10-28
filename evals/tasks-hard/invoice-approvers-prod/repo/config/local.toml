@@ -1,0 +1,12 @@
+# My local overrides (not read in prod). -- pschmidt
+
+[features]
+strict_delegation = false
+
+[[bindings]]
+group = "ap-team"
+role = "senior_approver"
+
+[[bindings]]
+group = "finance-seniors"
+role = "senior_approver"

@@ -1,0 +1,9 @@
+{
+  "version": 3,
+  "next_id": 7,
+  "bookmarks": [
+    {"id": 2, "url": "https://docs.djangoproject.com/", "title": "Django docs", "folder": "Dev/Python/Web Frameworks", "added": "2023-07-01", "visits": 9, "starred": true},
+    {"id": 5, "url": "https://www.seriouseats.com/", "title": "Serious Eats", "folder": "Home/Cooking", "added": "2023-08-02", "visits": 2, "starred": false},
+    {"id": 6, "url": "https://example.com/inbox", "title": "Inbox", "folder": "", "added": "", "visits": 0, "starred": false}
+  ]
+}

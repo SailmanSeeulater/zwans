@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "bookmarks": [
+    {"id": 1, "url": "https://developer.mozilla.org/", "title": "MDN", "folder": "Dev/Web", "added": "2022-01-10", "visits": 31},
+    {"id": 2, "url": "https://www.bbc.co.uk/food", "title": "BBC Food", "folder": "Home/Cooking", "added": "2022-02-11", "visits": 4},
+    {"id": 4, "url": "https://realpython.com/", "title": "Real Python", "folder": "Dev/Python/python", "added": "2022-03-12", "visits": 0}
+  ]
+}

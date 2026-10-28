@@ -1,0 +1,32 @@
+# A ~840-line job scheduler (15 files) with its own DST rules (no zoneinfo, for Windows).
+# Daylight-saving changes misfire jobs. Three cooperating bugs:
+# 1. zones.Zone.to_utc() looks up the offset by treating the wall-clock time as if it were
+#    UTC, so near a change it picks the wrong offset: a repeated time maps to its *second*
+#    occurrence, a skipped time (02:30 on spring-forward day) maps an hour late (03:30),
+#    and some ordinary times next to the change are off by an hour (worse in New York).
+# 2. timeutil.add_days() adds 24h of elapsed time, not a wall-clock day, and
+#    schedules.AtTime.next_after() uses it to step from one day's candidate to the next,
+#    so after a change the run moves an hour (Mon 07:00 *and* 08:00 report in October,
+#    09:00 in March).
+# 3. next_after() chains from the previous candidate, so once a run is moved out of the
+#    spring gap (to 03:00) the next day inherits 03:00.
+# Right fix: to_utc tries both offsets, keeps those that round-trip, returns the earliest;
+# in a gap returns the instant summer time starts (README: "first moment after the gap",
+# 03:00); next_after works per local calendar day from the configured time.
+# Why it's hard: the visible tests only cover ordinary days; the reported October symptoms
+# disappear with a partial fix (fixing add_days, or to_utc alone, or both while keeping the
+# chaining) while March / New York cases still misfire; a zoneinfo-style fold=0 answer for
+# gaps (03:30) contradicts the README. Red herring: Every (elapsed time) is correct and must
+# stay elapsed (25 runs of `every 1h` on the long day).
+prompt = """The clocks went back last Sunday (25 Oct) and cronlite got confused:
+
+- the nightly backup (`daily 02:30`, Amsterdam) ran twice on Sunday morning, an hour apart;
+- Monday's morning report (`weekdays 08:00`) went out at 07:00 and then again at 08:00.
+
+Tuesday was back to normal. Going through older logs, the Monday after the clocks went forward in March had the morning report at 09:00 instead of 08:00, and that Sunday's backup ran at 03:30.
+
+Can you fix cronlite so clock changes are handled the way the README describes? The US clocks change this coming weekend and the New York jobs need to be right too."""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1500
+max_cost = 3.00

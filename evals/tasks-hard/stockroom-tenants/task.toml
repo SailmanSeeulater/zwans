@@ -1,0 +1,36 @@
+# Make stockroom (an inventory app, ~1500 lines over 22 files) multi-tenant: a cross-cutting
+# change threading a tenant through the service, the repositories, a shared LRU cache, an
+# in-memory search index, transactions, reports, the CLI and the stored file format.
+#
+# A correct answer: `Inventory(db, tenant=...)` defaulting to "default"; rows tagged with
+# their tenant (missing tag = default, so old files load unchanged); every repository
+# filtering by tenant (products, movements, alerts); the product lookup cache keyed by
+# tenant AND sku; the search index keyed by tenant AND sku, including where the database
+# rebuilds it on load and on rollback; the reports (which build their own repositories
+# instead of going through Inventory) taking the tenant; a global `--tenant` CLI option
+# used by every command and report. Old callers (`Inventory(db)`, `valuation_report(db)`)
+# must keep working.
+#
+# Why it's hard: the obvious change (add a tenant field, filter the lists) passes most
+# single-tenant checks but leaks across tenants through the cache (keyed by sku), the
+# search index (one tenant's MUG-01 overwrites another's entry), the index rebuild in
+# storage.py, removal (history check, index entry), and the reports that bypass the
+# service. Hidden tests use two tenants with the same SKUs to hit each of those.
+prompt = """
+We're going to run the stock for a second shop (and probably more later) out of the same \
+stockroom database. Please make stockroom multi-tenant:
+
+- `Inventory(db, tenant="acme")` works for one tenant. Without a tenant you get the \
+`default` tenant, so everything that works today keeps working exactly as it does.
+- The CLI gets a global `--tenant NAME` option (default `default`).
+- Tenants must be completely isolated: products, stock, history, alerts, search, every \
+report and the snapshot only ever show the tenant's own data, and nothing one tenant does \
+may affect another. SKUs only need to be unique within a tenant; two shops can both have \
+a `MUG-01`.
+- Existing database files must keep working, and everything already in them belongs to \
+`default`.
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 1500
+max_cost = 3.00

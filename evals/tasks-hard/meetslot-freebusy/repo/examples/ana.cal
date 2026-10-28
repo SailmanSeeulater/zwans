@@ -1,0 +1,11 @@
+# Ana works from Lisbon (UTC+0 in winter).
+name: Ana Lima
+email: ana@example.com
+offset: +00:00
+hours: 09:00-17:00
+days: mon-fri
+
+2025-03-03 09:00 - 2025-03-03 09:30  Standup
+2025-03-03 13:00 - 14:00             Lunch with Sam
+2025-03-04 09:00 - 09:30             Standup
+2025-03-04 15:00 - 16:20             Quarterly review

@@ -1,0 +1,43 @@
+# Add a `refund` command to orderdesk, an event-sourced order desk (~1900 lines, 33 files)
+# with a command registry, per-command permissions, an audit log, read models, customer
+# emails and a hand-wired CLI. The ticket is short; the codebase is the spec.
+#
+# A correct answer: a new event (registered with @event) and an applier in aggregate.py; a
+# command + handler in a new handlers/ module imported from handlers/__init__.py; refunds
+# only on paid/shipped orders, positive, with a reason, never more in total than was paid;
+# status `refunded` once everything paid is refunded (partial refunds keep paid/shipped);
+# an `orders.refund` (or similar) permission held by managers but not clerks or auditors;
+# a CLI builder + sub-parser (`refund ORDER --amount X --reason Y`); a docs/commands.md
+# section; the OrderList read model tracking status, the SalesReport counting refunds on
+# the refund's day, the CustomerLedger taking them off; a customer email; and cancel
+# changed to give back only what has not been refunded yet.
+#
+# Why it's hard: the change touches ~10 files, and the README's "adding a command"
+# checklist covers only half of them. The read models duplicate the aggregate's status
+# logic, so `orderdesk list` stays wrong unless they are updated too. The real trap is
+# cancel: it refunds `state.paid_cents`, which was right until partial refunds existed;
+# after a partial refund it hands the same money back twice. Hidden tests drive everything
+# through the CLI (so names of classes and fields are free) and check every place.
+prompt = """
+Support keeps asking for a way to give money back on an order without cancelling it, \
+e.g. one item arrived damaged and we refund part of the price. Please add a `refund` \
+command to orderdesk, built the same way as `cancel`:
+
+    python -m orderdesk refund ORD-0007 --amount 12.50 --reason "lid cracked"
+
+- Only for orders that have been paid (shipped or not). The amount must be positive and the \
+reason is required.
+- Partial refunds are fine, several of them too, but in total we never give back more than \
+the customer paid. Money we've already given back must never be given back a second time, \
+whatever happens to the order afterwards.
+- Once everything paid has been refunded, the order's status becomes `refunded`.
+- Same people as for cancelling: managers yes, clerks no.
+- Refunds need to show up in the reports, and the customer should get an email, like when \
+we cancel.
+
+Wire it up and document it like the other commands.
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 1500
+max_cost = 3.00

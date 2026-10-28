@@ -1,0 +1,38 @@
+{
+  "vendors": [
+    {"id": "V-100", "name": "Northwind Tools", "owner": "sneumann"},
+    {"id": "V-101", "name": "Contoso Paper", "owner": "tbauer"},
+    {"id": "V-102", "name": "Fabrikam Logistics", "owner": "gschulz"},
+    {"id": "V-103", "name": "Alpine Instruments", "owner": "kyilmaz"}
+  ],
+  "invoices": [
+    {
+      "id": "INV-2288", "vendor": "V-101", "total": "840.00", "currency": "EUR",
+      "invoice_date": "2025-10-20", "received": "2025-10-22", "submitted_by": "pschmidt",
+      "cost_center": "CC-200", "status": "paid",
+      "approvals": [{"user": "mkoch", "at": "2025-10-23T09:14:00Z"}]
+    },
+    {
+      "id": "INV-2290", "vendor": "V-102", "total": "18250.00", "currency": "EUR",
+      "invoice_date": "2025-10-29", "received": "2025-10-31", "submitted_by": "fkrause",
+      "cost_center": "CC-310", "status": "pending", "approvals": []
+    },
+    {
+      "id": "INV-2291", "vendor": "V-100", "total": "11500.00", "currency": "USD",
+      "invoice_date": "2025-10-02", "received": "2025-11-03", "submitted_by": "rweber",
+      "cost_center": "CC-410", "status": "pending",
+      "approvals": [{"user": "mkoch", "at": "2025-11-12T10:12:00Z"}]
+    },
+    {
+      "id": "INV-2292", "vendor": "V-103", "total": "4300.00", "currency": "CHF",
+      "invoice_date": "2025-11-04", "received": "2025-11-06", "submitted_by": "dlopez",
+      "cost_center": "CC-410", "status": "pending", "approvals": []
+    },
+    {
+      "id": "INV-2293", "vendor": "V-101", "total": "61200.00", "currency": "GBP",
+      "invoice_date": "2025-11-07", "received": "2025-11-10", "submitted_by": "pschmidt",
+      "cost_center": "CC-100", "status": "pending",
+      "approvals": [{"user": "tbauer", "at": "2025-11-11T08:30:00Z"}, {"user": "jwagner", "at": "2025-11-11T13:02:00Z"}]
+    }
+  ]
+}

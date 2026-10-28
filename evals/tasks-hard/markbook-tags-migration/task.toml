@@ -1,0 +1,41 @@
+# Replace folders with tags in markbook, a bookmarks CLI (~1250 lines, 24 files) with a
+# versioned JSON file format, a chain of migrations (format 1 -> 2 -> 3) and sample files
+# from every old format.
+#
+# A correct answer: CURRENT_VERSION = 4; a new migration module (self-contained, does not
+# mutate its input) registered in MIGRATIONS[3]; validate() updated so `tags` must be a list
+# of normalised (lowercase, words joined by "-"), non-empty, unique strings and `folder` is
+# refused; Bookmark/Collection with tags (add with tags, tag/untag, filter by tag, count per
+# tag, find matching tags); CLI `add --tag`, `tag`, `untag`, `list --tag`, `tags`; HTML
+# export writing TAGS="a,b" and import reading TAGS plus turning <H3> folders into tags.
+# Format 1 and 2 files must go through the whole chain and come out with the right tags,
+# visits, stars and ids.
+#
+# Why it's hard: the change runs through every layer (schema, migrations, model,
+# collection, CLI, HTML both ways, docs) and every old sample must still load. The same
+# normalisation (lowercase, spaces to "-", duplicates dropped: "Dev/Python/python" ->
+# dev, python; "Web Frameworks" -> web-frameworks) has to be applied consistently in the
+# migration, the CLI and the importer; the validator must enforce it as it enforces the
+# folder format today; and the round trip through the browser format must keep tags.
+# Hidden tests check behaviour through the file format and the CLI, plus the existing
+# Python API that the ticket does not change.
+prompt = """
+Folders don't work for us any more: half our bookmarks belong in two places. Please \
+replace folders with tags in markbook. That's a file format change (format 4):
+
+- Instead of `"folder"`, each bookmark has `"tags"`, a list of strings. Tags are lowercase \
+with words joined by `-` (`Machine Learning` becomes `machine-learning`), and a bookmark \
+never has the same tag twice. Whatever the user types gets normalised like that.
+- Every existing file must keep working. A bookmark in folder `Dev/Python` ends up with the \
+tags `dev` and `python`; one at the top level gets no tags.
+- CLI: `add --tag T` (can be repeated) replaces `--folder`; `tag ID TAG...` and \
+`untag ID TAG...` replace `move`; `list --tag T` lists the bookmarks with that tag; `tags` \
+replaces `folders`. `find` should search tags the way it searched folders.
+- Browser files: export the tags in the `TAGS` attribute (comma-separated), the way \
+browsers do, and read that attribute back on import. When an imported file has folders, \
+they become tags, the same way as in the migration.
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 1500
+max_cost = 3.00

@@ -1,0 +1,8 @@
+# Kenji works from Tokyo.
+name: Kenji Mori
+email: kenji@example.com
+offset: +09:00
+hours: 15:00-23:00
+days: mon-fri
+
+2025-03-03 08:00 - 2025-03-03 09:00  Release sync

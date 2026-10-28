@@ -1,0 +1,41 @@
+# Add partial shipments to fulfil, a small orders/stock/billing library (~970 lines, 17
+# files) whose docs/invariants.md lists what must always hold, checked by a helper in the
+# tests after every scenario.
+#
+# A correct answer: `ship(order_id, lines=None)` ships the given quantities (or all that is
+# still open); validates everything before changing anything (unknown sku, zero/negative,
+# more than is still open, nothing left to ship); one invoice per shipment listing exactly
+# what shipped; status `partially_shipped` until everything has gone; and keeps every
+# invariant: the discount worked out on the running shipped subtotal (so per-shipment
+# rounding never drifts, at every step, not only at the end), shipping charged once;
+# cancel releasing only the reservations still open; returns limited to what actually
+# shipped (also on partly shipped / partly cancelled orders); the sales report counting
+# units on the day they shipped (from the shipments, not from orders that are "shipped");
+# the backlog showing what is left on partly shipped orders.
+#
+# Why it's hard: the natural change (loop over the requested lines, invoice them with
+# the existing discount and shipping logic) breaks invariants in four other places:
+# per-invoice discount rounding (15% of 10c rounds up three times: 6c instead of 5c),
+# shipping on every invoice, cancel releasing the full ordered quantity, returns checked
+# against ordered rather than shipped quantities, and reports that only look at fully
+# shipped orders. The invariants are all written down; nothing in the ticket points at them
+# except "keep the rest right".
+prompt = """
+The warehouse wants to send out whatever is ready instead of waiting until a whole order \
+can go. Please add partial shipments to fulfil:
+
+- `shop.ship(order_id, {"MUG-01": 2})` ships just those quantities. `shop.ship(order_id)` \
+without lines still ships everything that hasn't shipped yet, as today.
+- Every shipment gets its own invoice, for exactly what was in it.
+- An order with some but not all of its goods shipped has the status `partially_shipped`; \
+once everything has gone it's `shipped`.
+- Shipping more of a product than is still open on the order, or something that isn't on \
+the order, is an error.
+- Cancelling a partly shipped order cancels whatever hasn't shipped yet.
+
+Billing, stock, returns and the reports all have to stay right, of course.
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 1200
+max_cost = 2.50

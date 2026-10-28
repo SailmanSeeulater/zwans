@@ -1,0 +1,24 @@
+# A ~1000-line feed service (15 files) with cursor (keyset) paging over two backends.
+# Timestamps are kept to the second, so posts share them (blog imports land at midnight;
+# bursts of posts in one second). Bugs, all needed for the symptom to go away:
+# 1. cursor.Cursor holds only created_at, so a page boundary inside a run of equal
+#    timestamps can't be expressed.
+# 2. MemoryBackend.posts() filters older_than/newer_than on created_at alone (strict < / >),
+#    so every post sharing the boundary timestamp is skipped (refresh misses same-second
+#    posts the same way).
+# 3. SQLiteBackend.posts() (the production backend, per the README) does the same in SQL
+#    and also orders by created_at only, without the id tie-break the README specifies.
+# Right fix: a cursor carrying (created_at, id), compared as a tuple in both backends
+# (SQL: created_at < ? OR (created_at = ? AND id < ?)), ORDER BY created_at DESC, id DESC.
+# Why it's hard: the visible tests run on the memory backend, so fixing cursor + memory
+# passes them while the production SQLite backend still skips posts (hidden tests run on
+# both); `<=` gives duplicates/infinite paging; offset-in-the-cursor breaks the documented
+# "new posts don't shift later pages"; an id-only cursor looked up at query time breaks
+# when that post is deleted mid-scroll. Red herring: the deprecated ?page= TODO in api.py.
+prompt = """From the mobile team: since Grace imported her old blog (a few hundred posts), people scrolling her profile or their home feed in the app say lots of her old posts never show up. The infinite scroll goes from one of her May 2019 posts straight to something much older, and the posts in between are only visible if you use the old page-number paging. Separately, pull-to-refresh sometimes misses a post when two posts are published within the same second (the weather bots post in bursts), and the missing post never appears until you reload the whole feed.
+
+Can you fix the paging so nothing gets skipped?"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1200
+max_cost = 2.50

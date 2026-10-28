@@ -1,0 +1,35 @@
+{
+  "users": [
+    {"username": "ahoffmann", "name": "Anna Hoffmann", "department": "finance", "type": "contractor", "utc_offset": "+01:00", "active": true},
+    {"username": "dlopez", "name": "Diego Lopez", "department": "finance", "type": "contractor", "utc_offset": "-05:00", "active": true},
+    {"username": "eklein", "name": "Emma Klein", "department": "it", "type": "employee", "utc_offset": "+01:00", "active": true},
+    {"username": "fkrause", "name": "Frank Krause", "department": "finance", "type": "employee", "utc_offset": "+01:00", "active": true},
+    {"username": "gschulz", "name": "Greta Schulz", "department": "procurement", "type": "employee", "utc_offset": "+01:00", "active": true},
+    {"username": "hkrueger", "name": "Helga Krueger", "department": "finance", "type": "employee", "utc_offset": "+01:00", "active": true},
+    {"username": "jwagner", "name": "Julia Wagner", "department": "finance", "type": "employee", "utc_offset": "+01:00", "active": true},
+    {"username": "kyilmaz", "name": "Kerem Yilmaz", "department": "procurement", "type": "employee", "utc_offset": "+03:00", "active": true},
+    {"username": "lfischer", "name": "Lena Fischer", "department": "finance", "type": "employee", "utc_offset": "+01:00", "active": true},
+    {"username": "mkoch", "name": "Martin Koch", "department": "finance", "type": "employee", "utc_offset": "+01:00", "active": true},
+    {"username": "mweiss", "name": "Mia Weiss", "department": "sales", "type": "employee", "utc_offset": "+01:00", "active": true},
+    {"username": "ngarcia", "name": "Nuria Garcia", "department": "finance", "type": "employee", "utc_offset": "+01:00", "active": true},
+    {"username": "obraun", "name": "Oliver Braun", "department": "finance", "type": "employee", "utc_offset": "+01:00", "active": false},
+    {"username": "pschmidt", "name": "Paul Schmidt", "department": "finance", "type": "employee", "utc_offset": "+01:00", "active": true},
+    {"username": "root-ops", "name": "Ops automation", "department": "it", "type": "service", "utc_offset": "+00:00", "active": true},
+    {"username": "rweber", "name": "Rita Weber", "department": "finance", "type": "employee", "utc_offset": "+01:00", "active": true},
+    {"username": "sneumann", "name": "Sven Neumann", "department": "finance", "type": "employee", "utc_offset": "+01:00", "active": true},
+    {"username": "tbauer", "name": "Tobias Bauer", "department": "finance", "type": "employee", "utc_offset": "+01:00", "active": true},
+    {"username": "wtan", "name": "Wei Tan", "department": "finance", "type": "contractor", "utc_offset": "+08:00", "active": true}
+  ],
+  "groups": [
+    {"name": "admins", "members": ["root-ops", "eklein"]},
+    {"name": "ap-team", "members": ["pschmidt", "rweber", "dlopez", "wtan", "fkrause", "@ap-team-leads"]},
+    {"name": "ap-team-leads", "members": ["rweber"]},
+    {"name": "controllers", "members": ["hkrueger"]},
+    {"name": "finance-approvers", "members": ["mkoch", "tbauer", "@finance-seniors"]},
+    {"name": "finance-seniors", "members": ["jwagner", "sneumann", "ahoffmann", "lfischer", "mkoch", "obraun", "@regional-seniors"]},
+    {"name": "iberia-leads", "members": ["ngarcia"]},
+    {"name": "procurement", "members": ["gschulz", "kyilmaz"]},
+    {"name": "regional-seniors", "members": ["@iberia-leads"]},
+    {"name": "sales", "members": ["mweiss"]}
+  ]
+}
