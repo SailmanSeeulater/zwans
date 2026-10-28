@@ -34,9 +34,9 @@ def test_a_task_loads_from_its_folder() -> None:
     assert (task.repo / "calc.py").is_file()
 
 
-def test_a_task_need_a_check(tmp_path: Path) -> None:
+def test_a_task_needs_a_check(tmp_path: Path) -> None:
     (tmp_path / "repo").mkdir()
-    (tmp_path / "task.toml").write_text('prompt = "Dot it"\n', encoding="utf-8")
+    (tmp_path / "task.toml").write_text('prompt = "Do it"\n', encoding="utf-8")
 
     with pytest.raises(TaskError, match="check"):
         load_task(tmp_path)

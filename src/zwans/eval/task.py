@@ -1,9 +1,9 @@
 """
-Eval tasks. Each on is a folder:
+Eval tasks. Each one is a folder:
 
 evals/tasks/<name>/
     task.toml   what to ask, how to check the result, and the limits
-    repo/       the files the gent starts with
+    repo/       the files the agent starts with
     hidden/     copied in after the agent finishes, just before the check runs
     solution/   a known-good answer, never shown to the agent; proves the task can pass
 """
@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from zwans.executor.base import CommandResult, Executor
 
-CHECK_TIMEOUT = 300 # seconds
+CHECK_TIMEOUT = 300  # seconds
 
 
 class TaskError(Exception):
@@ -28,11 +28,11 @@ class Task(BaseModel):
 
     name: str  # the folder's name
     folder: Path
-    prompt: str  # what the egent is asked, worded the way a user would ask it
-    check: str  # a shell command run after the agent finishes; exit code 0 mean it passed
+    prompt: str  # what the agent is asked, worded the way a user would ask it
+    check: str  # a shell command run after the agent finishes; exit code 0 means it passed
     category: str = "general"  # bug-fix, feature, refactor, question, ...
     timeout: int = Field(default=600, gt=0)  # seconds the agent gets
-    max_cost: float = Field(default=1.0, gt=0)  # dollars one attempt map spend
+    max_cost: float = Field(default=1.0, gt=0)  # dollars one attempt may spend
 
     @property
     def repo(self) -> Path:
@@ -66,20 +66,20 @@ def load_suite(folder: Path) -> list[Task]:
 
 
 def prepare_workspace(task: Task, workspace: Path) -> None:
-    # Give an attempt its own frest copy of the task's repo.
+    # Give an attempt its own fresh copy of the task's repo.
     shutil.copytree(task.repo, workspace)
 
 
 def apply_solution(task: Task, workspace: Path) -> None:
-    # Copy the known-good answer over the repo, as a perfect gent would leave ie.
+    # Copy the known-good answer over the repo, as a perfect agent would leave it.
     shutil.copytree(task.solution, workspace, dirs_exist_ok=True)
 
 
 async def run_check(task: Task, executor: Executor) -> CommandResult:
     """Copy in the hidden files, then run the check.
-    
-        Hidden files replace any file of the same name, so a hidden copy of test also undoes
-        an agent that "passed" by editing the test instead of fixing the code.
+
+    Hidden files replace any file of the same name, so a hidden copy of a test also undoes
+    an agent that "passed" by editing the test instead of fixing the code.
     """
     if task.hidden.is_dir():
         for source in sorted(task.hidden.rglob("*")):
