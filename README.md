@@ -4,7 +4,7 @@ A coding agent built from scratch: the loop that calls the model, the tools it u
 (in later phases) the sandbox and the evals that prove it works. See [SPEC.md](SPEC.md) for
 the full plan.
 
-**Status:** Phases 0 to 2 are done. Zwans can read, search, and edit a project and run its
+**Status:** Phases 0 to 2 are done; Phase 3 (evals) is under way. Zwans can read, search, and edit a project and run its
 tests; it saves and resumes sessions, compacts long ones, and caches prompts. There are no
 permission prompts or sandbox yet (Phase 4), so point it at a folder you don't mind it
 changing.
@@ -57,6 +57,24 @@ starts, the project's last.
 
 When the conversation passes `compact_at` tokens, Zwans has the model write handoff notes
 for the older part and keeps the latest `keep_messages` messages word for word.
+
+## Evals
+
+Each folder in `evals/tasks/` is a task: a prompt, a starting `repo/`, a `check` command that
+decides pass or fail, and `hidden/` tests copied in only when the check runs. Every attempt
+works on its own fresh copy of the repo.
+
+```bash
+zwans eval run --repeats 3 --budget 5                  # every task, three times, at most $5
+zwans eval run --only buggy-calc                       # one task
+zwans eval run --config evals/configs/vague-edit.toml  # a variant to compare
+```
+
+A config in `evals/configs/` overrides settings such as `model` or `effort` for the run, and
+can replace a tool's description under `[tool_descriptions]`. Each task's `max_cost` and
+`timeout` limit one attempt; going over either fails it. `--budget` stops the whole run once
+it has spent that much; attempts it cut off are reported as stopped and don't count. The
+report and a transcript per attempt go to `evals/reports/`.
 
 ## Configuration
 

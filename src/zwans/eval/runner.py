@@ -1,0 +1,358 @@
+"""Runs eval tasks: each attempt gets a fresh copy of a task's repo, the agent works on it,
+then the task's check decides whether it passed.
+
+Attempts run on this machine in a temporary folder for now. The Docker executor (Phase 4)
+will give each one its own container.
+"""
+
+import asyncio
+import tempfile
+import time
+import tomllib
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, ValidationError
+
+from zwans.config import Config
+from zwans.context.compaction import Compactor
+from zwans.context.instructions import load_instructions
+from zwans.eval.task import Task, prepare_workspace, run_check
+from zwans.events import Error, Event, ToolCallRequested, ToolResult, UsageUpdated
+from zwans.executor.local import LocalExecutor, find_bash
+from zwans.pricing import cost
+from zwans.prompt import system_prompt
+from zwans.providers.base import Provider
+from zwans.session import Session
+from zwans.tools.base import Tool, ToolContext
+from zwans.tools.bash import BashTool
+from zwans.tools.edit import EditTool
+from zwans.tools.glob import GlobTool
+from zwans.tools.grep import GrepTool
+from zwans.tools.read import ReadTool
+from zwans.tools.write import WriteTool
+from zwans.transcript import TranscriptWriter
+
+CHECK_OUTPUT_CHARS = 2_000  # the end of the check's output, kept in the report
+
+type ProviderFactory = Callable[[Task, Config], Provider]
+type Status = Literal["passed", "failed", "stopped"]
+
+
+class EvalConfigError(Exception):
+    pass
+
+
+class EvalConfig(BaseModel):
+    """One way of running the agent, to compare against another: evals/configs/<name>.toml.
+
+    Top-level keys override Zwans's own settings (model, effort, max_steps, ...). A
+    [tool_descriptions] table replaces what the model is told about a tool, by tool name.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    settings: dict[str, Any] = {}
+    tool_descriptions: dict[str, str] = {}
+
+    def apply(self, base: Config) -> Config:
+        try:
+            return Config.model_validate({**base.model_dump(), **self.settings})
+        except ValidationError as exc:
+            raise EvalConfigError(f"Config {self.name}: {exc}") from exc
+
+
+def load_eval_config(path: Path) -> EvalConfig:
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        descriptions = data.pop("tool_descriptions", {})
+        return EvalConfig(name=path.stem, settings=data, tool_descriptions=descriptions)
+    except (OSError, tomllib.TOMLDecodeError, ValidationError) as exc:
+        raise EvalConfigError(f"{path}: {exc}") from exc
+
+
+def make_tools(config: EvalConfig) -> list[Tool[Any]]:
+    tools: list[Tool[Any]] = [
+        ReadTool(),
+        WriteTool(),
+        EditTool(),
+        GlobTool(),
+        GrepTool(),
+        BashTool(),
+    ]
+    names = {tool.name for tool in tools}
+    unknown = sorted(set(config.tool_descriptions) - names)
+    if unknown:
+        raise EvalConfigError(f"Config {config.name} describes unknown tools: {unknown}")
+    for tool in tools:
+        if tool.name in config.tool_descriptions:
+            tool.description = config.tool_descriptions[tool.name]
+    return tools
+
+
+class AttemptResult(BaseModel):
+    task: str
+    category: str
+    repeat: int  # 1, 2, ... for repeats of the same task
+    # "stopped" means the suite's budget ran out first; such attempts count for nothing.
+    status: Status
+    stop_reason: str  # why the agent's turn ended: "end_turn", "timeout", "over_budget", ...
+    dollars: float = 0.0
+    model_calls: int = 0
+    tool_calls: int = 0
+    tool_errors: int = 0
+    seconds: float = 0.0
+    check_exit: int | None = None
+    check_output: str = ""
+    errors: list[str] = []
+    transcript: str = ""
+
+
+class Summary(BaseModel):
+    attempts: int  # attempts that count: every one that wasn't stopped
+    passed: int
+    pass_rate: float
+    dollars: float  # in total, stopped attempts included
+    mean_dollars: float
+    mean_model_calls: float
+    mean_tool_calls: float
+    tool_error_rate: float  # failed tool calls out of all tool calls
+    mean_seconds: float
+
+    @classmethod
+    def of(cls, results: Sequence[AttemptResult]) -> "Summary":
+        counted = [r for r in results if r.status != "stopped"]
+        n = len(counted)
+        tool_calls = sum(r.tool_calls for r in counted)
+
+        def mean(values: list[float]) -> float:
+            return sum(values) / n if n else 0.0
+
+        passed = sum(r.status == "passed" for r in counted)
+        return cls(
+            attempts=n,
+            passed=passed,
+            pass_rate=passed / n if n else 0.0,
+            dollars=sum(r.dollars for r in results),
+            mean_dollars=mean([r.dollars for r in counted]),
+            mean_model_calls=mean([r.model_calls for r in counted]),
+            mean_tool_calls=mean([r.tool_calls for r in counted]),
+            tool_error_rate=sum(r.tool_errors for r in counted) / tool_calls if tool_calls else 0.0,
+            mean_seconds=mean([r.seconds for r in counted]),
+        )
+
+
+class Report(BaseModel):
+    config: EvalConfig
+    model: str
+    effort: str
+    started_at: str
+    repeats: int
+    budget: float | None  # dollars for the whole run
+    out_of_budget: bool  # the run stopped early because the budget ran out
+    summary: Summary
+    tasks: dict[str, Summary]
+    attempts: list[AttemptResult]
+
+
+@dataclass
+class Budget:
+    """Dollars the whole run may spend. Every attempt charges it as it goes."""
+
+    limit: float | None
+    spent: float = 0.0
+
+    @property
+    def exhausted(self) -> bool:
+        return self.limit is not None and self.spent >= self.limit
+
+
+@dataclass
+class _Watch:
+    """Listens to one attempt's events: counts what the report needs and enforces the
+    attempt's and the run's budgets by cancelling the turn."""
+
+    task: Task
+    budget: Budget
+    turn: asyncio.Task[str] | None = None
+    dollars: float = 0.0
+    model_calls: int = 0
+    tool_calls: int = 0
+    tool_errors: int = 0
+    errors: list[str] = field(default_factory=list)
+    stopped_by: str = ""  # "over_budget" (this attempt's) or "suite_budget" (the run's)
+
+    def on_event(self, event: Event) -> None:
+        if isinstance(event, UsageUpdated):
+            self.model_calls += 1
+            dollars = cost(event) or 0.0
+            self.dollars += dollars
+            self.budget.spent += dollars
+            if self.dollars > self.task.max_cost:
+                self._stop("over_budget")
+            elif self.budget.exhausted:
+                self._stop("suite_budget")
+        elif isinstance(event, ToolCallRequested):
+            self.tool_calls += 1
+        elif isinstance(event, ToolResult) and event.is_error:
+            self.tool_errors += 1
+        elif isinstance(event, Error):
+            self.errors.append(event.message)
+
+    def _stop(self, reason: str) -> None:
+        if not self.stopped_by and self.turn is not None:
+            self.stopped_by = reason
+            self.turn.cancel()
+
+
+async def run_attempt(
+    task: Task,
+    repeat: int,
+    config: Config,
+    eval_config: EvalConfig,
+    make_provider: ProviderFactory,
+    budget: Budget,
+    transcript_path: Path,
+) -> AttemptResult:
+    if budget.exhausted:
+        return AttemptResult(
+            task=task.name,
+            category=task.category,
+            repeat=repeat,
+            status="stopped",
+            stop_reason="suite_budget",
+        )
+    with tempfile.TemporaryDirectory(prefix=f"zwans-eval-{task.name}-") as temp:
+        workspace = Path(temp) / "work"
+        prepare_workspace(task, workspace)
+        executor = LocalExecutor(workspace, shell=config.shell, spill_dir=Path(temp) / "output")
+        watch = _Watch(task, budget)
+        transcript = TranscriptWriter(transcript_path)
+        provider = make_provider(task, config)
+        session = _session(
+            workspace,
+            config,
+            eval_config,
+            provider,
+            executor,
+            [watch.on_event, transcript.on_event],
+        )
+        started = time.monotonic()
+        try:
+            watch.turn = asyncio.create_task(session.send(task.prompt))
+            stop_reason = await asyncio.wait_for(watch.turn, task.timeout)
+        except TimeoutError:
+            stop_reason = "timeout"
+        except asyncio.CancelledError:
+            if not watch.stopped_by:
+                raise  # cancelled from outside, not by a budget
+            stop_reason = watch.stopped_by
+        finally:
+            seconds = time.monotonic() - started
+            await provider.aclose()
+            transcript.close()
+
+        result = AttemptResult(
+            task=task.name,
+            category=task.category,
+            repeat=repeat,
+            status="failed",
+            stop_reason=stop_reason,
+            dollars=watch.dollars,
+            model_calls=watch.model_calls,
+            tool_calls=watch.tool_calls,
+            tool_errors=watch.tool_errors,
+            seconds=round(seconds, 2),
+            errors=watch.errors,
+            transcript=str(transcript_path),
+        )
+        if stop_reason == "suite_budget":
+            result.status = "stopped"
+        elif stop_reason not in ("timeout", "over_budget"):  # running out of limits is a fail
+            check = await run_check(task, executor)
+            result.check_exit = check.exit_code
+            result.check_output = check.output[-CHECK_OUTPUT_CHARS:]
+            result.status = "passed" if check.exit_code == 0 else "failed"
+        return result
+
+
+def _session(
+    workspace: Path,
+    config: Config,
+    eval_config: EvalConfig,
+    provider: Provider,
+    executor: LocalExecutor,
+    listeners: list[Callable[[Event], None]],
+) -> Session:
+    # Only the task's own ZWANS.md, never the user's, so every attempt gets the same prompt.
+    instructions = load_instructions(workspace, home=workspace)
+    shell = config.shell or _find_bash()
+    return Session(
+        provider=provider,
+        tools=make_tools(eval_config),
+        ctx=ToolContext(executor=executor),
+        system=system_prompt(workspace, shell, instructions),
+        listeners=listeners,
+        max_steps=config.max_steps,
+        compactor=Compactor(provider, config.compact_at, config.keep_messages),
+    )
+
+
+def _find_bash() -> str:
+    try:
+        return find_bash()
+    except FileNotFoundError:
+        return "none found, so the Bash tool will fail"
+
+
+async def run_suite(
+    tasks: Sequence[Task],
+    config: Config,
+    eval_config: EvalConfig,
+    make_provider: ProviderFactory,
+    out_dir: Path,
+    *,
+    repeats: int = 1,
+    parallel: int = 4,
+    budget: float | None = None,
+    on_result: Callable[[AttemptResult], None] | None = None,
+) -> Report:
+    """Run every task `repeats` times, up to `parallel` attempts at once, and save
+    out_dir/report.json. Attempts are ordered so each task's first try comes before
+    any task's second, which keeps an early budget stop from skipping whole tasks."""
+    started_at = datetime.now().isoformat(timespec="seconds")
+    spend = Budget(budget)
+    slots = asyncio.Semaphore(parallel)
+
+    async def attempt(task: Task, repeat: int) -> AttemptResult:
+        async with slots:
+            path = out_dir / "transcripts" / f"{task.name}-{repeat}.jsonl"
+            result = await run_attempt(
+                task, repeat, config, eval_config, make_provider, spend, path
+            )
+        if on_result is not None:
+            on_result(result)
+        return result
+
+    jobs = [attempt(task, repeat) for repeat in range(1, repeats + 1) for task in tasks]
+    results = sorted(await asyncio.gather(*jobs), key=lambda r: (r.task, r.repeat))
+
+    report = Report(
+        config=eval_config,
+        model=config.model,
+        effort=config.effort,
+        started_at=started_at,
+        repeats=repeats,
+        budget=budget,
+        out_of_budget=any(r.status == "stopped" for r in results),
+        summary=Summary.of(results),
+        tasks={t.name: Summary.of([r for r in results if r.task == t.name]) for t in tasks},
+        attempts=results,
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    return report

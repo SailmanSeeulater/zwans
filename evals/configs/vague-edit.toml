@@ -1,0 +1,5 @@
+# A deliberately worse Edit description. If `zwans eval compare` can't tell this apart from
+# baseline, the suite is too small or too easy to measure anything.
+
+[tool_descriptions]
+Edit = "Edit a file."

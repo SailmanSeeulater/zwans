@@ -94,3 +94,13 @@ def load_credential(config: Config, env: Mapping[str, str] = os.environ) -> Cred
             hint = f"{CREDENTIAL_VARS[other]} is set, so to use it, set ZWANS_AUTH={other}."
         raise ConfigError(f"auth is {config.auth!r} but {var} is not set. {hint}")
     return Credential(mode=config.auth, token=token)
+
+
+def load_settings() -> tuple[Config, dict[str, str]]:
+    """The config, and the environment with a .env file from the current folder merged in.
+
+    Real environment variables win over the .env file. The merged values stay in the returned
+    dictionary rather than os.environ, so commands the agent runs never inherit them.
+    """
+    env = {**read_dotenv(Path(".env")), **os.environ}
+    return load_config(env=env), env

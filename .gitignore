@@ -32,3 +32,6 @@ Thumbs.db
 desktop.ini
 # The committed template for .env
 !.env.example
+
+# Eval reports: transcripts get large. Copy numbers worth keeping into docs/findings.md.
+evals/reports/

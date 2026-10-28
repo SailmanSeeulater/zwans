@@ -2,7 +2,6 @@
 
 import asyncio
 import io
-import os
 import secrets
 import sys
 from dataclasses import dataclass
@@ -13,8 +12,9 @@ from typing import Annotated
 import typer
 
 from zwans import __version__
+from zwans.cli.evals import eval_app
 from zwans.cli.render import Renderer
-from zwans.config import Config, ConfigError, load_config, load_credential, read_dotenv
+from zwans.config import ConfigError, load_credential, load_settings
 from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
 from zwans.executor.local import LocalExecutor, find_bash
@@ -36,6 +36,7 @@ from zwans.tools.write import WriteTool
 from zwans.transcript import TranscriptWriter
 
 app = typer.Typer(add_completion=False)
+app.add_typer(eval_app, name="eval")
 
 EXIT_INTERRUPTED = 130  # the usual exit code after Ctrl+C
 
@@ -101,7 +102,7 @@ def run(
 @app.command()
 def sessions(limit: Annotated[int, typer.Option(min=1, help="How many to list.")] = 20) -> None:
     """List saved sessions, most recent first."""
-    config, _ = _load_config()
+    config, _ = load_settings()
     store = SessionStore(config.home / "sessions.db")
     found = store.recent(limit)
     store.close()
@@ -161,7 +162,7 @@ def _open(
     rewind: int | None,
     fake_script: Path | None,
 ) -> _Opened:
-    config, env = _load_config()
+    config, env = load_settings()
     store = SessionStore(config.home / "sessions.db")
     messages: list[Message] = []
     repaired = False
@@ -253,13 +254,6 @@ def _print_turn(opened: _Opened) -> None:
 
 def _count(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
-
-
-def _load_config() -> tuple[Config, dict[str, str]]:
-    # Real environment variables win over the .env file. The merged values stay in this
-    # dictionary rather than os.environ, so commands the agent runs never inherit them.
-    env = {**read_dotenv(Path(".env")), **os.environ}
-    return load_config(env=env), env
 
 
 def _describe_shell(configured: str | None) -> str:

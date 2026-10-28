@@ -1,0 +1,5 @@
+# The agent as it ships. Compare other configs against this one.
+#
+# Top-level keys override Zwans's settings for the run (model, effort, max_steps, compact_at,
+# keep_messages, ...). A [tool_descriptions] table replaces what the model is told about a
+# tool, keyed by tool name. With no keys, the run uses your normal settings.
