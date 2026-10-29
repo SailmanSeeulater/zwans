@@ -86,7 +86,7 @@ tasks. Use `--repeats 3` or more: a single attempt per task is mostly noise.
 
 `evals/tasks/` is the starter suite; strong models pass all of it, so it mostly measures cost.
 `evals/tasks-hard/` is a harder tier (larger repos, bugs far from their symptoms, long specs)
-where Sonnet at low effort passes about 80%. On a Mac, keep it awake during long runs
+where Sonnet at low effort still passes about 97%. On a Mac, keep it awake during long runs
 (`caffeinate -s -i zwans eval run ...`): a model call that spans a sleep fails.
 
 `--agent claude-code` runs the same tasks through `claude -p` instead, with the same model,

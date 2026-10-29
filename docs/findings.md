@@ -92,6 +92,35 @@ sleeping: their attempts measured 260 s of monotonic time over 73 minutes of rea
 (writing a whole implementation), which spans a sleep; tasks with many short calls slip
 between wake-ups. Run long evals with `caffeinate -s -i` on power, lid open.
 
-**Next.** One attempt per task can't tell 83% from 60%. Run the hard tier with `--repeats 3`
-(about $5 per config on Sonnet at low effort) for default and `misleading-edit`, and see
-whether pass rate, not just cost, separates them.
+**Correction (same day, three attempts per task).** The 83% was noise: with `--repeats 3`
+the default config passes 35/36 (97%), including 3/3 on both tasks that failed above. See
+the next entry.
+
+## 2026-10-28: the hard tier saturates too; only tool calls separate the configs
+
+**Setup.** `evals/tasks-hard/`, claude-sonnet-5-5 at low effort, `--repeats 3`, default
+config against `misleading-edit`. $4.29 and $4.50.
+
+| Metric | default | misleading-edit | B - A | 95% interval |
+|---|---|---|---|---|
+| Pass rate | 97% (35/36) | 97% (35/36) | +0 pts | [-8, +8] |
+| Mean $ / attempt | 0.119 | 0.125 | +0.006 | [-0.005, +0.019] |
+| Model calls | 6.8 | 7.0 | +0.2 | [-0.7, +1.1] |
+| Tool calls | 7.9 | 10.6 | +2.7 | [+0.5, +5.3], significant |
+| Tool errors | 0.1 | 0.9 | +0.8 | [-0.0, +2.3] |
+
+Each config lost one attempt, on different tasks (`orderdesk-refund` and
+`fulfil-partial-shipments`). The misleading description hit hardest on `feed-cursor-skips`,
+where 38% of tool calls failed (23 calls per attempt against 8), but the model still got
+there.
+
+**What it means.**
+- A single attempt per task is not a calibration. The one-attempt run looked like 83% and
+  was really about 97%. Use `--repeats 3` before judging a task's difficulty.
+- Sonnet 5.5, even at low effort, recovers from a wrong tool description at the cost of a
+  few extra tool calls. With pass rates near 100%, `compare` can only see such changes in
+  tool calls and cost, and needs repeats to do it.
+- Making tasks harder by hand has hit diminishing returns: tasks built around specific traps
+  were passed 3/3 on rerun. To get room below the ceiling, a weaker setup is cheaper than
+  ever-harder tasks: support models without adaptive thinking (Haiku 4.5, see above), or cap
+  `max_steps` or `max_cost` per attempt so that inefficiency turns into failures.
