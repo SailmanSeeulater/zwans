@@ -38,3 +38,9 @@ def test_cache_hit_rate_is_the_share_of_input_read_from_cache() -> None:
     meter.on_event(UsageUpdated(input_tokens=50, cache_read_tokens=750, output_tokens=0))
 
     assert meter.cache_hit_rate == pytest.approx(0.75)
+
+
+def test_a_dated_model_id_gets_its_models_price() -> None:
+    usage = UsageUpdated(model="claude-haiku-4-5-20251001", input_tokens=1_000_000, output_tokens=0)
+
+    assert cost(usage) == 1.0

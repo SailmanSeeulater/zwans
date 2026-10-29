@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import anthropic
@@ -14,11 +15,38 @@ from zwans.messages import ContentBlock, Message, RawBlock, TextBlock, ToolUseBl
 from zwans.providers.base import ModelResponse, ProviderError
 from zwans.tools.base import Tool
 
-BETAS = [
-    "server-side-fallback-2026-07-01",  # if a safety classifier declines, retry on another model
-    "thinking-display-updates-2026-08-18",  # short progress notes between tool calls
-    "thinking-binding-controls-2026-08-01",  # lets us choose drop_block, below
-]
+FALLBACK_BETA = "server-side-fallback-2026-07-01"  # if a classifier declines, use another model
+PROGRESS_NOTES_BETA = "thinking-display-updates-2026-08-18"  # short notes between tool calls
+BINDING_BETA = "thinking-binding-controls-2026-08-01"  # lets us choose drop_block, below
+INTERLEAVED_BETA = "interleaved-thinking-2025-05-14"  # budgeted thinking between tool calls
+
+
+@dataclass(frozen=True)
+class Traits:
+    """What a model accepts. The current Opus and Sonnet take everything; Haikus less."""
+
+    adaptive_thinking: bool = True  # otherwise thinking takes a token budget
+    effort: bool = True
+    progress_notes: bool = True
+    block_binding: bool = True
+    fallbacks: bool = True
+
+
+TRAITS: dict[str, Traits] = {
+    "claude-haiku-5-5": Traits(progress_notes=False, fallbacks=False),
+    "claude-haiku-4-5": Traits(
+        adaptive_thinking=False,
+        effort=False,
+        progress_notes=False,
+        block_binding=False,
+        fallbacks=False,
+    ),
+}
+
+# For models that take a thinking budget instead of an effort level: the budget that stands
+# in for each effort level, in tokens.
+THINKING_BUDGETS = {"low": 2_048, "medium": 8_000, "high": 16_000, "xhigh": 32_000, "max": 48_000}
+MIN_THINKING_BUDGET = 1_024
 EPHEMERAL: dict[str, Any] = {"type": "ephemeral"}  # a 5-minute prompt-cache entry
 OAUTH_BETA = "oauth-2025-04-20"  # required when signing in with a Claude plan token
 JSON_ATTEMPTS = 3
@@ -32,7 +60,8 @@ class AnthropicProvider:
         self.model = model
         self.effort = effort
         self.max_tokens = max_tokens
-        self.betas = list(BETAS)
+        self.traits = TRAITS.get(model, Traits())
+        self.betas = _betas(self.traits)
         # The SDK retries rate limits, overloads, and connection errors with backoff.
         if credential.mode == "api_key":
             self._client = anthropic.AsyncAnthropic(api_key=credential.token, max_retries=4)
@@ -101,21 +130,41 @@ class AnthropicProvider:
             # Automatic caching: a breakpoint on the conversation's last block, moving forward
             # each request, so every call re-reads everything before it from the cache.
             "cache_control": EPHEMERAL,
-            "thinking": {
-                "type": "adaptive",
-                "display": "updates",
-                # If an earlier thinking block no longer matches its conversation (after a
-                # compaction, or when Zwans's tools changed between resumes), drop it
-                # instead of failing the request.
-                "block_binding": {"prefix_mismatch_behavior": "drop_block"},
-            },
-            "output_config": {"effort": self.effort},
-            "fallbacks": "default",
+            "thinking": self._thinking(),
+            "output_config": {"effort": self.effort} if self.traits.effort else anthropic.omit,
+            "fallbacks": "default" if self.traits.fallbacks else anthropic.omit,
             "betas": self.betas,
         }
 
+    def _thinking(self) -> dict[str, Any]:
+        if not self.traits.adaptive_thinking:
+            budget = min(THINKING_BUDGETS[self.effort], self.max_tokens - 1)
+            return {"type": "enabled", "budget_tokens": max(budget, MIN_THINKING_BUDGET)}
+        thinking: dict[str, Any] = {"type": "adaptive"}
+        if self.traits.progress_notes:
+            thinking["display"] = "updates"
+        if self.traits.block_binding:
+            # If an earlier thinking block no longer matches its conversation (after a
+            # compaction, or when Zwans's tools changed between resumes), drop it instead
+            # of failing the request.
+            thinking["block_binding"] = {"prefix_mismatch_behavior": "drop_block"}
+        return thinking
+
     async def aclose(self) -> None:
         await self._client.close()
+
+
+def _betas(traits: Traits) -> list[str]:
+    betas = []
+    if traits.fallbacks:
+        betas.append(FALLBACK_BETA)
+    if traits.progress_notes:
+        betas.append(PROGRESS_NOTES_BETA)
+    if traits.block_binding:
+        betas.append(BINDING_BETA)
+    if not traits.adaptive_thinking:
+        betas.append(INTERLEAVED_BETA)
+    return betas
 
 
 def describe_api_error(exc: anthropic.APIStatusError, plan_token: bool) -> str:

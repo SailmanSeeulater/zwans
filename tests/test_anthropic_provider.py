@@ -128,6 +128,42 @@ def test_requests_cache_the_prefix_and_drop_stale_thinking() -> None:
     assert "thinking-binding-controls-2026-08-01" in request["betas"]
 
 
+def test_haiku_5_5_gets_no_fallbacks_or_progress_notes() -> None:
+    credential = Credential(mode="api_key", token="sk-test")
+    provider = AnthropicProvider(credential, "claude-haiku-5-5", "low", 64_000)
+
+    request = provider.request("You are Zwans.", [user_message("Hi")], [NoteTool()])
+
+    assert request["thinking"] == {
+        "type": "adaptive",
+        "block_binding": {"prefix_mismatch_behavior": "drop_block"},
+    }
+    assert request["output_config"] == {"effort": "low"}
+    assert request["fallbacks"] is anthropic.omit
+    assert request["betas"] == ["thinking-binding-controls-2026-08-01"]
+
+
+def test_haiku_4_5_thinks_on_a_budget_instead_of_an_effort_level() -> None:
+    credential = Credential(mode="api_key", token="sk-test")
+    provider = AnthropicProvider(credential, "claude-haiku-4-5", "medium", 64_000)
+
+    request = provider.request("You are Zwans.", [user_message("Hi")], [NoteTool()])
+
+    assert request["thinking"] == {"type": "enabled", "budget_tokens": 8_000}
+    assert request["output_config"] is anthropic.omit
+    assert request["fallbacks"] is anthropic.omit
+    assert request["betas"] == ["interleaved-thinking-2025-05-14"]
+
+
+def test_a_thinking_budget_stays_below_max_tokens() -> None:
+    credential = Credential(mode="api_key", token="sk-test")
+    provider = AnthropicProvider(credential, "claude-haiku-4-5", "max", 16_000)
+
+    budget = provider.request("", [user_message("Hi")], [])["thinking"]["budget_tokens"]
+
+    assert budget == 15_999
+
+
 def user_message(text: str) -> Message:
     return Message(role="user", content=[TextBlock(text=text)])
 
