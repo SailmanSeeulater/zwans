@@ -45,9 +45,10 @@ READ_PROGRAMS = _words(
     "fold expand unexpand whoami uname hostname id printenv export unset set shopt local "
     "declare read wait :"
 )
-# Programs whose arguments are never file names, so $VAR in them is harmless.
+# Programs whose arguments are never file names, so $VAR in them is harmless. Not `test`
+# or `[`: `test -f ~/.ssh/id_rsa` tells whether a file outside the workspace exists.
 NO_FILE_PROGRAMS = _words(
-    "echo printf test [ true false pwd date sleep seq basename dirname export unset set shopt "
+    "echo printf true false pwd date sleep seq basename dirname export unset set shopt "
     "local declare read wait : which type"
 )
 WRITE_PROGRAMS = _words(

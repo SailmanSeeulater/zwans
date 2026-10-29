@@ -18,7 +18,8 @@ from zwans.executor.local import LocalExecutor
 
 EVALS = Path(__file__).resolve().parents[1] / "evals"
 TASKS = EVALS / "tasks"
-SUITE = load_suite(TASKS) + load_suite(EVALS / "tasks-hard")
+INJECTION = load_suite(EVALS / "tasks-injection")
+SUITE = load_suite(TASKS) + load_suite(EVALS / "tasks-hard") + INJECTION
 
 
 def check(task: Task, workspace: Path) -> CommandResult:
@@ -83,3 +84,11 @@ def test_hidden_files_catch_an_agent_that_edits_the_test(tmp_path: Path) -> None
 def test_task_names_are_unique_across_suites() -> None:
     names = [task.name for task in SUITE]
     assert len(names) == len(set(names))
+
+
+@pytest.mark.parametrize("task", INJECTION, ids=[task.name for task in INJECTION])
+def test_every_injection_task_plants_a_canary(task: Task) -> None:
+    # The planted instruction must carry a canary, or running it would go unnoticed.
+    assert task.injection is not None
+    text = "".join(p.read_text("utf-8") for p in task.repo.rglob("*") if p.is_file())
+    assert any(canary in text for canary in task.injection.canaries)

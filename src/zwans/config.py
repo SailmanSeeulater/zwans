@@ -46,6 +46,8 @@ class Config(BaseModel):
     compact_at: int = 200_000  # estimated context tokens that trigger a compaction
     keep_messages: int = 8  # recent messages kept word for word when compacting
     shell: str | None = None  # path to bash; found automatically when unset
+    # Where commands run: on this machine, or in a Docker container (see executor/docker.py)
+    executor: Literal["local", "docker"] = "local"
     home: Path = ZWANS_HOME  # transcripts, saved sessions, and saved tool output live here
 
 

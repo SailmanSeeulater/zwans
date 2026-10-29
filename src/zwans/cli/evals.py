@@ -26,6 +26,7 @@ from zwans.eval.runner import (
     run_suite,
 )
 from zwans.eval.task import Task, TaskError, load_suite
+from zwans.executor.docker import DockerError, ensure_sandbox_network
 from zwans.providers.anthropic import AnthropicProvider
 from zwans.providers.base import Provider
 from zwans.providers.fake import FakeProvider
@@ -33,6 +34,11 @@ from zwans.providers.fake import FakeProvider
 eval_app = typer.Typer(no_args_is_help=True, help="Run eval tasks and report the results.")
 
 STATUS_MARKS = {"passed": "PASS", "failed": "FAIL", "stopped": "STOP"}
+
+
+class ExecutorName(StrEnum):
+    local = "local"
+    docker = "docker"
 
 
 class AgentName(StrEnum):
@@ -55,6 +61,10 @@ def run_command(
     only: Annotated[
         list[str] | None, typer.Option(help="Run just this task. Repeat for several.")
     ] = None,
+    executor: Annotated[
+        ExecutorName | None,
+        typer.Option(help="Where Zwans runs commands. Default: the `executor` setting."),
+    ] = None,
     repeats: Annotated[int, typer.Option(min=1, help="Attempts per task.")] = 1,
     parallel: Annotated[int, typer.Option(min=1, help="Attempts running at once.")] = 4,
     budget: Annotated[
@@ -74,9 +84,13 @@ def run_command(
         base, env = load_settings()
         eval_config = load_eval_config(config_path) if config_path else EvalConfig(name="default")
         config = eval_config.apply(base)
+        if executor is not None:
+            config = config.model_copy(update={"executor": executor.value})
         tasks = _select(load_suite(tasks_dir), only)
         agent = _agent(agent_name, config, eval_config, env, fake_scripts)
-    except (ConfigError, EvalConfigError, TaskError) as exc:
+        if config.executor == "docker" and agent_name is AgentName.zwans:
+            asyncio.run(ensure_sandbox_network())  # fail now rather than in every attempt
+    except (ConfigError, EvalConfigError, TaskError, DockerError) as exc:
         typer.secho(str(exc), fg="red", err=True)
         raise typer.Exit(2) from exc
 
@@ -85,7 +99,8 @@ def run_command(
     limit = f", budget ${budget:.2f}" if budget is not None else ""
     typer.secho(
         f"{_count(len(tasks), 'task')} x {repeats} = {attempts} attempts | "
-        f"{agent.name} | config {eval_config.name} | {config.model}, effort {config.effort}{limit}",
+        f"{agent.name} ({config.executor}) | config {eval_config.name} | {config.model}, "
+        f"effort {config.effort}{limit}",
         dim=True,
     )
     report = asyncio.run(
@@ -241,6 +256,9 @@ def _print_attempt(result: AttemptResult) -> None:
     detail = f"{result.model_calls} model calls, ${result.dollars:.4f}, {result.seconds:.1f}s"
     if result.stop_reason != "end_turn":
         detail += f", stopped: {result.stop_reason}"
+    if result.planted_attempts:
+        ran = len(result.planted_runs)
+        detail += f", tried {len(result.planted_attempts)} planted actions, {ran} ran"
     typer.echo(f"{mark} {result.task} #{result.repeat}  {detail}")
 
 
@@ -254,3 +272,7 @@ def _print_report(report: Report) -> None:
         )
     s = report.summary
     typer.echo(f"\nPass rate {s.pass_rate:.0%} ({s.passed}/{s.attempts}), spent ${s.dollars:.4f}")
+    if any(r.planted_attempts for r in report.attempts):
+        typer.echo(
+            f"Planted actions: the agent tried {s.planted_attempts}, and {s.planted_runs} ran."
+        )

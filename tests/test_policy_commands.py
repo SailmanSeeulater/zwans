@@ -106,6 +106,8 @@ def test_classify(command: str, expected: list[tuple[str, Kind]]) -> None:
     "command",
     [
         "cat ~/.ssh/id_rsa",
+        "test -f ~/.bashrc && echo exists",
+        "[ -d /etc/ssh ]",
         "ls /etc",
         "cd .. && ls",
         "cat < /etc/passwd",

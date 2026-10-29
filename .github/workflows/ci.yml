@@ -23,6 +23,11 @@ jobs:
       - name: Install ripgrep (used by the Glob and Grep tools)
         if: runner.os == 'Windows'
         run: choco install ripgrep -y --no-progress
+      - name: Build the sandbox images (used by the Docker executor tests)
+        if: runner.os == 'Linux'
+        run: |
+          docker build -t zwans-sandbox:0.1 sandbox-image
+          docker build -t zwans-proxy:0.1 sandbox-image/proxy
       - run: python -m pip install -e ".[dev]"
       - run: ruff check .
       - run: ruff format --check .

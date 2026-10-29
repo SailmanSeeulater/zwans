@@ -19,6 +19,7 @@ from zwans.cli.render import Renderer
 from zwans.config import ConfigError, load_credential, load_settings
 from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
+from zwans.executor.docker import SANDBOX_OS, DockerError, DockerExecutor
 from zwans.executor.local import LocalExecutor, find_bash
 from zwans.messages import Message
 from zwans.policy import Permissions, PolicyError
@@ -139,6 +140,7 @@ def sessions(limit: Annotated[int, typer.Option(min=1, help="How many to list.")
 @dataclass
 class _Opened:
     session: Session
+    executor: LocalExecutor
     meter: CostMeter
     transcript: TranscriptWriter
     store: SessionStore
@@ -165,11 +167,21 @@ def _start(
         return 2
     # One event loop for the whole session, so the API client's connections stay usable.
     with asyncio.Runner() as runner:
+        if isinstance(opened.executor, DockerExecutor):
+            try:
+                runner.run(opened.executor.start())
+            except DockerError as exc:
+                typer.secho(str(exc), fg="red", err=True)
+                opened.transcript.close()
+                opened.store.close()
+                return 2
         try:
             if task is None:
                 return _chat(opened, runner)
             return _run_once(opened, runner, task)
         finally:
+            if isinstance(opened.executor, DockerExecutor):
+                runner.run(opened.executor.stop())
             runner.run(opened.session.provider.aclose())
             opened.transcript.close()
             opened.store.close()
@@ -195,7 +207,10 @@ def _open(
     else:
         root = workspace.resolve()
         instructions = load_instructions(root, config.home)
-        system = system_prompt(root, _describe_shell(config.shell), instructions)
+        if config.executor == "docker":
+            system = system_prompt(root, "bash", instructions, SANDBOX_OS)
+        else:
+            system = system_prompt(root, _describe_shell(config.shell), instructions)
         session_id = f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
         info = SessionInfo(id=session_id, workspace=str(root), model=config.model, system=system)
         meter = CostMeter()
@@ -215,9 +230,12 @@ def _open(
     root = Path(info.workspace)
     policy = load_with_trust(root, config.home, mode.value if mode else None).policy
     transcript = TranscriptWriter(config.home / "transcripts" / f"{info.id}.jsonl")
-    executor = LocalExecutor(
-        root, shell=config.shell, spill_dir=config.home / "tool-output" / info.id
-    )
+    spill_dir = config.home / "tool-output" / info.id
+    executor: LocalExecutor
+    if config.executor == "docker":
+        executor = DockerExecutor(root, spill_dir=spill_dir)
+    else:
+        executor = LocalExecutor(root, shell=config.shell, spill_dir=spill_dir)
     permissions = Permissions(
         policy,
         inside=executor.contains,
@@ -242,12 +260,13 @@ def _open(
     recorder.save()  # saves the answers to any cut-off tool calls right away
 
     label = "scripted responses" if fake_script else f"{model}, effort {config.effort}"
+    label += f" | {config.executor}"
     typer.secho(f"Zwans {__version__} | {label} | mode {policy.mode} | {root}", dim=True)
     if resume is not None:
         typer.secho(f"Resumed {info.id} after {_count(info.turns, 'turn')}: {info.title}", dim=True)
     if repaired:
         typer.secho("Its last turn was cut off mid-tool; those calls are marked unfinished.")
-    return _Opened(session, meter, transcript, store, info.id)
+    return _Opened(session, executor, meter, transcript, store, info.id)
 
 
 def _chat(opened: _Opened, runner: asyncio.Runner) -> int:

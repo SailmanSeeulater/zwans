@@ -71,16 +71,7 @@ class LocalExecutor:
         await asyncio.to_thread(_write, self.resolve(path), data)
 
     async def run(self, argv: Sequence[str], timeout: float) -> CommandResult:
-        process = await asyncio.create_subprocess_exec(
-            find_program(argv[0]),
-            *argv[1:],
-            cwd=self.root,
-            env=_command_env(),
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            **own_process_group(),
-        )
+        process = await self._spawn(argv)
         assert process.stdout is not None
         output = _Output(self.max_output_bytes)
         pump = asyncio.create_task(_pump(process.stdout, output))
@@ -91,12 +82,28 @@ class LocalExecutor:
             timed_out = True
         finally:
             # Runs after a timeout and after a cancel (Ctrl+C): stop the command and its children.
-            await kill_tree(process)
+            await self._stop(process)
             # A leftover background process can hold the pipe open, so don't wait on it forever.
             await asyncio.wait([pump], timeout=2)
             pump.cancel()
         exit_code = None if timed_out else process.returncode
         return CommandResult(output=output.text(), exit_code=exit_code, timed_out=timed_out)
+
+    async def _spawn(self, argv: Sequence[str]) -> asyncio.subprocess.Process:
+        """Start a program with its output piped, in its own process group."""
+        return await asyncio.create_subprocess_exec(
+            find_program(argv[0]),
+            *argv[1:],
+            cwd=self.root,
+            env=_command_env(),
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            **own_process_group(),
+        )
+
+    async def _stop(self, process: asyncio.subprocess.Process) -> None:
+        await kill_tree(process)
 
     async def run_shell(self, command: str, timeout: float) -> CommandResult:
         return await self.run([self._shell or find_bash(), "-c", command], timeout)
