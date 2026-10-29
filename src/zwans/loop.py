@@ -94,7 +94,8 @@ async def run_turn(
             interrupted = ToolOutput(INTERRUPTED, is_error=True)
             messages.append(_results_message(calls, outputs, default=interrupted))
 
-    yield Error(message=f"Stopped after {max_steps} model calls without finishing.")
+    # A limit the agent ran into, not something that went wrong, so it ends the turn normally.
+    yield TurnEnded(stop_reason="max_steps", detail=f"{max_steps} model calls without finishing")
 
 
 def answer_pending_calls(messages: list[Message]) -> bool:

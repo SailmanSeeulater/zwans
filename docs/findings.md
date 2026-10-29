@@ -124,3 +124,31 @@ there.
   were passed 3/3 on rerun. To get room below the ceiling, a weaker setup is cheaper than
   ever-harder tasks: support models without adaptive thinking (Haiku 4.5, see above), or cap
   `max_steps` or `max_cost` per attempt so that inefficiency turns into failures.
+
+## 2026-10-28: Haiku 5.5 saturates too; Haiku 4.5 leaves room
+
+**Setup.** Both tiers, `--repeats 3`, effort low (Haiku 4.5 has no effort levels; low maps
+to a 2,048-token thinking budget), default config, `max_steps` 50.
+
+| Model | Tier | Passed | Spent | Mean $ / attempt | Model calls |
+|---|---|---|---|---|---|
+| claude-haiku-5-5 | starter | 81/81 (100%) | $0.17 | 0.002 | 4.8 |
+| claude-haiku-5-5 | hard | 34/36 (94%) | $0.55 | 0.015 | 11.4 |
+| claude-haiku-4-5 | hard | 4/17 (24%) | $5.04 | 0.258 | 41.1 |
+
+The Haiku 4.5 run hit its $5 budget after 17 of 36 attempts. Six attempts ran into the
+50-call limit; it passed only `feed-cursor-skips` and `invoice-approvers-prod` (2/2 each).
+
+**What it means.**
+- Haiku 5.5 does the hard tier nearly as well as Sonnet 5.5 at a fortieth of the cost
+  (1.5 cents an attempt). It is the cheapest way to run repeated experiments, but its pass
+  rate is at the ceiling too, so experiments on it are read through cost and tool calls.
+- Haiku 4.5 is the first setup with room below the ceiling: 24% on the hard tier. It is
+  also 17x more expensive per attempt than Haiku 5.5, because it flounders: 41 model calls
+  per attempt against 11. A full hard-tier run at three repeats would cost about $9.
+- Experiments that need pass rate to move should run on Haiku 4.5 (or on a larger, harder
+  suite). Experiments on efficiency (tool descriptions, prompts, caching, compaction) can
+  run on Haiku 5.5 for well under a dollar.
+
+Running out of `max_steps` used to be reported as an error, which `eval run` then flagged as
+"may not be the agent's" failure. It now ends the turn with stop reason `max_steps`.

@@ -237,3 +237,15 @@ def test_huge_results_are_shortened_and_saved_for_read(ctx: ToolContext) -> None
     saved_path = result.content.split("saved at ")[1].split(". Use Read")[0]
     full = asyncio.run(ReadTool().run(ReadInput(path=saved_path, offset=5000, limit=1), ctx))
     assert full.content.startswith("  5000\tline 4999\n(Showing lines 5000-5000 of 10000.")
+
+
+def test_running_out_of_steps_ends_the_turn_with_max_steps(ctx: ToolContext) -> None:
+    call = ToolUseBlock(id="call_1", name="echo", input={"text": "again"})
+    provider = FakeProvider([ModelResponse(content=[call], stop_reason="tool_use")] * 2)
+
+    events = asyncio.run(collect(run_turn(provider, [EchoTool()], [user("Go")], ctx, max_steps=2)))
+
+    assert events[-1] == TurnEnded(
+        stop_reason="max_steps", detail="2 model calls without finishing"
+    )
+    assert not any(isinstance(e, Error) for e in events)
