@@ -30,7 +30,16 @@ def test_run_does_the_task_and_writes_a_transcript(tmp_path: Path) -> None:
 
     result = CliRunner().invoke(
         app,
-        ["run", "Say hi in a file", "-w", str(workspace), "--fake-script", str(script_path)],
+        [
+            "run",
+            "Say hi in a file",
+            "-w",
+            str(workspace),
+            "--mode",
+            "auto",
+            "--fake-script",
+            str(script_path),
+        ],
         env={"ZWANS_HOME": str(tmp_path / "home")},
     )
 
@@ -43,6 +52,49 @@ def test_run_does_the_task_and_writes_a_transcript(tmp_path: Path) -> None:
     types = [json.loads(line)["type"] for line in lines]
     assert types[0] == "turn_started"
     assert types[-1] == "turn_ended"
+
+
+def test_without_a_terminal_ask_mode_refuses_changes(tmp_path: Path) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    write = ToolUseBlock(id="call_1", name="Write", input={"path": "hello.txt", "content": "hi\n"})
+    script = [
+        ModelResponse(content=[write], stop_reason="tool_use"),
+        ModelResponse(content=[TextBlock(text="I couldn't.")], stop_reason="end_turn"),
+    ]
+    script_path = tmp_path / "script.json"
+    script_path.write_text(json.dumps([r.model_dump(mode="json") for r in script]), "utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        ["run", "Say hi in a file", "-w", str(workspace), "--fake-script", str(script_path)],
+        env={"ZWANS_HOME": str(tmp_path / "home")},
+    )
+
+    assert result.exit_code == 0, result.output
+    assert not (workspace / "hello.txt").exists()
+    assert "mode ask" in result.output
+    assert "! Not run: Write hello.txt changes files" in result.output
+
+
+def test_an_untrusted_workspace_policy_cant_loosen_the_rules(tmp_path: Path) -> None:
+    workspace = tmp_path / "work"
+    (workspace / ".zwans").mkdir(parents=True)
+    (workspace / ".zwans" / "policy.toml").write_text('mode = "auto"\n')
+    script_path = tmp_path / "script.json"
+    done = ModelResponse(content=[TextBlock(text="Hi.")], stop_reason="end_turn")
+    script_path.write_text(json.dumps([done.model_dump(mode="json")]), "utf-8")
+
+    result = CliRunner().invoke(
+        app,
+        ["run", "Hi", "-w", str(workspace), "--fake-script", str(script_path)],
+        env={"ZWANS_HOME": str(tmp_path / "home")},
+    )
+
+    assert result.exit_code == 0, result.output
+    assert 'mode "auto"' in result.output
+    assert "Ignoring those parts" in result.output
+    assert "mode ask" in result.output
 
 
 def test_run_explains_a_missing_credential(tmp_path: Path) -> None:

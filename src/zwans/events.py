@@ -41,6 +41,15 @@ class PermissionRequested(_Event):
     type: Literal["permission_requested"] = "permission_requested"
     call_id: str
     reason: str
+    rules: list[str] = []  # what "always allow" would add
+
+
+class PermissionDenied(_Event):
+    """The policy refused a call outright, without asking."""
+
+    type: Literal["permission_denied"] = "permission_denied"
+    call_id: str
+    reason: str
 
 
 class PermissionResolved(_Event):
@@ -54,6 +63,9 @@ class ToolResult(_Event):
     call_id: str
     content: str
     is_error: bool = False
+    # From outside the conversation (a file, a command, the web), so it may carry planted
+    # instructions. Set when a policy is in use.
+    untrusted: bool = False
 
 
 class ContextCompacted(_Event):
@@ -89,6 +101,7 @@ type Event = (
     | ToolCallRequested
     | PermissionRequested
     | PermissionResolved
+    | PermissionDenied
     | ToolResult
     | ContextCompacted
     | UsageUpdated

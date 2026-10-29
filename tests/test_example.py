@@ -60,7 +60,16 @@ def test_scripted_run_fixes_the_example(tmp_path: Path) -> None:
 
     result = CliRunner().invoke(
         app,
-        ["run", "make the tests pass", "-w", str(workspace), "--fake-script", str(script)],
+        [
+            "run",
+            "make the tests pass",
+            "-w",
+            str(workspace),
+            "--mode",
+            "auto",
+            "--fake-script",
+            str(script),
+        ],
         env=_env_with_this_python(tmp_path),
     )
 
@@ -75,7 +84,7 @@ def test_claude_fixes_the_example(tmp_path: Path) -> None:
 
     result = CliRunner().invoke(
         app,
-        ["run", "make the tests pass", "-w", str(workspace)],
+        ["run", "make the tests pass", "-w", str(workspace), "--mode", "auto"],
         env=_env_with_this_python(tmp_path),
     )
 

@@ -56,6 +56,14 @@ class LocalExecutor:
     def relative(self, path: str) -> str:
         return self.resolve(path).relative_to(self.root).as_posix()
 
+    def contains(self, path: str) -> bool:
+        """Whether a path (relative to the root, or absolute) is inside the workspace."""
+        try:
+            self.resolve(path)
+        except OutsideWorkspaceError:
+            return False
+        return True
+
     async def read_bytes(self, path: str) -> bytes:
         return await asyncio.to_thread(self.resolve(path, reading=True).read_bytes)
 

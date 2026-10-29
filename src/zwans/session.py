@@ -8,6 +8,7 @@ from zwans.context.compaction import Compactor
 from zwans.events import Event, TurnEnded
 from zwans.loop import run_turn
 from zwans.messages import Message, TextBlock
+from zwans.policy.engine import Permissions
 from zwans.providers.base import Provider
 from zwans.tools.base import Tool, ToolContext
 
@@ -24,6 +25,7 @@ class Session:
         listeners: Sequence[Listener],
         max_steps: int = 50,
         compactor: Compactor | None = None,
+        permissions: Permissions | None = None,
     ) -> None:
         self.provider = provider
         self.tools = list(tools)
@@ -32,6 +34,7 @@ class Session:
         self.listeners = list(listeners)
         self.max_steps = max_steps
         self.compactor = compactor
+        self.permissions = permissions  # None runs every call without checking
         self.messages: list[Message] = []
         self.turn = 0  # how many user turns the session has had
 
@@ -52,6 +55,7 @@ class Session:
             system=self.system,
             max_steps=self.max_steps,
             compactor=self.compactor,
+            permissions=self.permissions,
         )
         try:
             async for event in turn:

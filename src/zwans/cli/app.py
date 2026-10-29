@@ -6,12 +6,14 @@ import secrets
 import sys
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from zwans import __version__
+from zwans.cli.approval import can_prompt, load_with_trust, terminal_approver
 from zwans.cli.evals import eval_app
 from zwans.cli.render import Renderer
 from zwans.config import ConfigError, load_credential, load_settings
@@ -19,6 +21,7 @@ from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
 from zwans.executor.local import LocalExecutor, find_bash
 from zwans.messages import Message
+from zwans.policy import Permissions, PolicyError
 from zwans.pricing import CostMeter
 from zwans.prompt import system_prompt
 from zwans.providers.anthropic import AnthropicProvider
@@ -54,6 +57,22 @@ Resume = Annotated[
 Rewind = Annotated[
     int | None, typer.Option(min=1, help="With --resume, first drop every turn after this one.")
 ]
+
+
+class ModeName(StrEnum):
+    read_only = "read-only"
+    ask = "ask"
+    auto = "auto"
+
+
+PermissionMode = Annotated[
+    ModeName | None,
+    typer.Option(
+        "--mode",
+        help="read-only: only reading. ask (default): ask before changes. auto: edits and local "
+        "commands run, network and unknown commands ask. Overrides the policy files.",
+    ),
+]
 FakeScript = Annotated[
     Path | None,
     typer.Option(hidden=True, help="Replay model responses from a JSON file, for demos and tests."),
@@ -79,11 +98,12 @@ def main(
     model: Model = None,
     resume: Resume = None,
     rewind: Rewind = None,
+    mode: PermissionMode = None,
     fake_script: FakeScript = None,
 ) -> None:
     """Zwans: a coding agent built from scratch. With no command, starts a chat."""
     if ctx.invoked_subcommand is None:
-        raise typer.Exit(_start(None, workspace, model, resume, rewind, fake_script))
+        raise typer.Exit(_start(None, workspace, model, resume, rewind, mode, fake_script))
 
 
 @app.command()
@@ -93,10 +113,11 @@ def run(
     model: Model = None,
     resume: Resume = None,
     rewind: Rewind = None,
+    mode: PermissionMode = None,
     fake_script: FakeScript = None,
 ) -> None:
     """Do one task, then exit. The exit code is 0 when the model finished normally."""
-    raise typer.Exit(_start(task, workspace, model, resume, rewind, fake_script))
+    raise typer.Exit(_start(task, workspace, model, resume, rewind, mode, fake_script))
 
 
 @app.command()
@@ -130,6 +151,7 @@ def _start(
     model: str | None,
     resume: str | None,
     rewind: int | None,
+    mode: ModeName | None,
     fake_script: Path | None,
 ) -> int:
     _tolerate_unprintable_text()
@@ -137,8 +159,8 @@ def _start(
         typer.secho("--rewind only works together with --resume.", fg="red", err=True)
         return 2
     try:
-        opened = _open(workspace, model, resume, rewind, fake_script)
-    except (ConfigError, SessionError) as exc:
+        opened = _open(workspace, model, resume, rewind, mode, fake_script)
+    except (ConfigError, SessionError, PolicyError) as exc:
         typer.secho(str(exc), fg="red", err=True)
         return 2
     # One event loop for the whole session, so the API client's connections stay usable.
@@ -160,6 +182,7 @@ def _open(
     model: str | None,
     resume: str | None,
     rewind: int | None,
+    mode: ModeName | None,
     fake_script: Path | None,
 ) -> _Opened:
     config, env = load_settings()
@@ -190,9 +213,16 @@ def _open(
         store.create(info)  # only once the credential is known to be there
 
     root = Path(info.workspace)
+    policy = load_with_trust(root, config.home, mode.value if mode else None).policy
     transcript = TranscriptWriter(config.home / "transcripts" / f"{info.id}.jsonl")
     executor = LocalExecutor(
         root, shell=config.shell, spill_dir=config.home / "tool-output" / info.id
+    )
+    permissions = Permissions(
+        policy,
+        inside=executor.contains,
+        relative=executor.relative,
+        approver=terminal_approver if can_prompt() else None,
     )
     session = Session(
         provider=provider,
@@ -202,6 +232,7 @@ def _open(
         listeners=[Renderer().on_event, transcript.on_event, meter.on_event],
         max_steps=config.max_steps,
         compactor=Compactor(provider, config.compact_at, config.keep_messages),
+        permissions=permissions,
     )
     session.messages = messages
     session.turn = info.turns
@@ -211,7 +242,7 @@ def _open(
     recorder.save()  # saves the answers to any cut-off tool calls right away
 
     label = "scripted responses" if fake_script else f"{model}, effort {config.effort}"
-    typer.secho(f"Zwans {__version__} | {label} | {root}", dim=True)
+    typer.secho(f"Zwans {__version__} | {label} | mode {policy.mode} | {root}", dim=True)
     if resume is not None:
         typer.secho(f"Resumed {info.id} after {_count(info.turns, 'turn')}: {info.title}", dim=True)
     if repaired:
