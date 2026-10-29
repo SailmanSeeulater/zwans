@@ -124,7 +124,9 @@ class DockerExecutor(LocalExecutor):
     async def start(self) -> None:
         await ensure_sandbox_network()
         self.spill_dir.mkdir(parents=True, exist_ok=True)
-        user = [] if sys.platform == "win32" else ["--user", f"{os.getuid()}:{os.getgid()}"]
+        user: list[str] = []
+        if sys.platform != "win32":  # an if statement, so mypy knows getuid exists here
+            user = ["--user", f"{os.getuid()}:{os.getgid()}"]
         proxy = [f"{name}={PROXY_URL}" for name in ("HTTP_PROXY", "HTTPS_PROXY")]
         proxy += [f"{name.lower()}={PROXY_URL}" for name in ("HTTP_PROXY", "HTTPS_PROXY")]
         env = [*proxy, "NO_PROXY=localhost,127.0.0.1", "no_proxy=localhost,127.0.0.1"]

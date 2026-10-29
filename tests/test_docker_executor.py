@@ -49,7 +49,8 @@ def test_commands_run_in_the_workspace_and_files_reach_the_host(tmp_path: Path) 
 @pytest.mark.skipif(sys.platform == "win32", reason="uids are a POSIX idea")
 def test_commands_run_as_the_user_not_root(tmp_path: Path) -> None:
     output, _, _ = sandbox(tmp_path, "id -u")
-    assert output.strip() == str(os.getuid())
+    if sys.platform != "win32":  # always true here; tells mypy getuid exists
+        assert output.strip() == str(os.getuid())
 
 
 def test_files_outside_the_workspace_are_not_there(tmp_path: Path) -> None:
