@@ -1,0 +1,3 @@
+# Zwans without the Task tool, to measure what subagents add (Phase 5).
+
+subagents = false

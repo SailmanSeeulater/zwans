@@ -5,6 +5,7 @@ output, a web page) is already in the conversation, since that content may carry
 planted for the model. A refusal goes back to the model as a tool error that says why.
 """
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -15,7 +16,8 @@ from zwans.policy.rules import Decision, Policy, Rule, strictest
 
 # Tools whose output comes from outside: files, programs, the web. Instructions inside it
 # are data, not the user's.
-UNTRUSTED_OUTPUT = frozenset({"Read", "Grep", "Bash", "WebFetch"})
+# A subagent's report (Task) is made from what it read, so it counts too.
+UNTRUSTED_OUTPUT = frozenset({"Read", "Grep", "Bash", "WebFetch", "Skill", "Task"})
 MCP_PREFIX = "mcp__"
 
 
@@ -59,6 +61,8 @@ class Permissions:
     approver: Approver | None = None  # None: nobody can answer, so asking means refusing
     tainted: bool = False  # untrusted content has been read in this session
     session_rules: list[Rule] = field(default_factory=list)  # added by "always"
+    # One question at a time, since subagents running together can each need one.
+    _asking: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
     def check(self, tool: _ToolLike, args: dict[str, Any]) -> Verdict:
         if tool.name == "Bash" and isinstance(args.get("command"), str):
@@ -69,7 +73,8 @@ class Permissions:
     async def ask(self, request: PermissionRequest) -> Approval:
         if self.approver is None:
             return Approval.NO
-        approval = await self.approver(request)
+        async with self._asking:
+            approval = await self.approver(request)
         if approval == Approval.ALWAYS:
             self.session_rules.extend(Rule.parse(r, "this session") for r in request.rules)
         return approval
@@ -92,6 +97,10 @@ class Permissions:
                 relative = None  # outside the workspace: the executor refuses it anyway
         matched = self._match(tool.name, _matches_path(relative))
         what = f"{tool.name} {relative}" if relative else tool.name
+        # An MCP tool reaches whatever its server does, so after untrusted content it's
+        # judged like a network command: it could carry what was read somewhere else.
+        mcp = tool.name.startswith(MCP_PREFIX)
+        effect = "can change things outside the workspace" if mcp else "changes files"
         if matched is not None:
             decision, rule = matched
             if decision != Decision.ALLOW:
@@ -102,15 +111,17 @@ class Permissions:
         elif tool.read_only:
             return Verdict(Decision.ALLOW)
         elif self.policy.mode == "read-only":
-            return Verdict(Decision.DENY, f"{what} changes things, and Zwans is in read-only mode")
+            return Verdict(Decision.DENY, f"{what} {effect}, and Zwans is in read-only mode")
         elif self.policy.mode == "ask" or tool.name not in ("Edit", "Write"):
-            verdict = Verdict(Decision.ASK, f"{what} changes files")
+            verdict = Verdict(Decision.ASK, f"{what} {effect}")
         else:
             verdict = Verdict(Decision.ALLOW)
         if self.tainted and verdict.decision != Decision.DENY:
-            after = self.policy.after_untrusted.write
+            after = (
+                self.policy.after_untrusted.network if mcp else self.policy.after_untrusted.write
+            )
             if strictest(after, verdict.decision) != verdict.decision:
-                reason = f"{what} changes files after untrusted content was read"
+                reason = f"{what} {effect} after untrusted content was read"
                 verdict = Verdict(after, reason)
         if verdict.decision == Decision.ASK:
             always = f"{tool.name}({relative})" if relative else tool.name

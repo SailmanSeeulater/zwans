@@ -11,12 +11,18 @@
     network = "ask"                    # commands that use the network
     write = "allow"                    # file changes
 
+    [[hooks]]                          # commands that check calls; see ext/hooks.py
+    event = "pre_tool"
+    tools = "Bash"
+    command = "python3 ~/.zwans/hooks/no_push.py"
+
 A rule is a tool name, optionally with a pattern: a command pattern for Bash, where * matches
 anything, or a path glob for the file tools. Deny wins over ask, and ask over allow.
 
 A workspace's file comes with the code, so it may have been written by someone else. Its deny
 and ask rules always apply, but anything that loosens the policy (allow rules, mode "auto",
-"allow" after untrusted content) applies only once the user has trusted that exact file.
+"allow" after untrusted content) or runs a command (hooks) applies only once the user has
+trusted that exact file.
 """
 
 import hashlib
@@ -30,6 +36,8 @@ from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
+
+from zwans.ext.hooks import HookSpec
 
 type Mode = Literal["read-only", "ask", "auto"]
 MODES: tuple[Mode, ...] = ("read-only", "ask", "auto")  # from the strictest to the loosest
@@ -136,13 +144,16 @@ class PolicyFile(BaseModel):
     ask: list[str] = []
     deny: list[str] = []
     after_untrusted: AfterUntrusted | None = None
+    hooks: list[HookSpec] = []
 
-    def loosens(self) -> bool:
+    def needs_trust(self) -> bool:
+        """Whether it loosens the policy or runs commands, so a workspace's copy must be
+        trusted first."""
         relaxed = self.after_untrusted is not None and (
             self.after_untrusted.network == Decision.ALLOW
             or self.after_untrusted.write == Decision.ALLOW
         )
-        return bool(self.allow) or self.mode == "auto" or relaxed
+        return bool(self.allow) or self.mode == "auto" or relaxed or bool(self.hooks)
 
 
 # Built in, so they apply whatever the files say: the agent can't quietly rewrite its own
@@ -157,6 +168,7 @@ class Policy:
         default_factory=lambda: {decision: [] for decision in Decision}
     )
     after_untrusted: AfterUntrusted = field(default_factory=AfterUntrusted)
+    hooks: list[HookSpec] = field(default_factory=list)
 
     @classmethod
     def default(cls) -> "Policy":
@@ -178,6 +190,8 @@ class Policy:
                 old: Decision = getattr(self.after_untrusted, name)
                 if loosen or strictest(new, old) == new:
                     setattr(self.after_untrusted, name, new)
+        if loosen:
+            self.hooks.extend(file.hooks)
 
 
 def read_policy_file(path: Path) -> PolicyFile | None:
@@ -196,7 +210,7 @@ def read_policy_file(path: Path) -> PolicyFile | None:
 @dataclass
 class LoadedPolicy:
     policy: Policy
-    # A workspace policy that would loosen the rules but isn't trusted yet; its loosening
+    # A workspace policy that would loosen the rules or run hooks but isn't trusted yet; those
     # parts were left out.
     untrusted: Path | None = None
 
@@ -212,7 +226,7 @@ def load_policy(workspace: Path, home: Path, mode: Mode | None = None) -> Loaded
     workspace_file = read_policy_file(path)
     if workspace_file is not None:
         trusted = is_trusted(path, home)
-        if workspace_file.loosens() and not trusted:
+        if workspace_file.needs_trust() and not trusted:
             untrusted = path
         policy.add(workspace_file, str(path), loosen=trusted)
     if mode is not None:

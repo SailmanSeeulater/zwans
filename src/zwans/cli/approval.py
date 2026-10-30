@@ -30,8 +30,8 @@ async def terminal_approver(request: PermissionRequest) -> Approval:
 
 
 def load_with_trust(workspace: Path, home: Path, mode: PolicyMode | None) -> LoadedPolicy:
-    """Load the policy. A workspace policy that loosens the rules is used in full only once
-    the user trusts it; when nobody can answer, its loosening parts are left out."""
+    """Load the policy. A workspace policy that loosens the rules or runs hooks is used in full
+    only once the user trusts it; when nobody can answer, those parts are left out."""
     loaded = load_policy(workspace, home, mode)
     if loaded.untrusted is None:
         return loaded
@@ -45,7 +45,8 @@ def load_with_trust(workspace: Path, home: Path, mode: PolicyMode | None) -> Loa
         for name in ("network", "write"):
             if getattr(file.after_untrusted, name) == Decision.ALLOW:
                 loosening.append(f"{name} allowed after untrusted content")
-    typer.secho(f"{path} came with this workspace and would loosen the policy:", fg="yellow")
+    loosening.extend(f"run the {hook.event} hook `{hook.command}`" for hook in file.hooks)
+    typer.secho(f"{path} came with this workspace and would:", fg="yellow")
     for item in loosening:
         typer.secho(f"  {item}", fg="yellow")
     if can_prompt() and _prompt("Trust this file? [y/N]: ").strip().lower() in ("y", "yes"):

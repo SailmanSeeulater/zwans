@@ -157,18 +157,20 @@ def test_a_config_can_replace_a_tool_description(tmp_path: Path) -> None:
     path.write_text('effort = "low"\n\n[tool_descriptions]\nEdit = "Edit a file."\n', "utf-8")
 
     config = load_eval_config(path)
-    tools = {tool.name: tool for tool in make_tools(config)}
+    tools = {tool.name: tool for tool in make_tools(config, Config())}
 
     assert config.name == "vague"
     assert config.apply(Config()).effort == "low"
     assert tools["Edit"].description == "Edit a file."
     assert tools["Read"].description != "Edit a file."
-    assert make_tools(EvalConfig(name="x"))[2].description != "Edit a file."  # class unchanged
+    assert (
+        make_tools(EvalConfig(name="x"), Config())[2].description != "Edit a file."
+    )  # class unchanged
 
 
 def test_a_config_rejects_unknown_tools_and_settings() -> None:
     with pytest.raises(EvalConfigError, match="Nope"):
-        make_tools(EvalConfig(name="x", tool_descriptions={"Nope": "?"}))
+        make_tools(EvalConfig(name="x", tool_descriptions={"Nope": "?"}), Config())
     with pytest.raises(EvalConfigError, match="colour"):
         EvalConfig(name="x", settings={"colour": "blue"}).apply(Config())
 

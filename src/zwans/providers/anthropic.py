@@ -13,7 +13,7 @@ from zwans.config import Credential, Effort
 from zwans.events import TextDelta, ThinkingDelta
 from zwans.messages import ContentBlock, Message, RawBlock, TextBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse, ProviderError
-from zwans.tools.base import Tool
+from zwans.tools.base import Tool, input_schema
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"  # if a classifier declines, use another model
 PROGRESS_NOTES_BETA = "thinking-display-updates-2026-08-18"  # short notes between tool calls
@@ -231,6 +231,6 @@ def tool_param(tool: Tool[Any]) -> dict[str, Any]:
     return {
         "name": tool.name,
         "description": tool.description,
-        "input_schema": tool.input_model.model_json_schema(),
+        "input_schema": input_schema(tool),
         "eager_input_streaming": True,  # stream big inputs, like file contents, as they're written
     }

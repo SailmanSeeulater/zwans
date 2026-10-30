@@ -2,7 +2,14 @@ from pathlib import Path
 
 import pytest
 
-from zwans.config import Config, ConfigError, load_config, load_credential, read_dotenv
+from zwans.config import (
+    Config,
+    ConfigError,
+    load_config,
+    load_credential,
+    load_settings,
+    read_dotenv,
+)
 
 
 def test_defaults_when_there_is_no_file_or_env(tmp_path: Path) -> None:
@@ -17,6 +24,20 @@ def test_env_overrides_file(tmp_path: Path) -> None:
 
     assert config.model == "from-env"
     assert config.auth == "subscription"
+
+
+def test_zwans_config_names_another_config_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "project.toml"
+    path.write_text('model = "from-zwans-config"\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)  # no .env here
+    monkeypatch.setenv("ZWANS_CONFIG", str(path))
+    monkeypatch.delenv("ZWANS_MODEL", raising=False)
+
+    config, _ = load_settings()
+
+    assert config.model == "from-zwans-config"
 
 
 def test_credential_follows_the_auth_mode() -> None:

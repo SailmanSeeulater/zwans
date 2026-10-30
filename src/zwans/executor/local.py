@@ -95,7 +95,7 @@ class LocalExecutor:
             find_program(argv[0]),
             *argv[1:],
             cwd=self.root,
-            env=_command_env(),
+            env=command_env(),
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -147,7 +147,7 @@ def _write(target: Path, data: bytes) -> None:
     target.write_bytes(data)
 
 
-def _command_env() -> dict[str, str]:
+def command_env() -> dict[str, str]:
     env = {name: value for name, value in os.environ.items() if name.upper() not in SECRET_VARS}
     env["PYTHONUTF8"] = "1"  # Python programs print UTF-8, which is how we decode output
     return env
@@ -176,7 +176,9 @@ async def kill_tree(process: asyncio.subprocess.Process) -> None:
         )
         await killer.wait()
     else:
-        with contextlib.suppress(ProcessLookupError):
+        # Already gone. macOS says EPERM rather than ESRCH when the group's only member is a
+        # zombie, as `docker exec` is once the command in the container has been killed.
+        with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(process.pid, signal.SIGKILL)
     await process.wait()
 

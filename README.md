@@ -4,10 +4,11 @@ A coding agent built from scratch: the loop that calls the model, the tools it u
 (in later phases) the sandbox and the evals that prove it works. See [SPEC.md](SPEC.md) for
 the full plan.
 
-**Status:** Phases 0 to 3 are done and Phase 4 (permissions and sandbox) is in review.
-Zwans can read, search, and edit a project and run its tests; it saves and resumes sessions,
-compacts long ones, and caches prompts. It asks before changing anything unless you loosen
-its policy, and it can run commands in a Docker container with filtered network access.
+**Status:** Phases 0 to 4 are done and Phase 5 (extensibility) is in review. Zwans can
+read, search, and edit a project and run its tests; it saves and resumes sessions, compacts
+long ones, and caches prompts. It asks before changing anything unless you loosen its policy,
+and it can run commands in a Docker container with filtered network access. Hooks, skills,
+MCP servers and subagents extend it.
 
 ## Setup
 
@@ -105,6 +106,85 @@ docker build -t zwans-proxy:0.1 sandbox-image/proxy
 `auto` mode lets code run without asking, and running code can do anything you can, so use
 `auto` together with the Docker executor.
 
+### Hooks
+
+A hook is your own command that runs before a tool call, after one, or when the model is
+about to finish. Hooks go in a policy file, next to the rules:
+
+```toml
+[[hooks]]
+event = "pre_tool"                         # pre_tool, post_tool or stop
+tools = "Bash"                             # a glob of tool names; all tools when left out
+command = "python3 ~/.zwans/hooks/no_push.py"
+timeout = 30                               # seconds, 60 by default
+```
+
+The hook runs in the workspace folder and reads a JSON object on stdin: `event`,
+`workspace`, and for tool hooks `tool` and `args` (post_tool adds `output` and `is_error`;
+stop has `stop_reason` and `message`). Exit 0 to let things carry on. A non-zero exit
+blocks a pre_tool call, adds to a post_tool call's result, or keeps a stop hook's turn going,
+and in each case the model reads what the hook printed (stderr, or stdout when that's
+empty). A hook that crashes or times out counts as non-zero, so a broken pre_tool hook
+blocks calls. This one keeps pushing in your hands:
+
+```python
+import json, sys
+call = json.load(sys.stdin)
+if "git push" in call["args"].get("command", ""):
+    print("Pushing is for the user to do. Commit, then say the branch is ready.", file=sys.stderr)
+    sys.exit(1)
+```
+
+A project's hooks run code on your machine, so like its allow rules they apply only once you
+trust its policy file.
+
+### Skills
+
+A skill is a folder with a `SKILL.md`, in `~/.zwans/skills/` or a project's
+`.zwans/skills/`:
+
+```markdown
+---
+name: release-notes
+description: Write release notes from the git log. Use when asked for a changelog.
+---
+(the instructions, as long as they need to be)
+```
+
+Only the names and descriptions go in the system prompt. The model loads a skill's
+instructions with the `Skill` tool when a task matches, and any other file in its folder the
+same way. A project's skill replaces the user's skill of the same name.
+
+### MCP servers
+
+Tools from [MCP](https://modelcontextprotocol.io) servers, over stdio or streamable HTTP, go
+in `~/.zwans/config.toml`:
+
+```toml
+[mcp_servers.nextix]
+command = "nextix"
+args = ["mcp"]
+
+[mcp_servers.docs]
+url = "https://example.com/mcp"
+headers = { Authorization = "Bearer ${DOCS_TOKEN}" }
+```
+
+`${NAME}` is filled in from the environment or `.env`, so tokens stay out of the file. Each
+tool is called `mcp__<server>__<tool>` and goes through the policy like any other: tools the
+server marks read-only run without asking, and the rest ask, in `auto` mode too, since they
+reach whatever the server does. A server that won't start is skipped with a warning. Its
+stderr goes to `~/.zwans/mcp-logs/<server>.log`.
+
+### Subagents
+
+The `Task` tool hands a piece of work to a subagent: the same loop with a fresh
+conversation, a subset of the tools if the model names one, and at most
+`subagent_max_steps` model calls. Only its final report comes back, so a search through
+many files costs the main conversation one result. Several `Task` calls in one response run
+at the same time. A subagent's calls go through the same policy and hooks (other than stop
+hooks), and show in the terminal as indented lines. Set `subagents = false` to turn it off.
+
 ### ZWANS.md
 
 Standing instructions go in `ZWANS.md`: `~/.zwans/ZWANS.md` for all projects, and one in a
@@ -164,7 +244,8 @@ task's `max_cost` per parallel attempt.
 
 ## Configuration
 
-`~/.zwans/config.toml`, or the same names as `ZWANS_*` environment variables:
+`~/.zwans/config.toml` (or the file named by `ZWANS_CONFIG`), or the same names as `ZWANS_*`
+environment variables:
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -173,11 +254,14 @@ task's `max_cost` per parallel attempt.
 | `effort` | `medium` | How much the model thinks: `low` to `max` |
 | `max_tokens` | `64000` | Output limit per model call, thinking included |
 | `max_steps` | `50` | Model calls allowed in one turn |
+| `subagents` | `true` | Offer the `Task` tool |
+| `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
 | `compact_at` | `200000` | Estimated context tokens that trigger a compaction |
 | `keep_messages` | `8` | Recent messages kept word for word when compacting |
 | `shell` | found automatically | Path to bash |
 | `executor` | `local` | Where commands run: `local` or `docker` |
-| `home` | `~/.zwans` | Where transcripts, saved sessions, and saved tool output go |
+| `home` | `~/.zwans` | Where transcripts, saved sessions, saved tool output, and the policy file go |
+| `mcp_servers` | none | MCP servers, by name; see above |
 
 ## Development
 

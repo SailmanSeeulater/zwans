@@ -1,7 +1,7 @@
 """The interface every tool implements."""
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel
 
@@ -33,3 +33,10 @@ class Tool[InputT: BaseModel](Protocol):
     read_only: bool
 
     async def run(self, args: InputT, ctx: ToolContext) -> ToolOutput: ...
+
+
+def input_schema(tool: Tool[Any]) -> dict[str, Any]:
+    """The JSON schema the model sees. Tools from MCP servers bring their own; Zwans's tools
+    derive it from their input model."""
+    schema = getattr(tool, "input_schema", None)
+    return schema if isinstance(schema, dict) else tool.input_model.model_json_schema()

@@ -4,9 +4,10 @@ The CLI, web UI, eval runner, and transcript writer all consume this stream.
 None of them reach into the loop itself.
 """
 
-from typing import Any, Literal
+from functools import cache
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 
 class _Event(BaseModel):
@@ -68,6 +69,28 @@ class ToolResult(_Event):
     untrusted: bool = False
 
 
+class HookReported(_Event):
+    """A hook exited non-zero: it blocked a call, added to its result, or kept the turn going."""
+
+    type: Literal["hook_reported"] = "hook_reported"
+    event: str  # pre_tool, post_tool or stop
+    command: str
+    message: str
+    call_id: str = ""  # empty for stop hooks
+
+
+class SubagentEvent(_Event):
+    """Something a subagent did, passed up through the Task call that started it. Its usage
+    events aren't wrapped, so whatever counts cost counts the subagent's too."""
+
+    type: Literal["subagent"] = "subagent"
+    task: str  # the Task call's description
+    event: dict[str, Any]
+
+    def inner(self) -> "Event":
+        return _event_adapter().validate_python(self.event)
+
+
 class ContextCompacted(_Event):
     type: Literal["context_compacted"] = "context_compacted"
     tokens_before: int
@@ -103,8 +126,23 @@ type Event = (
     | PermissionResolved
     | PermissionDenied
     | ToolResult
+    | HookReported
+    | SubagentEvent
     | ContextCompacted
     | UsageUpdated
     | TurnEnded
     | Error
 )
+
+
+@cache
+def _event_adapter() -> TypeAdapter[Event]:
+    return TypeAdapter(Annotated[Event, Field(discriminator="type")])
+
+
+def unwrap(event: Event) -> Event:
+    """The event itself, or for a subagent's, the event inside: for listeners that count tool
+    calls the same wherever they happen."""
+    while isinstance(event, SubagentEvent):
+        event = event.inner()
+    return event

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -21,6 +21,9 @@ from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
 from zwans.executor.docker import SANDBOX_OS, DockerError, DockerExecutor
 from zwans.executor.local import LocalExecutor, find_bash
+from zwans.ext.hooks import Hooks
+from zwans.ext.skills import find_skills, skill_folders
+from zwans.mcp.tools import McpServers
 from zwans.messages import Message
 from zwans.policy import Permissions, PolicyError
 from zwans.pricing import CostMeter
@@ -30,12 +33,14 @@ from zwans.providers.base import Provider
 from zwans.providers.fake import FakeProvider
 from zwans.session import Session
 from zwans.store import SessionError, SessionInfo, SessionRecorder, SessionStore, load_session
-from zwans.tools.base import ToolContext
+from zwans.tools.base import Tool, ToolContext
 from zwans.tools.bash import BashTool
 from zwans.tools.edit import EditTool
 from zwans.tools.glob import GlobTool
 from zwans.tools.grep import GrepTool
 from zwans.tools.read import ReadTool
+from zwans.tools.skill import SkillTool
+from zwans.tools.task import TaskTool
 from zwans.tools.write import WriteTool
 from zwans.transcript import TranscriptWriter
 
@@ -145,6 +150,7 @@ class _Opened:
     transcript: TranscriptWriter
     store: SessionStore
     session_id: str
+    mcp: McpServers | None = None
 
 
 def _start(
@@ -175,11 +181,22 @@ def _start(
                 opened.transcript.close()
                 opened.store.close()
                 return 2
+        if opened.mcp is not None:
+            tools, problems = runner.run(opened.mcp.start())
+            opened.session.tools.extend(tools)
+            for problem in problems:
+                typer.secho(f"MCP server skipped: {problem}", fg="yellow", err=True)
+            for name in opened.mcp.servers:
+                count = sum(t.connection.name == name for t in tools)
+                if count:
+                    typer.secho(f"MCP {name}: {_count(count, 'tool')}", dim=True)
         try:
             if task is None:
                 return _chat(opened, runner)
             return _run_once(opened, runner, task)
         finally:
+            if opened.mcp is not None:
+                runner.run(opened.mcp.close())
             if isinstance(opened.executor, DockerExecutor):
                 runner.run(opened.executor.stop())
             runner.run(opened.session.provider.aclose())
@@ -204,13 +221,16 @@ def _open(
     if resume is not None:
         info, messages, repaired = load_session(store, resume, rewind)
         meter = CostMeter.restore(info.usage)
+        skills = find_skills(skill_folders(Path(info.workspace), config.home))
     else:
         root = workspace.resolve()
+        skills = find_skills(skill_folders(root, config.home))
         instructions = load_instructions(root, config.home)
         if config.executor == "docker":
-            system = system_prompt(root, "bash", instructions, SANDBOX_OS)
+            system = system_prompt(root, "bash", instructions, SANDBOX_OS, skills)
         else:
-            system = system_prompt(root, _describe_shell(config.shell), instructions)
+            shell = _describe_shell(config.shell)
+            system = system_prompt(root, shell, instructions, skills=skills)
         session_id = f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
         info = SessionInfo(id=session_id, workspace=str(root), model=config.model, system=system)
         meter = CostMeter()
@@ -242,15 +262,28 @@ def _open(
         relative=executor.relative,
         approver=terminal_approver if can_prompt() else None,
     )
+    tools: list[Tool[Any]] = [
+        ReadTool(),
+        WriteTool(),
+        EditTool(),
+        GlobTool(),
+        GrepTool(),
+        BashTool(),
+    ]
+    if skills:
+        tools.append(SkillTool(skills))
+    if config.subagents:
+        tools.append(TaskTool(config.subagent_max_steps))
     session = Session(
         provider=provider,
-        tools=[ReadTool(), WriteTool(), EditTool(), GlobTool(), GrepTool(), BashTool()],
+        tools=tools,
         ctx=ToolContext(executor=executor),
         system=info.system,  # a resumed session keeps the exact prompt it started with
         listeners=[Renderer().on_event, transcript.on_event, meter.on_event],
         max_steps=config.max_steps,
         compactor=Compactor(provider, config.compact_at, config.keep_messages),
         permissions=permissions,
+        hooks=Hooks(policy.hooks, root) if policy.hooks else None,
     )
     session.messages = messages
     session.turn = info.turns
@@ -266,7 +299,10 @@ def _open(
         typer.secho(f"Resumed {info.id} after {_count(info.turns, 'turn')}: {info.title}", dim=True)
     if repaired:
         typer.secho("Its last turn was cut off mid-tool; those calls are marked unfinished.")
-    return _Opened(session, executor, meter, transcript, store, info.id)
+    mcp = None
+    if config.mcp_servers:
+        mcp = McpServers(config.mcp_servers, root, env, config.home / "mcp-logs")
+    return _Opened(session, executor, meter, transcript, store, info.id, mcp)
 
 
 def _chat(opened: _Opened, runner: asyncio.Runner) -> int:

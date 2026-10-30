@@ -11,6 +11,7 @@ from zwans.context.truncation import fit_output
 from zwans.events import (
     Error,
     Event,
+    HookReported,
     PermissionDenied,
     PermissionRequested,
     PermissionResolved,
@@ -19,6 +20,7 @@ from zwans.events import (
     TurnEnded,
     TurnStarted,
 )
+from zwans.ext.hooks import Hooks
 from zwans.messages import ContentBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.policy.engine import Approval, PermissionRequest, Permissions, denial_message
 from zwans.policy.rules import Decision
@@ -39,11 +41,13 @@ async def run_turn(
     max_steps: int = 50,
     compactor: Compactor | None = None,
     permissions: Permissions | None = None,
+    hooks: Hooks | None = None,
 ) -> AsyncIterator[Event]:
     """Run one user turn and yield events as they happen.
 
     With `permissions`, every tool call is checked first: it runs, waits for the user's
-    approval, or comes back to the model as an error saying why it didn't run.
+    approval, or comes back to the model as an error saying why it didn't run. `hooks` run
+    before that check, after each call, and when the model is about to finish.
 
     `messages` must end with the user's message. The loop only ever appends to it: the
     model's replies, then the tool results. Earlier turns are never edited, which the API
@@ -83,6 +87,18 @@ async def run_turn(
                 reason = f"Not run: the response stopped early ({response.stop_reason})."
                 skipped = ToolOutput(reason, is_error=True)
                 messages.append(_results_message(calls, {}, default=skipped))
+            elif hooks is not None and response.stop_reason == "end_turn":
+                text = "".join(b.text for b in response.content if isinstance(b, TextBlock))
+                failures = await hooks.stop(response.stop_reason, text)
+                for failure in failures:
+                    yield HookReported(
+                        event="stop", command=failure.spec.command, message=failure.message
+                    )
+                if failures:
+                    said = "\n\n".join(failure.message for failure in failures)
+                    note = f"A stop hook says the task isn't finished yet:\n{said}"
+                    messages.append(Message(role="user", content=[TextBlock(text=note)]))
+                    continue
             yield TurnEnded(stop_reason=response.stop_reason, detail=response.stop_detail)
             return
 
@@ -94,7 +110,17 @@ async def run_turn(
                     yield ToolCallRequested(call_id=call.id, name=call.name, args=call.input)
                     tool = tools_by_name.get(call.name)
                     refusal: str | None = None
-                    if permissions is not None and tool is not None:
+                    if hooks is not None and tool is not None:
+                        blocked = await hooks.pre_tool(call.name, call.input)
+                        if blocked is not None:
+                            yield HookReported(
+                                event="pre_tool",
+                                command=blocked.spec.command,
+                                message=blocked.message,
+                                call_id=call.id,
+                            )
+                            refusal = f"A pre_tool hook blocked this call: {blocked.message}"
+                    if refusal is None and permissions is not None and tool is not None:
                         async for step in _gate(permissions, tool, call):
                             if isinstance(step, str):
                                 refusal = step
@@ -109,6 +135,21 @@ async def run_turn(
                     *(_run_tool(tools_by_name, c, ctx) for c in runnable)
                 )
                 for call, output in zip(runnable, results, strict=True):
+                    if hooks is not None and call.name in tools_by_name:
+                        failures = await hooks.post_tool(
+                            call.name, call.input, output.content, output.is_error
+                        )
+                        for failure in failures:
+                            yield HookReported(
+                                event="post_tool",
+                                command=failure.spec.command,
+                                message=failure.message,
+                                call_id=call.id,
+                            )
+                        if failures:
+                            notes = [f"A post_tool hook says: {f.message}" for f in failures]
+                            content = "\n\n".join([output.content, *notes])
+                            output = ToolOutput(content, is_error=output.is_error)
                     outputs[call.id] = output
                     untrusted = False
                     if permissions is not None:

@@ -48,6 +48,26 @@ The classifier reads the command line, not what programs do. These are deliberat
   letting the agent edit it requires trusting it again. The agent's own edits to `.zwans/`
   always ask.
 
+## Extensions
+
+- **Hooks run on the host**, with your access, even with the Docker executor: they are your
+  own programs. A project's hooks are code from whoever wrote the project, so they need the
+  same trust as its allow rules. A pre_tool hook that fails to run blocks the call, so a
+  broken hook can't open a gap.
+- **MCP servers come only from your own config**, never from a workspace, because starting
+  one runs a program. Their tools reach outside the workspace, so every tool not marked
+  read-only asks, in `auto` mode too, and after untrusted content even an allowed one asks,
+  as a network command would: posting a comment can carry what was read somewhere else.
+  The read-only mark is the server's own word, trusted because you chose the server. A
+  "read-only" tool that takes a query can still send that query out; Zwans can't see what
+  a server does with its arguments.
+- **MCP output and skills count as untrusted content.** A project's skills are text from
+  the project, like its ZWANS.md, and are listed in the system prompt the same way.
+- **Subagents share the parent's policy, hooks and untrusted flag**, so delegating a call
+  doesn't change whether it's allowed, and the injection suite counts a subagent's calls
+  like the agent's own. The `Task` call itself runs without asking because each call the
+  subagent makes is checked. Subagents running at once ask their questions one at a time.
+
 ## What the Docker sandbox doesn't cover
 
 - The workspace is mounted read-write. Code in the container can change or delete anything
@@ -65,6 +85,10 @@ The classifier reads the command line, not what programs do. These are deliberat
   hide a second command (`&&`, `$(...)`, `bash -c`, `find -exec`, here-documents).
 - `tests/test_policy.py`: rules, modes, the untrusted-content escalation, policy trust, and
   that refusals reach the model as tool errors.
+- `tests/test_hooks.py`, `tests/test_mcp.py`, `tests/test_subagents.py`: a pre_tool hook
+  blocks `git push` and a broken one blocks too; a project's hooks need trust; MCP tools ask
+  unless read-only and ask again after untrusted content; a subagent's calls are checked
+  and counted like the parent's.
 - `tests/test_docker_executor.py`: the container sees no host files outside the workspace
   and no host environment, timeouts kill whole process trees, there is no direct route out,
   and the proxy refuses hosts off the list. These run in CI on Linux.

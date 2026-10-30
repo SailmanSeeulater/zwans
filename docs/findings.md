@@ -3,6 +3,60 @@
 Eval results that shaped Zwans. Each entry gives the setup, the numbers, and what it means.
 Reports live in `evals/reports/` (not committed); the numbers here are copied from them.
 
+## 2026-10-30: Haiku never delegates to a subagent on these suites
+
+**Setup.** Phase 5's `Task` tool (subagents) on against off (`evals/configs/no-subagents.toml`),
+claude-haiku-5-5 at low effort, `--repeats 3`, local execution. Each pair ran side by side.
+
+| Suite, config | Passed | Spent | Model calls | Tool calls | Seconds | `Task` calls |
+|---|---|---|---|---|---|---|
+| starter, subagents | 81/81 | $0.171 | 4.8 | 5.9 | 14.5 | 0 |
+| starter, no subagents | 81/81 | $0.161 | 4.7 | 5.9 | 14.2 | - |
+| hard, subagents | 29/36 | $0.531 | 10.8 | 10.9 | 125 | 0 |
+| hard, no subagents | 29/36 | $0.525 | 11.2 | 12.0 | 121 | - |
+
+`compare` (no subagents as A): on the starter suite, dollars +$0.0001 per attempt, significant;
+nothing else. On the hard suite, tool calls -1.2 [-2.3, -0.0], at the edge of significance,
+and pass rate +0 pts, with stockroom-tenants and fulfil-partial-shipments trading places.
+Three or four hard attempts per arm ended when the API connection kept dropping.
+
+**What it means.**
+- The model never used the tool in 117 attempts, so the arms differ only by one unused tool
+  in the request. The extra cent per hundred attempts is its description, sent every call.
+  The hard-suite tool-call difference can't come from subagents and is noise.
+- These repos are a few hundred to a few thousand lines: one agent can read what it needs
+  faster than it can brief another. Subagents pay off when a search would flood the context,
+  which no task here does.
+- Keeping `subagents = true` costs almost nothing, and the real run (Phase 5's demo, asked to
+  "use a subagent") shows the mechanism works. Whether it helps needs tasks that call for it.
+
+**Next.** A task tier that rewards delegation: a large repo where the answer needs a broad
+search, or several independent changes. Then compare again, and with Sonnet or Opus, which
+may delegate unprompted where Haiku doesn't.
+
+## 2026-10-30: Zwans and Claude Code are level on the starter suite
+
+**Setup.** The Phase 3 baseline: `zwans eval run --agent claude-code --repeats 3` (Claude
+Code 2.1.312, `claude -p --bare`), claude-opus-5-5 at medium effort, against Zwans's
+`first-full` run (same model and effort, one attempt per task, commit `4167cde`).
+
+| Agent | Passed | Mean $ / attempt | Model calls | Tool calls | Tool errors | Seconds |
+|---|---|---|---|---|---|---|
+| Zwans | 27/27 | 0.074 | 4.7 | 4.5 | 0.0 | 21.7 |
+| Claude Code | 81/81 | 0.084 | 5.5 | 5.0 | 0.3 | 30.7 |
+
+`compare` (Zwans as A): dollars +$0.010 [+0.001, +0.021], model calls +0.8, tool errors
++0.3 and seconds +8.9 [+5.5, +13.0] for Claude Code, all significant; pass rate and tool
+calls level.
+
+**What it means.**
+- On this suite Zwans is not behind a production harness: it passes as much, a little cheaper
+  and faster. Claude Code's larger system prompt and extra checking steps cost time here
+  without a pass-rate benefit, because nothing here is hard enough to need them.
+- Zwans's side has one attempt per task, so its numbers are noisier; a `--repeats 3` Zwans
+  run on Opus would make this a fairer comparison. The hard tier is where a difference
+  would show, if there is one.
+
 ## 2026-10-28: the starter suite is too easy to measure anything
 
 **Setup.** The 27-task starter suite (10 bug fixes, 8 features, 4 refactors, 5 questions),

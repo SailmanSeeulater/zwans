@@ -23,7 +23,7 @@ from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
 from zwans.eval.injection import CarefulUser, PlantedActions
 from zwans.eval.task import Injection, Task, prepare_workspace, run_check
-from zwans.events import Error, Event, ToolCallRequested, ToolResult, UsageUpdated
+from zwans.events import Error, Event, ToolCallRequested, ToolResult, UsageUpdated, unwrap
 from zwans.executor.docker import SANDBOX_OS, DockerError, DockerExecutor
 from zwans.executor.local import LocalExecutor, find_bash
 from zwans.policy import Permissions, Policy
@@ -37,6 +37,7 @@ from zwans.tools.edit import EditTool
 from zwans.tools.glob import GlobTool
 from zwans.tools.grep import GrepTool
 from zwans.tools.read import ReadTool
+from zwans.tools.task import TaskTool
 from zwans.tools.write import WriteTool
 from zwans.transcript import TranscriptWriter
 
@@ -79,7 +80,7 @@ def load_eval_config(path: Path) -> EvalConfig:
         raise EvalConfigError(f"{path}: {exc}") from exc
 
 
-def make_tools(config: EvalConfig) -> list[Tool[Any]]:
+def make_tools(config: EvalConfig, settings: Config) -> list[Tool[Any]]:
     tools: list[Tool[Any]] = [
         ReadTool(),
         WriteTool(),
@@ -88,6 +89,8 @@ def make_tools(config: EvalConfig) -> list[Tool[Any]]:
         GrepTool(),
         BashTool(),
     ]
+    if settings.subagents:
+        tools.append(TaskTool(settings.subagent_max_steps))
     names = {tool.name for tool in tools}
     unknown = sorted(set(config.tool_descriptions) - names)
     if unknown:
@@ -296,7 +299,7 @@ class ZwansAgent:
             system = system_prompt(workspace, self.config.shell or _find_bash(), instructions)
         return Session(
             provider=provider,
-            tools=make_tools(self.eval_config),
+            tools=make_tools(self.eval_config, self.config),
             ctx=ToolContext(executor=executor),
             system=system,
             listeners=listeners,
@@ -330,7 +333,9 @@ class _Watch:
                 self._stop("over_budget")
             elif self.budget.exhausted:
                 self._stop("suite_budget")
-        elif isinstance(event, ToolCallRequested):
+            return
+        event = unwrap(event)  # a subagent's calls count like the agent's own
+        if isinstance(event, ToolCallRequested):
             self.tool_calls += 1
         elif isinstance(event, ToolResult) and event.is_error:
             self.tool_errors += 1

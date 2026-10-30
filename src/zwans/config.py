@@ -1,4 +1,5 @@
 """Settings from ~/.zwans/config.toml, overridden by ZWANS_* environment variables.
+ZWANS_CONFIG names a different config file.
 
 Credentials come only from environment variables, or a .env file in the folder you run
 zwans from, never from the config file. They use the same variables as NexTix:
@@ -10,9 +11,9 @@ import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 type AuthMode = Literal["api_key", "subscription"]
 type Effort = Literal["low", "medium", "high", "xhigh", "max"]
@@ -35,6 +36,25 @@ class ConfigError(Exception):
     pass
 
 
+class McpServerConfig(BaseModel):
+    """One MCP server; see mcp/tools.py."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    command: str | None = None  # a program to start, talking over stdio
+    args: list[str] = []
+    env: dict[str, str] = {}
+    url: str | None = None  # or a server to reach over streamable HTTP
+    headers: dict[str, str] = {}
+    timeout: float = Field(default=120, gt=0)  # seconds a tool call may take
+
+    @model_validator(mode="after")
+    def _one_transport(self) -> Self:
+        if (self.command is None) == (self.url is None):
+            raise ValueError("set either command (for stdio) or url (for HTTP), not both")
+        return self
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -43,12 +63,15 @@ class Config(BaseModel):
     effort: Effort = "medium"  # how much the model thinks; the main cost and latency control
     max_tokens: int = 64_000  # per model call, thinking included
     max_steps: int = 50  # model calls allowed in one turn
+    subagents: bool = True  # offer the Task tool
+    subagent_max_steps: int = 30  # model calls allowed in one subagent's task
     compact_at: int = 200_000  # estimated context tokens that trigger a compaction
     keep_messages: int = 8  # recent messages kept word for word when compacting
     shell: str | None = None  # path to bash; found automatically when unset
     # Where commands run: on this machine, or in a Docker container (see executor/docker.py)
     executor: Literal["local", "docker"] = "local"
     home: Path = ZWANS_HOME  # transcripts, saved sessions, and saved tool output live here
+    mcp_servers: dict[str, McpServerConfig] = {}  # tools from MCP servers, by server name
 
 
 @dataclass(frozen=True)
@@ -105,4 +128,5 @@ def load_settings() -> tuple[Config, dict[str, str]]:
     dictionary rather than os.environ, so commands the agent runs never inherit them.
     """
     env = {**read_dotenv(Path(".env")), **os.environ}
-    return load_config(env=env), env
+    path = Path(env["ZWANS_CONFIG"]).expanduser() if env.get("ZWANS_CONFIG") else None
+    return load_config(path or DEFAULT_CONFIG_PATH, env=env), env

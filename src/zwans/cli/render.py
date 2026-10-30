@@ -8,6 +8,8 @@ from zwans.events import (
     ContextCompacted,
     Error,
     Event,
+    HookReported,
+    SubagentEvent,
     TextDelta,
     ThinkingDelta,
     ToolCallRequested,
@@ -40,11 +42,29 @@ class Renderer:
                 self._finish_line()
             case TurnEnded(stop_reason=reason, detail=detail):
                 self._line(f"[stopped: {reason}{f', {detail}' if detail else ''}]", fg="yellow")
+            case SubagentEvent(task=task):
+                self._subagent(task, event.inner())
+            case HookReported(event=hook_event, message=message):
+                self._line(f"  {hook_event} hook: {_first_line(message)}", fg="yellow")
             case Error(message=message):
                 self._line(f"Error: {message}", fg="red")
             case ContextCompacted(tokens_before=before, tokens_after=after):
                 note = f"[Summarized older messages: about {before:,} -> {after:,} tokens]"
                 self._line(note, fg="magenta")
+
+    def _subagent(self, task: str, event: Event) -> None:
+        """A subagent's calls, one line each and indented; its text stays out of the way."""
+        match event:
+            case SubagentEvent(task=inner_task):
+                self._subagent(f"{task} > {inner_task}", event.inner())
+            case ToolCallRequested(name=name, args=args):
+                self._line(f"  [{task}] {name} {_summarize(args)}".rstrip(), fg="cyan", dim=True)
+            case ToolResult(content=content, is_error=True):
+                self._line(f"  [{task}] ! {_first_line(content)}", fg="red", dim=True)
+            case HookReported(event=hook_event, message=message):
+                self._line(f"  [{task}] {hook_event} hook: {_first_line(message)}", fg="yellow")
+            case Error(message=message):
+                self._line(f"  [{task}] Error: {message}", fg="red")
 
     def _stream(self, text: str, style: str) -> None:
         if style != self._style:
