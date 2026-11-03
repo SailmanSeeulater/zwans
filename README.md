@@ -203,7 +203,9 @@ starts, the project's last.
 ### Long sessions
 
 When the conversation passes `compact_at` tokens, Zwans has the model write handoff notes
-for the older part and keeps the latest `keep_messages` messages word for word.
+for the older part and keeps the latest `keep_messages` messages word for word. Set
+`compact_at` well above what one task needs at once: below that, Zwans compacts again and
+again, and the agent re-reads what was summarized (see [docs/findings.md](docs/findings.md)).
 
 ## Web UI
 
@@ -283,6 +285,8 @@ accepts `ANTHROPIC_API_KEY`, so the baseline is billed per token whatever `auth`
 cost is charged to `--budget` when each attempt ends, so a run can go over by up to one
 task's `max_cost` per parallel attempt.
 
+What the evals have shown so far, with numbers and transcripts: [docs/findings.md](docs/findings.md).
+
 ## Configuration
 
 `~/.zwans/config.toml` (or the file named by `ZWANS_CONFIG`), or the same names as `ZWANS_*`
@@ -299,6 +303,7 @@ environment variables:
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
 | `compact_at` | `200000` | Estimated context tokens that trigger a compaction |
 | `keep_messages` | `8` | Recent messages kept word for word when compacting |
+| `prompt_cache` | `conversation` | What prompt caching covers: `conversation` (system prompt, tools and the conversation so far), `system` (system prompt and tools), or `off` |
 | `shell` | found automatically | Path to bash |
 | `executor` | `local` | Where commands run: `local`, `docker`, or `jail` (Linux) |
 | `home` | `~/.zwans` | Where transcripts, saved sessions, saved tool output, and the policy file go |
