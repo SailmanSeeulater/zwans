@@ -23,8 +23,9 @@ draw on are in the [lab notebook](#lab-notebook) below.
   names: 18 of its 30 failed Edits used `new_str` or `new_text`, field names the tool
   doesn't have.
 - **Haiku 5.5 never used a subagent** in 117 attempts when it was free to.
-- **A purpose-built sandbox starts 6 to 26 times faster than Docker** (4.7 ms against
-  27 ms for `docker exec` and 122 ms for `docker run`) at the same pass rate.
+- **A purpose-built sandbox starts 9 to 29 times faster than Docker** (4.0 ms against
+  37.5 ms for `docker exec` and 115 ms for `docker run`, on the same Linux machine) at the
+  same pass rate.
 - **Zwans matches Claude Code on the starter suite** with Opus 5.5: both pass everything,
   and Zwans is 12% cheaper and 29% faster per attempt.
 - **One run is not a measurement.** Identical setups differed by 11 points between runs,
@@ -253,15 +254,20 @@ file descriptors, network access) must all fail to get out, and they do.
 
 | | zwans-jail | `docker exec` | `docker run` |
 |---|---|---|---|
-| Startup, median of 50 | 4.7 ms | 26.9 ms | 121.8 ms |
+| Startup on CI's Linux runner, median | 4.0 ms | 37.5 ms | 115.0 ms |
+| Startup on CI's Linux runner, p95 | 4.3 ms | 38.5 ms | 143.8 ms |
+| Startup from a Mac, median | 4.7 ms | 26.9 ms | 121.8 ms |
 | Starter suite, Haiku 5.5, 81 attempts | 81/81 | 80/81 | - |
 | Hard suite, two runs of 36 | 67/72 | 67/72 | - |
 
-(Docker's numbers include Docker Desktop's trip from the Mac into its VM. The jail's are
-with the six system folders the executor mounts; a first measurement with four, 2.5 ms,
-flattered it.)
+Startup is 50 runs of `true` (20 for `docker run`) with `runtime/bench.py`. The CI rows
+are GitHub's x86-64 `ubuntu-latest` runner, with both sandboxes on the same machine; the
+jail's setup took 1.2 ms of its 4.0. The Mac rows put the jail in Docker Desktop's arm64 VM
+and time Docker from the Mac, so Docker's numbers include the trip into the VM. The jail
+mounts the same system folders as the executor; a first measurement with fewer of them,
+2.5 ms, flattered it.
 
-**What it means.** A namespace sandbox costs about two milliseconds of setup, so one per
+**What it means.** A namespace sandbox costs a millisecond or two of setup, so one per
 command is affordable, and it needs no daemon. It matches Docker on pass rate. It has no
 network at all, which would fail a task that needs `pip install`; none here do. The jail
 runs only on Linux.

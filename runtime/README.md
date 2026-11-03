@@ -66,7 +66,18 @@ Linux machine. It can't delegate a cgroup, so limits there come from resource li
 
 ## Measured
 
-On Docker Desktop's Linux VM (kernel 7.0, arm64), 50 runs of `true`:
+50 runs of `true` (20 for `docker run`), with `python runtime/bench.py jail` and `docker`.
+
+On CI's x86-64 `ubuntu-latest` runner, both on the same machine (the `jail` job):
+
+| Sandbox | Median | p95 |
+|---|---|---|
+| zwans-jail, a fresh sandbox | 4.0 ms | 4.3 ms |
+| zwans-jail, setup only | 1.2 ms | 1.5 ms |
+| `docker exec` into a running container | 37.5 ms | 38.5 ms |
+| `docker run`, a fresh container | 115.0 ms | 143.8 ms |
+
+On Docker Desktop's Linux VM (kernel 7.0, arm64):
 
 | Sandbox | Median | p95 |
 |---|---|---|
@@ -75,6 +86,6 @@ On Docker Desktop's Linux VM (kernel 7.0, arm64), 50 runs of `true`:
 | `docker exec` into a running container | 26.9 ms | 34.5 ms |
 | `docker run`, a fresh container | 121.8 ms | 140.2 ms |
 
-The Docker numbers were taken from the Mac, so they include Docker Desktop's trip into its
-VM; CI runs both on the same Linux machine (the `jail` job). The jail mounts the same system
+Here the Docker numbers were taken from the Mac, so they include Docker Desktop's trip into
+its VM. The jail mounts the same system
 folders as the executor (six in the dev container); each read-only mount adds a little.
