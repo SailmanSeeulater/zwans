@@ -70,10 +70,11 @@ On Docker Desktop's Linux VM (kernel 7.0, arm64), 50 runs of `true`:
 
 | Sandbox | Median | p95 |
 |---|---|---|
-| zwans-jail, a fresh sandbox | 2.5 ms | 3.3 ms |
-| zwans-jail, setup only | 1.0 ms | 1.4 ms |
+| zwans-jail, a fresh sandbox | 4.7 ms | 9.0 ms |
+| zwans-jail, setup only | 2.0 ms | 5.5 ms |
 | `docker exec` into a running container | 26.9 ms | 34.5 ms |
 | `docker run`, a fresh container | 121.8 ms | 140.2 ms |
 
 The Docker numbers were taken from the Mac, so they include Docker Desktop's trip into its
-VM; CI runs both on the same Linux machine (the `jail` job).
+VM; CI runs both on the same Linux machine (the `jail` job). The jail mounts the same system
+folders as the executor (six in the dev container); each read-only mount adds a little.

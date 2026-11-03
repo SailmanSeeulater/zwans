@@ -16,6 +16,8 @@ import sys
 import tempfile
 import time
 
+from zwans.executor.jail import SYSTEM_FOLDERS
+
 RUNS = 50
 IMAGE = "zwans-sandbox:0.1"
 
@@ -40,7 +42,8 @@ def jail() -> None:
         {
             "argv": ["true"],
             "workspace": workspace,
-            "read_only": ["/usr", "/bin", "/lib", "/etc"],
+            # The executor's own list: x86-64 needs /lib64 for the dynamic loader, arm64 /lib
+            "read_only": [folder for folder in SYSTEM_FOLDERS if os.path.exists(folder)],
             "env": {"PATH": "/usr/bin:/bin"},
         }
     )

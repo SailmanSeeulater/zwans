@@ -23,7 +23,7 @@ draw on are in the [lab notebook](#lab-notebook) below.
   names: 18 of its 30 failed Edits used `new_str` or `new_text`, field names the tool
   doesn't have.
 - **Haiku 5.5 never used a subagent** in 117 attempts when it was free to.
-- **A purpose-built sandbox starts 10 to 50 times faster than Docker** (2.5 ms against
+- **A purpose-built sandbox starts 6 to 26 times faster than Docker** (4.7 ms against
   27 ms for `docker exec` and 122 ms for `docker run`) at the same pass rate.
 - **Zwans matches Claude Code on the starter suite** with Opus 5.5: both pass everything,
   and Zwans is 12% cheaper and 29% faster per attempt.
@@ -253,13 +253,15 @@ file descriptors, network access) must all fail to get out, and they do.
 
 | | zwans-jail | `docker exec` | `docker run` |
 |---|---|---|---|
-| Startup, median of 50 | 2.5 ms | 26.9 ms | 121.8 ms |
+| Startup, median of 50 | 4.7 ms | 26.9 ms | 121.8 ms |
 | Starter suite, Haiku 5.5, 81 attempts | 81/81 | 80/81 | - |
 | Hard suite, two runs of 36 | 67/72 | 67/72 | - |
 
-(Docker's numbers include Docker Desktop's trip from the Mac into its VM.)
+(Docker's numbers include Docker Desktop's trip from the Mac into its VM. The jail's are
+with the six system folders the executor mounts; a first measurement with four, 2.5 ms,
+flattered it.)
 
-**What it means.** A namespace sandbox costs about a millisecond of setup, so one per
+**What it means.** A namespace sandbox costs about two milliseconds of setup, so one per
 command is affordable, and it needs no daemon. It matches Docker on pass rate. It has no
 network at all, which would fail a task that needs `pip install`; none here do. The jail
 runs only on Linux.
@@ -357,12 +359,16 @@ is no read-only, permission, network or `zwans-jail:` error. Every failure is an
 where Haiku finished and the check failed, one attempt each in five different tasks.
 
 Startup, 50 runs of `true` (runtime/bench.py): the jail takes 2.5 ms median, 3.3 ms p95
-(1.0 ms of it setting up the sandbox), against 26.9 ms for `docker exec` into a running
+(1.0 ms of it setting up the sandbox; corrected below), against 26.9 ms for `docker exec` into a running
 container and 121.8 ms for `docker run`. The Docker numbers include Docker Desktop's trip
 from the Mac into its VM; CI measures both on one Linux machine.
 
+**Correction (same day).** `bench.py` mounted four system folders, not the executor's list;
+x86-64 needs `/lib64` too, which is how CI caught it. With the executor's six folders the
+jail takes 4.7 ms median, 9.0 ms p95 (2.0 ms of setup), about a sixth of `docker exec`.
+
 **What it means.**
-- The jail is a drop-in for Docker on these suites: same pass rate, a tenth of the
+- The jail is a drop-in for Docker on these suites: same pass rate, a sixth of the
   per-command latency, and no daemon. It has no network at all, so a task that needs
   `pip install` would fail under it where Docker's proxy lets it through; none here do.
 - The first comparison was a false alarm, and `compare` called it significant. Two runs of

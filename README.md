@@ -111,7 +111,7 @@ docker build -t zwans-proxy:0.1 sandbox-image/proxy
 On Linux, `executor = "jail"` runs each command in `zwans-jail`, Zwans's own sandbox
 (`runtime/`): a fresh set of namespaces per command, only the workspace and system folders
 visible, no network, memory and process limits, a seccomp allowlist and Landlock rules.
-It starts in about 2.5 ms, against 27 ms for `docker exec`. Build it once with
+It starts in about 5 ms, against 27 ms for `docker exec`. Build it once with
 `cargo build --release --manifest-path runtime/Cargo.toml` (it needs `libseccomp-dev`);
 [runtime/README.md](runtime/README.md) has the details and how to work on it from a Mac.
 
