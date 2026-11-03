@@ -23,7 +23,15 @@ from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
 from zwans.eval.injection import CarefulUser, PlantedActions
 from zwans.eval.task import Injection, Task, prepare_workspace, run_check
-from zwans.events import Error, Event, ToolCallRequested, ToolResult, UsageUpdated, unwrap
+from zwans.events import (
+    ContextCompacted,
+    Error,
+    Event,
+    ToolCallRequested,
+    ToolResult,
+    UsageUpdated,
+    unwrap,
+)
 from zwans.executor.docker import SANDBOX_OS, DockerError, DockerExecutor
 from zwans.executor.jail import JAIL_OS, JailExecutor
 from zwans.executor.local import LocalExecutor, find_bash
@@ -113,6 +121,12 @@ class AttemptResult(BaseModel):
     model_calls: int = 0
     tool_calls: int = 0
     tool_errors: int = 0
+    # Input tokens by how they were billed, and output tokens, over all model calls
+    input_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    output_tokens: int = 0
+    compactions: int = 0
     seconds: float = 0.0
     check_exit: int | None = None
     check_output: str = ""
@@ -133,6 +147,8 @@ class Summary(BaseModel):
     mean_tool_calls: float
     tool_error_rate: float  # failed tool calls out of all tool calls
     mean_seconds: float
+    cache_hit_rate: float = 0.0  # input tokens read from the cache, out of all input tokens
+    mean_compactions: float = 0.0
     planted_attempts: int = 0
     planted_runs: int = 0
 
@@ -156,9 +172,17 @@ class Summary(BaseModel):
             mean_tool_calls=mean([r.tool_calls for r in counted]),
             tool_error_rate=sum(r.tool_errors for r in counted) / tool_calls if tool_calls else 0.0,
             mean_seconds=mean([r.seconds for r in counted]),
+            cache_hit_rate=cache_hit_rate(counted),
+            mean_compactions=mean([r.compactions for r in counted]),
             planted_attempts=sum(len(r.planted_attempts) for r in counted),
             planted_runs=sum(len(r.planted_runs) for r in counted),
         )
+
+
+def cache_hit_rate(results: Sequence[AttemptResult]) -> float:
+    read = sum(r.cache_read_tokens for r in results)
+    total = read + sum(r.input_tokens + r.cache_write_tokens for r in results)
+    return read / total if total else 0.0
 
 
 class Report(BaseModel):
@@ -197,6 +221,11 @@ class AgentRun:
     model_calls: int = 0
     tool_calls: int = 0
     tool_errors: int = 0
+    input_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    output_tokens: int = 0
+    compactions: int = 0
     errors: list[str] = field(default_factory=list)
     planted_attempts: list[str] = field(default_factory=list)
     planted_runs: list[str] = field(default_factory=list)
@@ -282,6 +311,11 @@ class ZwansAgent:
             model_calls=watch.model_calls,
             tool_calls=watch.tool_calls,
             tool_errors=watch.tool_errors,
+            input_tokens=watch.input_tokens,
+            cache_read_tokens=watch.cache_read_tokens,
+            cache_write_tokens=watch.cache_write_tokens,
+            output_tokens=watch.output_tokens,
+            compactions=watch.compactions,
             errors=watch.errors,
             planted_attempts=planted.attempted,
             planted_runs=planted.ran,
@@ -325,12 +359,21 @@ class _Watch:
     model_calls: int = 0
     tool_calls: int = 0
     tool_errors: int = 0
+    input_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    output_tokens: int = 0
+    compactions: int = 0
     errors: list[str] = field(default_factory=list)
     stopped_by: str = ""  # "over_budget" (this attempt's) or "suite_budget" (the run's)
 
     def on_event(self, event: Event) -> None:
         if isinstance(event, UsageUpdated):
             self.model_calls += 1
+            self.input_tokens += event.input_tokens
+            self.cache_read_tokens += event.cache_read_tokens
+            self.cache_write_tokens += event.cache_write_tokens
+            self.output_tokens += event.output_tokens
             dollars = cost(event) or 0.0
             self.dollars += dollars
             self.budget.spent += dollars
@@ -344,6 +387,8 @@ class _Watch:
             self.tool_calls += 1
         elif isinstance(event, ToolResult) and event.is_error:
             self.tool_errors += 1
+        elif isinstance(event, ContextCompacted):
+            self.compactions += 1
         elif isinstance(event, Error):
             self.errors.append(event.message)
 
@@ -390,6 +435,11 @@ async def run_attempt(
         result.model_calls = run.model_calls
         result.tool_calls = run.tool_calls
         result.tool_errors = run.tool_errors
+        result.input_tokens = run.input_tokens
+        result.cache_read_tokens = run.cache_read_tokens
+        result.cache_write_tokens = run.cache_write_tokens
+        result.output_tokens = run.output_tokens
+        result.compactions = run.compactions
         result.errors = run.errors
         result.transcript = str(transcript)
         result.planted_attempts = run.planted_attempts

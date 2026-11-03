@@ -1,0 +1,5 @@
+# Compact at 20,000 tokens instead of 200,000, so nearly every hard-tier attempt compacts at
+# least once (their contexts peak at 20,000 to 60,000 tokens on Haiku 5.5). Phase 7's
+# compaction experiment: what does summarizing mid-task cost?
+
+compact_at = 20_000

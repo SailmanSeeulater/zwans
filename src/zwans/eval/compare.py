@@ -12,7 +12,7 @@ import random
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from zwans.eval.runner import AttemptResult, Report
+from zwans.eval.runner import AttemptResult, Report, cache_hit_rate
 
 RESAMPLES = 5_000
 CONFIDENCE = 0.95
@@ -27,6 +27,8 @@ METRICS: dict[str, Metric] = {
     "tool calls": lambda a: float(a.tool_calls),
     "tool errors": lambda a: float(a.tool_errors),
     "seconds": lambda a: a.seconds,
+    "compactions": lambda a: float(a.compactions),
+    "cache hit rate": lambda a: cache_hit_rate([a]),
 }
 
 

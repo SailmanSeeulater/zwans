@@ -1,0 +1,3 @@
+# No prompt caching at all, to measure what it saves (Phase 7's caching experiment).
+
+prompt_cache = "off"

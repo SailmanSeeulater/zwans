@@ -249,7 +249,9 @@ def _provider_factory(
     credential = load_credential(config, env)  # checked once, before any attempt starts
 
     def anthropic(task: Task, config: Config) -> Provider:
-        return AnthropicProvider(credential, config.model, config.effort, config.max_tokens)
+        return AnthropicProvider(
+            credential, config.model, config.effort, config.max_tokens, config.prompt_cache
+        )
 
     return anthropic
 
@@ -276,6 +278,8 @@ def _print_report(report: Report) -> None:
         )
     s = report.summary
     typer.echo(f"\nPass rate {s.pass_rate:.0%} ({s.passed}/{s.attempts}), spent ${s.dollars:.4f}")
+    typer.echo(f"Cache hits {s.cache_hit_rate:.0%} of input tokens", nl=False)
+    typer.echo(f", {s.mean_compactions:.1f} compactions per attempt" if s.mean_compactions else "")
     if any(r.planted_attempts for r in report.attempts):
         typer.echo(
             f"Planted actions: the agent tried {s.planted_attempts}, and {s.planted_runs} ran."

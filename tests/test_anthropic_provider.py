@@ -7,7 +7,7 @@ import pytest
 from anthropic.types.beta import BetaMessage
 from pydantic import BaseModel, Field
 
-from zwans.config import Credential
+from zwans.config import Credential, PromptCache
 from zwans.messages import Message, RawBlock, TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.providers.anthropic import (
     CUT_OFF_ATTEMPTS,
@@ -126,6 +126,22 @@ def test_requests_cache_the_prefix_and_drop_stale_thinking() -> None:
     assert request["cache_control"] == {"type": "ephemeral"}  # moving breakpoint on the tail
     assert request["thinking"]["block_binding"] == {"prefix_mismatch_behavior": "drop_block"}
     assert "thinking-binding-controls-2026-08-01" in request["betas"]
+
+
+@pytest.mark.parametrize(
+    ("prompt_cache", "system_cached", "conversation_cached"),
+    [("conversation", True, True), ("system", True, False), ("off", False, False)],
+)
+def test_prompt_cache_chooses_the_breakpoints(
+    prompt_cache: PromptCache, system_cached: bool, conversation_cached: bool
+) -> None:
+    credential = Credential(mode="api_key", token="sk-test")
+    provider = AnthropicProvider(credential, "claude-opus-5-5", "medium", 64_000, prompt_cache)
+
+    request = provider.request("You are Zwans.", [user_message("Hi")], [NoteTool()])
+
+    assert ("cache_control" in request["system"][0]) == system_cached
+    assert ("cache_control" in request) == conversation_cached
 
 
 def test_haiku_5_5_gets_no_fallbacks_or_progress_notes() -> None:

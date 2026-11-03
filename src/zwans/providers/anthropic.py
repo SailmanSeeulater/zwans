@@ -9,7 +9,7 @@ import anthropic
 import httpx2
 from anthropic.types.beta import BetaMessage
 
-from zwans.config import Credential, Effort
+from zwans.config import Credential, Effort, PromptCache
 from zwans.events import TextDelta, ThinkingDelta
 from zwans.messages import ContentBlock, Message, RawBlock, TextBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse, ProviderError
@@ -56,10 +56,18 @@ CUT_OFF_ATTEMPTS = 3
 
 
 class AnthropicProvider:
-    def __init__(self, credential: Credential, model: str, effort: Effort, max_tokens: int) -> None:
+    def __init__(
+        self,
+        credential: Credential,
+        model: str,
+        effort: Effort,
+        max_tokens: int,
+        prompt_cache: PromptCache = "conversation",
+    ) -> None:
         self.model = model
         self.effort = effort
         self.max_tokens = max_tokens
+        self.prompt_cache = prompt_cache
         self.traits = TRAITS.get(model, Traits())
         self.betas = _betas(self.traits)
         # The SDK retries rate limits, overloads, and connection errors with backoff.
@@ -122,19 +130,24 @@ class AnthropicProvider:
             "max_tokens": self.max_tokens,
             # A cache breakpoint after the system prompt covers the tools too, since the API
             # puts tools first. It survives whatever happens later in the conversation.
-            "system": [{"type": "text", "text": system, "cache_control": EPHEMERAL}]
+            "system": [{"type": "text", "text": system, **self._cache("system")}]
             if system
             else anthropic.omit,
             "messages": [message_param(m) for m in messages],
             "tools": [tool_param(t) for t in tools] if tools else anthropic.omit,
             # Automatic caching: a breakpoint on the conversation's last block, moving forward
             # each request, so every call re-reads everything before it from the cache.
-            "cache_control": EPHEMERAL,
+            **self._cache("conversation"),
             "thinking": self._thinking(),
             "output_config": {"effort": self.effort} if self.traits.effort else anthropic.omit,
             "fallbacks": "default" if self.traits.fallbacks else anthropic.omit,
             "betas": self.betas,
         }
+
+    def _cache(self, breakpoint: PromptCache) -> dict[str, Any]:
+        """A cache_control field for this breakpoint, if prompt_cache covers it."""
+        covered = {"conversation": ("system", "conversation"), "system": ("system",), "off": ()}
+        return {"cache_control": EPHEMERAL} if breakpoint in covered[self.prompt_cache] else {}
 
     def _thinking(self) -> dict[str, Any]:
         if not self.traits.adaptive_thinking:

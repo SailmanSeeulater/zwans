@@ -133,7 +133,9 @@ def open_session(
         provider = FakeProvider.from_file(fake_script)
     else:
         credential = load_credential(config, env)
-        provider = AnthropicProvider(credential, model, config.effort, config.max_tokens)
+        provider = AnthropicProvider(
+            credential, model, config.effort, config.max_tokens, config.prompt_cache
+        )
     if resume is None:
         store.create(info)  # only once the credential is known to be there
 

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -68,8 +69,9 @@ def run(
     repeats: int = 1,
     parallel: int = 1,
     budget: float | None = None,
+    overrides: Mapping[str, object] | None = None,
 ) -> Report:
-    config = EvalConfig(name="test")
+    config = EvalConfig(name="test", settings=dict(overrides or {}))
     settings = config.apply(Config(home=out / "home"))
     return asyncio.run(
         run_suite(
@@ -109,6 +111,32 @@ def test_each_attempt_starts_from_a_fresh_copy(tmp_path: Path) -> None:
 
     assert sorted(a.status for a in report.attempts) == ["failed", "passed"]
     assert (BUGGY_CALC.repo / "calc.py").read_text("utf-8").count("+ 1") == 1
+
+
+@needs_bash
+@pytest.mark.usefixtures("python_on_path")
+def test_attempts_count_tokens_cache_hits_and_compactions(tmp_path: Path) -> None:
+    # After the second call the conversation is over compact_at and long enough to cut, so
+    # the session compacts once; the summary request is the third response.
+    first = FIXES_IT[0].model_copy(
+        update={"input_tokens": 500, "cache_write_tokens": 1_500, "output_tokens": 50}
+    )
+    look = ToolUseBlock(id="call_2", name="Glob", input={"pattern": "*.py"})
+    second = ModelResponse(content=[look], stop_reason="tool_use", cache_read_tokens=2_000)
+    summary = ModelResponse(content=[TextBlock(text="Fixed calc.py.")], stop_reason="end_turn")
+    last = FIXES_IT[1].model_copy(update={"input_tokens": 100})
+    script = [first, second, summary, last]
+    overrides = {"compact_at": 1_000, "keep_messages": 2}
+
+    report = run([BUGGY_CALC], replay(script), tmp_path, overrides=overrides)
+
+    [attempt] = report.attempts
+    assert attempt.status == "passed"
+    assert attempt.compactions == 1
+    assert (attempt.input_tokens, attempt.cache_read_tokens) == (600, 2_000)
+    assert (attempt.cache_write_tokens, attempt.output_tokens) == (1_500, 50)
+    assert report.summary.cache_hit_rate == pytest.approx(2_000 / 4_100)
+    assert report.summary.mean_compactions == 1
 
 
 def test_an_attempt_over_its_own_budget_fails_without_a_check(tmp_path: Path) -> None:

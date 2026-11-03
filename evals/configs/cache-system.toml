@@ -1,0 +1,4 @@
+# Prompt caching on the system prompt and tools only, not the conversation (Phase 7's
+# caching experiment). Each call re-sends the whole conversation at the full input price.
+
+prompt_cache = "system"

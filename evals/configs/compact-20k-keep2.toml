@@ -1,0 +1,5 @@
+# As compact-20k.toml, but keeping only the last 2 messages word for word instead of 8, so
+# the agent leans on the summary almost entirely.
+
+compact_at = 20_000
+keep_messages = 2

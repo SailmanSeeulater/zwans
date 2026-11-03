@@ -97,15 +97,29 @@ def test_localhost_works_inside(workspace: Path) -> None:
 def test_files_outside_the_workspace_dont_exist(workspace: Path, tmp_path: Path) -> None:
     secret = tmp_path / "secret.txt"
     secret.write_text("the host's secret")
-    home = Path.home()
 
-    result = run(
-        workspace,
-        f"cat {secret}; ls {home}; ls /home /root; cat /proc/*/root{secret}; echo end",
-    )
+    result = run(workspace, f"cat {secret}; ls /root; cat /proc/*/root{secret}; echo end")
 
     assert "the host's secret" not in result.output
-    assert result.output.count("No such file or directory") >= 4, result.output
+    assert result.output.count("No such file or directory") == 3, result.output
+
+
+def test_the_home_folder_holds_only_the_tools_on_path(workspace: Path) -> None:
+    # PATH folders inside home (~/.cargo/bin, ~/.local/bin) are mounted read-only, so home
+    # can exist as a skeleton around them; nothing else of it may show.
+    home = Path.home().resolve()
+    tools = {
+        Path(folder).relative_to(home).parts[0]
+        for folder in read_only_paths(os.environ.get("PATH", ""), workspace)
+        if Path(folder).is_relative_to(home)
+    }
+
+    result = run(workspace, f"ls -A {home}")
+
+    if tools:
+        assert set(result.output.split()) <= tools, result.output
+    else:
+        assert "No such file or directory" in result.output
 
 
 def test_system_folders_are_read_only_and_tmp_is_private(workspace: Path) -> None:

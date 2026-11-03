@@ -17,6 +17,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 type AuthMode = Literal["api_key", "subscription"]
 type Effort = Literal["low", "medium", "high", "xhigh", "max"]
+# What prompt caching covers: the system prompt and tools plus the conversation so far, only
+# the system prompt and tools, or nothing (to measure what caching saves)
+type PromptCache = Literal["conversation", "system", "off"]
 
 ZWANS_HOME = Path.home() / ".zwans"
 DEFAULT_CONFIG_PATH = ZWANS_HOME / "config.toml"
@@ -67,6 +70,7 @@ class Config(BaseModel):
     subagent_max_steps: int = 30  # model calls allowed in one subagent's task
     compact_at: int = 200_000  # estimated context tokens that trigger a compaction
     keep_messages: int = 8  # recent messages kept word for word when compacting
+    prompt_cache: PromptCache = "conversation"
     shell: str | None = None  # path to bash; found automatically when unset
     # Where commands run: on this machine, in a Docker container (executor/docker.py), or in
     # zwans-jail, Zwans's own sandbox (executor/jail.py, Linux only)

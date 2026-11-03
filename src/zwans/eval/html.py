@@ -55,6 +55,7 @@ def render_html(report: Report, out_dir: Path) -> str:
             (f"{s.mean_tool_calls:.1f}", "tool calls"),
             (f"{s.tool_error_rate:.0%}", "tool errors"),
             (f"{s.mean_seconds:.0f}s", "mean time"),
+            (f"{s.cache_hit_rate:.0%}", "cache hits"),
         ]
     )
     task_rows = "".join(_task_row(name, summary) for name, summary in report.tasks.items())
