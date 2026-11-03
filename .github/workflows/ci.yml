@@ -52,3 +52,36 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  jail:
+    name: jail (cargo, escape suite, startup)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Let unprivileged users make namespaces (Ubuntu 24.04 restricts it with AppArmor)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - run: sudo apt-get update && sudo apt-get install -y libseccomp-dev ripgrep
+      - name: Build zwans-jail
+        working-directory: runtime
+        run: |
+          cargo fmt --check
+          cargo clippy --release -- -D warnings
+          cargo build --release
+      - name: Delegate a cgroup subtree to this user, as systemd does for a desktop login
+        run: |
+          sudo mkdir -p /sys/fs/cgroup/zwans-ci/main
+          echo "+memory +pids" | sudo tee /sys/fs/cgroup/zwans-ci/cgroup.subtree_control
+          sudo chown -R "$(id -u)" /sys/fs/cgroup/zwans-ci
+      - run: python -m pip install -e ".[dev]"
+      - name: Escape suite, inside the delegated cgroup
+        run: |
+          echo $$ | sudo tee /sys/fs/cgroup/zwans-ci/main/cgroup.procs
+          pytest -q tests/test_jail.py
+      - name: Startup, against Docker on the same machine
+        run: |
+          python runtime/bench.py jail
+          docker build -q -t zwans-sandbox:0.1 sandbox-image
+          python runtime/bench.py docker

@@ -27,6 +27,7 @@ from zwans.eval.runner import (
 )
 from zwans.eval.task import Task, TaskError, load_suite
 from zwans.executor.docker import DockerError, ensure_sandbox_network
+from zwans.executor.jail import find_jail
 from zwans.providers.anthropic import AnthropicProvider
 from zwans.providers.base import Provider
 from zwans.providers.fake import FakeProvider
@@ -39,6 +40,7 @@ STATUS_MARKS = {"passed": "PASS", "failed": "FAIL", "stopped": "STOP"}
 class ExecutorName(StrEnum):
     local = "local"
     docker = "docker"
+    jail = "jail"
 
 
 class AgentName(StrEnum):
@@ -90,6 +92,8 @@ def run_command(
         agent = _agent(agent_name, config, eval_config, env, fake_scripts)
         if config.executor == "docker" and agent_name is AgentName.zwans:
             asyncio.run(ensure_sandbox_network())  # fail now rather than in every attempt
+        if config.executor == "jail" and agent_name is AgentName.zwans:
+            find_jail()  # the same: say now if it isn't built
     except (ConfigError, EvalConfigError, TaskError, DockerError) as exc:
         typer.secho(str(exc), fg="red", err=True)
         raise typer.Exit(2) from exc

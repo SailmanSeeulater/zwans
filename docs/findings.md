@@ -3,6 +3,44 @@
 Eval results that shaped Zwans. Each entry gives the setup, the numbers, and what it means.
 Reports live in `evals/reports/` (not committed); the numbers here are copied from them.
 
+## 2026-11-03: zwans-jail matches Docker, and one run of the hard suite isn't enough
+
+**Setup.** Phase 7's `zwans-jail` executor against the Docker executor, claude-haiku-5-5 at
+low effort, `--repeats 3`. The jail ran in the Linux dev container (`runtime/dev.sh`, so
+without cgroups: limits came from resource limits); Docker ran from the Mac. The hard
+suite ran twice on each side; the second pair ran side by side.
+
+| Suite | Docker | zwans-jail |
+|---|---|---|
+| starter (27 tasks) | 80/81 | 81/81 |
+| hard, first runs | 35/36 (97%) | 31/36 (86%) |
+| hard, second runs | 32/36 (89%) | 36/36 (100%) |
+| hard, both runs | 67/72 (93%) | 67/72 (93%) |
+
+`compare` on the first hard pair called the jail 11 points worse [-19, -3], significant.
+On the second pair it was 11 points better [+0, +25]. Pooled per task over both runs,
+the difference is +0.0 points, 95% interval [-5.6, +5.6]. In every run the jail used fewer
+model calls (11.7 to 11.9 against 13.1 to 13.4 per attempt) and tool calls.
+
+None of the jail's failures came from the sandbox: across all 153 jail transcripts there
+is no read-only, permission, network or `zwans-jail:` error. Every failure is an attempt
+where Haiku finished and the check failed, one attempt each in five different tasks.
+
+Startup, 50 runs of `true` (runtime/bench.py): the jail takes 2.5 ms median, 3.3 ms p95
+(1.0 ms of it setting up the sandbox), against 26.9 ms for `docker exec` into a running
+container and 121.8 ms for `docker run`. The Docker numbers include Docker Desktop's trip
+from the Mac into its VM; CI measures both on one Linux machine.
+
+**What it means.**
+- The jail is a drop-in for Docker on these suites: same pass rate, a tenth of the
+  per-command latency, and no daemon. It has no network at all, so a task that needs
+  `pip install` would fail under it where Docker's proxy lets it through; none here do.
+- The first comparison was a false alarm, and `compare` called it significant. Two runs of
+  identical setups differ by 11 points on Haiku's hard suite, so one `--repeats 3` run
+  per side can't settle a difference of that size. The bootstrap resamples tasks, not
+  runs, so it doesn't see this run-to-run spread. Pooling runs, or more repeats, does.
+- Where a comparison matters, run it twice, or with `--repeats 6`, before believing it.
+
 ## 2026-10-30: Haiku never delegates to a subagent on these suites
 
 **Setup.** Phase 5's `Task` tool (subagents) on against off (`evals/configs/no-subagents.toml`),

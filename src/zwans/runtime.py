@@ -13,6 +13,7 @@ from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
 from zwans.events import Event
 from zwans.executor.docker import SANDBOX_OS, DockerExecutor
+from zwans.executor.jail import JAIL_OS, JailExecutor
 from zwans.executor.local import LocalExecutor, find_bash
 from zwans.ext.hooks import Hooks
 from zwans.ext.skills import find_skills, skill_folders
@@ -98,8 +99,8 @@ def open_session(
     make_provider: ProviderFactory | None = None,
     fake_script: Path | None = None,
 ) -> OpenedSession:
-    """A new session in `workspace`, or the saved one `resume` names. Raises ConfigError,
-    SessionError or PolicyError. Call `start()` before the first turn."""
+    """A new session in `workspace`, or the saved one `resume` names. Raises ConfigError
+    (JailError among them), SessionError or PolicyError. Call `start()` before the first turn."""
     store = SessionStore(config.home / "sessions.db")
     messages: list[Message] = []
     repaired = False
@@ -115,6 +116,8 @@ def open_session(
         followed = [path for path, _ in instructions]
         if config.executor == "docker":
             system = system_prompt(root, "bash", instructions, SANDBOX_OS, skills)
+        elif config.executor == "jail":
+            system = system_prompt(root, "bash", instructions, JAIL_OS, skills)
         else:
             shell = describe_shell(config.shell)
             system = system_prompt(root, shell, instructions, skills=skills)
@@ -142,6 +145,8 @@ def open_session(
     executor: LocalExecutor
     if config.executor == "docker":
         executor = DockerExecutor(root, spill_dir=spill_dir)
+    elif config.executor == "jail":
+        executor = JailExecutor(root, spill_dir=spill_dir)
     else:
         executor = LocalExecutor(root, shell=config.shell, spill_dir=spill_dir)
     permissions = Permissions(

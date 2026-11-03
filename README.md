@@ -104,7 +104,16 @@ docker build -t zwans-proxy:0.1 sandbox-image/proxy
 ```
 
 `auto` mode lets code run without asking, and running code can do anything you can, so use
-`auto` together with the Docker executor.
+`auto` together with the Docker executor or the jail.
+
+### The jail (Linux)
+
+On Linux, `executor = "jail"` runs each command in `zwans-jail`, Zwans's own sandbox
+(`runtime/`): a fresh set of namespaces per command, only the workspace and system folders
+visible, no network, memory and process limits, a seccomp allowlist and Landlock rules.
+It starts in about 2.5 ms, against 27 ms for `docker exec`. Build it once with
+`cargo build --release --manifest-path runtime/Cargo.toml` (it needs `libseccomp-dev`);
+[runtime/README.md](runtime/README.md) has the details and how to work on it from a Mac.
 
 ### Hooks
 
@@ -242,6 +251,7 @@ zwans eval run --agent claude-code --repeats 3          # the Claude Code baseli
 zwans eval run --tasks evals/tasks-hard                # the hard tier
 zwans eval run --tasks evals/tasks-injection           # the prompt-injection suite
 zwans eval run --executor docker                       # commands in the Docker sandbox
+zwans eval run --executor jail                         # commands in zwans-jail (Linux)
 ```
 
 A config in `evals/configs/` overrides settings such as `model` or `effort` for the run, and
@@ -290,7 +300,7 @@ environment variables:
 | `compact_at` | `200000` | Estimated context tokens that trigger a compaction |
 | `keep_messages` | `8` | Recent messages kept word for word when compacting |
 | `shell` | found automatically | Path to bash |
-| `executor` | `local` | Where commands run: `local` or `docker` |
+| `executor` | `local` | Where commands run: `local`, `docker`, or `jail` (Linux) |
 | `home` | `~/.zwans` | Where transcripts, saved sessions, saved tool output, and the policy file go |
 | `mcp_servers` | none | MCP servers, by name; see above |
 

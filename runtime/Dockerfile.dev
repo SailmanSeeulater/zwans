@@ -1,0 +1,27 @@
+# A Linux box for building and testing zwans-jail from a Mac or Windows machine, where it
+# can't run. runtime/dev.sh runs a command in it with the repo mounted at /work.
+FROM rust:1-bookworm AS rust
+
+FROM python:3.12-bookworm
+COPY --from=rust /usr/local/cargo /usr/local/cargo
+COPY --from=rust /usr/local/rustup /usr/local/rustup
+ENV RUSTUP_HOME=/usr/local/rustup PATH=/usr/local/cargo/bin:$PATH
+RUN rustup component add rustfmt clippy
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libseccomp-dev git ripgrep procps curl util-linux \
+    && rm -rf /var/lib/apt/lists/*
+
+# Zwans's Python dependencies (as in pyproject.toml), so the escape suite and evals can run
+# here too. The repo itself is mounted at /work when the container starts.
+RUN python3 -m venv /opt/zwans \
+    && /opt/zwans/bin/pip install --quiet "anthropic>=1.12" "fastapi>=0.115" "httpx>=0.27" \
+        "pydantic>=2.10" "typer>=0.15" "uvicorn>=0.30" "websockets>=13" \
+        "mypy>=1.14" "pytest>=8.3" "ruff>=0.9"
+
+# The jail must work without privileges, so test it as an ordinary user.
+RUN useradd --create-home --uid 1000 dev \
+    && mkdir -p /target && chown dev /target
+ENV PATH=/opt/zwans/bin:$PATH CARGO_TARGET_DIR=/target PYTHONPATH=/work/src
+USER dev
+WORKDIR /work

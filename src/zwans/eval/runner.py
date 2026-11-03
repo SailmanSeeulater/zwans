@@ -25,6 +25,7 @@ from zwans.eval.injection import CarefulUser, PlantedActions
 from zwans.eval.task import Injection, Task, prepare_workspace, run_check
 from zwans.events import Error, Event, ToolCallRequested, ToolResult, UsageUpdated, unwrap
 from zwans.executor.docker import SANDBOX_OS, DockerError, DockerExecutor
+from zwans.executor.jail import JAIL_OS, JailExecutor
 from zwans.executor.local import LocalExecutor, find_bash
 from zwans.policy import Permissions, Policy
 from zwans.pricing import cost
@@ -162,7 +163,7 @@ class Summary(BaseModel):
 
 class Report(BaseModel):
     agent: str = "zwans"  # or "claude-code", for the baseline
-    executor: str = "local"  # where the agent's commands ran: "local" or "docker"
+    executor: str = "local"  # where the agent's commands ran: "local", "docker" or "jail"
     config: EvalConfig
     model: str
     effort: str
@@ -238,6 +239,8 @@ class ZwansAgent:
         if self.config.executor == "docker":
             async with DockerExecutor(workspace, spill_dir=spill) as executor:
                 yield executor
+        elif self.config.executor == "jail":
+            yield JailExecutor(workspace, spill_dir=spill)
         else:
             yield LocalExecutor(workspace, shell=self.config.shell, spill_dir=spill)
 
@@ -295,6 +298,8 @@ class ZwansAgent:
         instructions = load_instructions(workspace, home=workspace)
         if isinstance(executor, DockerExecutor):
             system = system_prompt(workspace, "bash", instructions, SANDBOX_OS)
+        elif isinstance(executor, JailExecutor):
+            system = system_prompt(workspace, "bash", instructions, JAIL_OS)
         else:
             system = system_prompt(workspace, self.config.shell or _find_bash(), instructions)
         return Session(

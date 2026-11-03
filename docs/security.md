@@ -68,6 +68,26 @@ The classifier reads the command line, not what programs do. These are deliberat
   like the agent's own. The `Task` call itself runs without asking because each call the
   subagent makes is checked. Subagents running at once ask their questions one at a time.
 
+## The jail
+
+`zwans-jail` (`runtime/`, Linux only) is a sandbox per command, built from kernel features
+rather than a container runtime. What it adds over the Docker executor, and what it leaves:
+
+- **No network at all**, where Docker's proxy lets package indexes and GitHub through. A
+  task that needs `pip install` fails under the jail.
+- **The workspace is still mounted read-write**, as with Docker: code in the jail can change
+  or delete anything in the project, `.git/` included.
+- **Its limits depend on the machine.** With a delegated cgroup (a desktop login) memory and
+  process counts are hard limits; without one (most containers and CI runners) they fall
+  back to `RLIMIT_DATA` and `RLIMIT_NPROC`, which a determined program can get around with
+  memory it maps in other ways. `--stats` reports which applied.
+- **It needs unprivileged user namespaces**, which some distributions restrict (Ubuntu
+  24.04 with AppArmor). It doesn't need root, and adds no setuid program.
+- **The kernel is shared**, as with containers: a kernel bug reachable through the allowed
+  system calls is a way out. The allowlist keeps that surface close to Docker's.
+- The read-only paths come from PATH and the system folders, so software installed there
+  (a conda environment, say) is visible to the command, though not writable.
+
 ## The server
 
 `zwans serve` lets a browser run the agent, so it is a way to run commands on this machine.
@@ -107,6 +127,10 @@ The classifier reads the command line, not what programs do. These are deliberat
   and counted like the parent's.
 - `tests/test_server.py`: the token on every route and WebSocket, the origin check,
   approvals that go back over the WebSocket, and several clients on one session.
+- `tests/test_jail.py`: the escape suite. Fork bombs, a memory bomb, /proc and host-file
+  access, ptrace, signalling host processes, inherited file descriptors, mounting, new
+  namespaces, network access, timeouts and leftover background processes. It runs in CI
+  on Linux (the `jail` job), inside a delegated cgroup.
 - `tests/test_docker_executor.py`: the container sees no host files outside the workspace
   and no host environment, timeouts kill whole process trees, there is no direct route out,
   and the proxy refuses hosts off the list. These run in CI on Linux.

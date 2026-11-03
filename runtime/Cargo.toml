@@ -1,0 +1,21 @@
+[package]
+name = "zwans-jail"
+version = "0.1.0"
+edition = "2021"
+description = "Runs one command in a sandbox made of Linux namespaces, cgroups, seccomp and Landlock."
+license = "MIT"
+publish = false
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4"
+libseccomp = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
