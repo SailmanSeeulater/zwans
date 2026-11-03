@@ -1,0 +1,464 @@
+@import "tailwindcss";
+
+/*
+ * Zwans's colors are tokens defined here, for light and dark; component CSS uses only the
+ * tokens, never a color of its own.
+ */
+
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --surface-2: #f0f0ec;
+  --ink: #1d1d1b;
+  --ink-2: #55554f;
+  --ink-3: #8a8a82;
+  --line: #e2e2dc;
+  --accent: #3a5bd9;
+  --accent-ink: #ffffff;
+  --ok: #217a3c;
+  --warn: #9a6400;
+  --bad: #b3261e;
+  --diff-add: #e3f5e6;
+  --diff-add-edit: #b9e4c1;
+  --diff-del: #fbe5e3;
+  --diff-del-edit: #f3bdb8;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141413;
+    --surface: #1c1c1a;
+    --surface-2: #252522;
+    --ink: #ececea;
+    --ink-2: #b4b4ae;
+    --ink-3: #7c7c75;
+    --line: #2f2f2b;
+    --accent: #8ea2ff;
+    --accent-ink: #141413;
+    --ok: #6fcf86;
+    --warn: #e6b450;
+    --bad: #f2867c;
+    --diff-add: #17301d;
+    --diff-add-edit: #23512f;
+    --diff-del: #3a1c1a;
+    --diff-del-edit: #5e2925;
+    color-scheme: dark;
+  }
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--accent);
+}
+
+code,
+pre,
+.mono {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+/* -- layout */
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.nav-brand {
+  font-weight: 650;
+  color: var(--ink);
+  text-decoration: none;
+}
+.nav a:not(.nav-brand) {
+  color: var(--ink-2);
+  text-decoration: none;
+}
+.nav a[aria-current="page"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+}
+.page-wide {
+  max-width: 1500px;
+}
+h1 {
+  font-size: 22px;
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+h2 {
+  font-size: 16px;
+  font-weight: 650;
+  margin: 28px 0 10px;
+}
+.muted {
+  color: var(--ink-3);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* -- controls */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: none;
+}
+.button:hover {
+  background: var(--surface-2);
+}
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.button-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.button-primary:hover {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+.button-danger {
+  color: var(--bad);
+}
+.input,
+.select,
+.textarea {
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.input:focus,
+.select:focus,
+.textarea:focus,
+.button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 70px;
+}
+
+.notice {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  margin: 12px 0;
+}
+.notice-warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.notice-bad {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+/* -- tables */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.table th {
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+.table tr:last-child td {
+  border-bottom: none;
+}
+.num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+}
+.status-passed {
+  color: var(--ok);
+}
+.status-failed {
+  color: var(--bad);
+}
+.status-stopped {
+  color: var(--ink-3);
+}
+.significant {
+  font-weight: 650;
+}
+
+/* -- conversation */
+
+.session-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.turn {
+  margin: 22px 0;
+}
+.prompt {
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 10px 14px;
+  white-space: pre-wrap;
+}
+.model-text {
+  white-space: pre-wrap;
+  margin: 10px 0;
+}
+.model-note {
+  white-space: pre-wrap;
+  color: var(--ink-3);
+  margin: 6px 0;
+  font-size: 14px;
+}
+.turn-foot {
+  color: var(--ink-3);
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.tool {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  margin: 8px 0;
+}
+.tool > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 7px 12px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+.tool > summary::-webkit-details-marker {
+  display: none;
+}
+.tool-name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tool-arg {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.tool-state {
+  font-size: 13px;
+  white-space: nowrap;
+}
+.tool-error {
+  border-color: var(--bad);
+}
+.tool-body {
+  border-top: 1px solid var(--line);
+  padding: 10px 12px;
+}
+.tool-body pre,
+.raw {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 420px;
+  overflow: auto;
+  background: var(--surface-2);
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin: 6px 0;
+}
+.subcalls {
+  margin: 6px 0 0 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+}
+.label {
+  font-size: 12px;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ask {
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0;
+  background: var(--surface);
+}
+.ask-reason {
+  color: var(--warn);
+  margin-bottom: 8px;
+}
+
+.composer {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+/* -- diffs (react-diff-view, without its own stylesheet) */
+
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  table-layout: fixed;
+}
+.diff-table td {
+  padding: 0 8px;
+  vertical-align: top;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.diff-table .diff-gutter-col {
+  width: 48px;
+}
+.diff-table .diff-gutter {
+  color: var(--ink-3);
+  text-align: right;
+  user-select: none;
+}
+.diff-table .diff-gutter::before {
+  content: attr(data-line-number);
+}
+.diff-table .diff-code-insert,
+.diff-table .diff-gutter-insert {
+  background: var(--diff-add);
+}
+.diff-table .diff-code-delete,
+.diff-table .diff-gutter-delete {
+  background: var(--diff-del);
+}
+.diff-table .diff-code-edit {
+  border-radius: 2px;
+}
+.diff-table .diff-code-insert .diff-code-edit {
+  background: var(--diff-add-edit);
+}
+.diff-table .diff-code-delete .diff-code-edit {
+  background: var(--diff-del-edit);
+}
+.diff-hunk-head td {
+  color: var(--ink-3);
+  background: var(--surface-2);
+  padding: 2px 8px;
+}
+
+/* -- charts and comparisons */
+
+.chart {
+  width: 100%;
+  height: 220px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.chart text {
+  fill: var(--ink-3);
+  font-size: 11px;
+}
+.chart .grid {
+  stroke: var(--line);
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: 3rem 1fr 1fr;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.steps > div {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.step-index {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.step {
+  font-family: var(--mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.step-gap {
+  color: var(--ink-3);
+}
+.step-error {
+  color: var(--bad);
+}
+.step-differs {
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+.step-first {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.step details summary {
+  cursor: pointer;
+}

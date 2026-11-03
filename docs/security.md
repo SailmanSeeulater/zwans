@@ -68,6 +68,22 @@ The classifier reads the command line, not what programs do. These are deliberat
   like the agent's own. The `Task` call itself runs without asking because each call the
   subagent makes is checked. Subagents running at once ask their questions one at a time.
 
+## The server
+
+`zwans serve` lets a browser run the agent, so it is a way to run commands on this machine.
+
+- It listens on 127.0.0.1 unless told otherwise, and warns when it isn't.
+- Every API call and WebSocket needs a token made fresh at each start. The link carries it
+  after `#`, which browsers don't send to servers, so it stays out of logs; `zwans attach`
+  reads it from `~/.zwans/server.json`, which only the user can read. The browser keeps it
+  in localStorage, so anything that can run script on the UI's origin can use it.
+- A WebSocket from another site's page is closed before it can send the token. Pages on
+  other sites can't read the API's responses either, since it sends no CORS headers (except
+  to the one `--dev-origin`, when given).
+- The policy is the same as in the terminal; the server only changes who answers its
+  questions. A project's policy that would loosen the rules or run hooks isn't trusted from
+  the browser: those parts stay off, and the session says so.
+
 ## What the Docker sandbox doesn't cover
 
 - The workspace is mounted read-write. Code in the container can change or delete anything
@@ -89,6 +105,8 @@ The classifier reads the command line, not what programs do. These are deliberat
   blocks `git push` and a broken one blocks too; a project's hooks need trust; MCP tools ask
   unless read-only and ask again after untrusted content; a subagent's calls are checked
   and counted like the parent's.
+- `tests/test_server.py`: the token on every route and WebSocket, the origin check,
+  approvals that go back over the WebSocket, and several clients on one session.
 - `tests/test_docker_executor.py`: the container sees no host files outside the workspace
   and no host environment, timeouts kill whole process trees, there is no direct route out,
   and the proxy refuses hosts off the list. These run in CI on Linux.

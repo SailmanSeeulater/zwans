@@ -22,6 +22,9 @@ class ToolContext:
 class ToolOutput:
     content: str
     is_error: bool = False
+    # A unified diff of the file the call changed, for people watching. The model doesn't
+    # see it; it already knows what it asked for.
+    diff: str | None = None
 
 
 class Tool[InputT: BaseModel](Protocol):

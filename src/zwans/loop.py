@@ -149,7 +149,7 @@ async def run_turn(
                         if failures:
                             notes = [f"A post_tool hook says: {f.message}" for f in failures]
                             content = "\n\n".join([output.content, *notes])
-                            output = ToolOutput(content, is_error=output.is_error)
+                            output = ToolOutput(content, is_error=output.is_error, diff=output.diff)
                     outputs[call.id] = output
                     untrusted = False
                     if permissions is not None:
@@ -159,6 +159,7 @@ async def run_turn(
                         content=output.content,
                         is_error=output.is_error,
                         untrusted=untrusted,
+                        diff=output.diff,
                     )
         finally:
             # Also runs when Ctrl+C cancels the turn mid-tool, so the conversation stays valid

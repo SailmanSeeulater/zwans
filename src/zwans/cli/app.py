@@ -2,50 +2,28 @@
 
 import asyncio
 import io
-import secrets
 import sys
-from dataclasses import dataclass
-from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 import typer
 
 from zwans import __version__
 from zwans.cli.approval import can_prompt, load_with_trust, terminal_approver
+from zwans.cli.attach import Attached, AttachError, open_remote
 from zwans.cli.evals import eval_app
 from zwans.cli.render import Renderer
-from zwans.config import ConfigError, load_credential, load_settings
-from zwans.context.compaction import Compactor
-from zwans.context.instructions import load_instructions
-from zwans.executor.docker import SANDBOX_OS, DockerError, DockerExecutor
-from zwans.executor.local import LocalExecutor, find_bash
-from zwans.ext.hooks import Hooks
-from zwans.ext.skills import find_skills, skill_folders
-from zwans.mcp.tools import McpServers
-from zwans.messages import Message
-from zwans.policy import Permissions, PolicyError
-from zwans.pricing import CostMeter
-from zwans.prompt import system_prompt
-from zwans.providers.anthropic import AnthropicProvider
-from zwans.providers.base import Provider
-from zwans.providers.fake import FakeProvider
-from zwans.session import Session
-from zwans.store import SessionError, SessionInfo, SessionRecorder, SessionStore, load_session
-from zwans.tools.base import Tool, ToolContext
-from zwans.tools.bash import BashTool
-from zwans.tools.edit import EditTool
-from zwans.tools.glob import GlobTool
-from zwans.tools.grep import GrepTool
-from zwans.tools.read import ReadTool
-from zwans.tools.skill import SkillTool
-from zwans.tools.task import TaskTool
-from zwans.tools.write import WriteTool
-from zwans.transcript import TranscriptWriter
+from zwans.cli.serve import read_server_file, serve
+from zwans.config import ConfigError, load_settings
+from zwans.executor.docker import DockerError
+from zwans.policy import PolicyError
+from zwans.runtime import OpenedSession, open_session
+from zwans.store import SessionError, SessionStore
 
 app = typer.Typer(add_completion=False)
 app.add_typer(eval_app, name="eval")
+app.command()(serve)
 
 EXIT_INTERRUPTED = 130  # the usual exit code after Ctrl+C
 
@@ -142,15 +120,45 @@ def sessions(limit: Annotated[int, typer.Option(min=1, help="How many to list.")
         typer.echo(f"{info.id}  {when}  {turns:>9}  ${dollars:7.4f}  {info.title}")
 
 
-@dataclass
-class _Opened:
-    session: Session
-    executor: LocalExecutor
-    meter: CostMeter
-    transcript: TranscriptWriter
-    store: SessionStore
-    session_id: str
-    mcp: McpServers | None = None
+@app.command()
+def attach(
+    session: Annotated[
+        str | None,
+        typer.Argument(help="A session's id, or its start. Leave it out for a new session."),
+    ] = None,
+    workspace: Workspace = Path("."),
+    mode: PermissionMode = None,
+) -> None:
+    """Follow and drive a session in a running `zwans serve`, alongside the web UI: one that's
+    open there, a saved one, or a new one in --workspace."""
+    config, _ = load_settings()
+    server = read_server_file(config.home)
+    if server is None:
+        typer.secho("No Zwans server is running. Start one with `zwans serve`.", fg="red", err=True)
+        raise typer.Exit(2)
+    url, token = str(server["url"]), str(server["token"])
+    try:
+        status = open_remote(url, token, session, workspace, mode.value if mode else None)
+    except AttachError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(2) from exc
+    label = f"{status['model']} | mode {status['mode']} | {status['workspace']}"
+    typer.secho(f"Attached to {status['id']} | {label}", dim=True)
+    for warning in status.get("warnings", []):
+        typer.secho(warning, fg="yellow")
+    typer.secho(
+        "Type a task. Ctrl+C stops a running turn; with nothing running, Ctrl+C or 'exit' "
+        "detaches and the session carries on in the server.",
+        dim=True,
+    )
+    try:
+        asyncio.run(Attached(url, token, str(status["id"])).run())
+    except KeyboardInterrupt:
+        pass  # Windows, where Ctrl+C can't be caught to interrupt the turn instead
+    except OSError as exc:
+        typer.secho(f"Lost the connection to {url}: {exc}", fg="red", err=True)
+        raise typer.Exit(1) from exc
+    typer.secho(f"\nDetached. Session {status['id']} is still open in {url}/", dim=True)
 
 
 def _start(
@@ -167,25 +175,35 @@ def _start(
         typer.secho("--rewind only works together with --resume.", fg="red", err=True)
         return 2
     try:
-        opened = _open(workspace, model, resume, rewind, mode, fake_script)
+        config, env = load_settings()
+        opened = open_session(
+            config,
+            env,
+            workspace=workspace,
+            resume=resume,
+            rewind=rewind,
+            model=model,
+            mode=mode.value if mode else None,
+            approver=terminal_approver if can_prompt() else None,
+            listeners=[Renderer().on_event],
+            policy_loader=load_with_trust,
+            fake_script=fake_script,
+        )
     except (ConfigError, SessionError, PolicyError) as exc:
         typer.secho(str(exc), fg="red", err=True)
         return 2
+    _banner(opened, scripted=fake_script is not None)
     # One event loop for the whole session, so the API client's connections stay usable.
     with asyncio.Runner() as runner:
-        if isinstance(opened.executor, DockerExecutor):
-            try:
-                runner.run(opened.executor.start())
-            except DockerError as exc:
-                typer.secho(str(exc), fg="red", err=True)
-                opened.transcript.close()
-                opened.store.close()
-                return 2
+        try:
+            tools, problems = runner.run(opened.start())
+        except DockerError as exc:
+            typer.secho(str(exc), fg="red", err=True)
+            runner.run(opened.close())
+            return 2
+        for problem in problems:
+            typer.secho(f"MCP server skipped: {problem}", fg="yellow", err=True)
         if opened.mcp is not None:
-            tools, problems = runner.run(opened.mcp.start())
-            opened.session.tools.extend(tools)
-            for problem in problems:
-                typer.secho(f"MCP server skipped: {problem}", fg="yellow", err=True)
             for name in opened.mcp.servers:
                 count = sum(t.connection.name == name for t in tools)
                 if count:
@@ -195,117 +213,26 @@ def _start(
                 return _chat(opened, runner)
             return _run_once(opened, runner, task)
         finally:
-            if opened.mcp is not None:
-                runner.run(opened.mcp.close())
-            if isinstance(opened.executor, DockerExecutor):
-                runner.run(opened.executor.stop())
-            runner.run(opened.session.provider.aclose())
-            opened.transcript.close()
-            opened.store.close()
+            runner.run(opened.close())
             typer.secho(f"\nSession cost: {opened.meter.summary()}", dim=True)
-            typer.secho(f"To continue it: zwans --resume {opened.session_id}", dim=True)
+            typer.secho(f"To continue it: zwans --resume {opened.id}", dim=True)
 
 
-def _open(
-    workspace: Path,
-    model: str | None,
-    resume: str | None,
-    rewind: int | None,
-    mode: ModeName | None,
-    fake_script: Path | None,
-) -> _Opened:
-    config, env = load_settings()
-    store = SessionStore(config.home / "sessions.db")
-    messages: list[Message] = []
-    repaired = False
-    if resume is not None:
-        info, messages, repaired = load_session(store, resume, rewind)
-        meter = CostMeter.restore(info.usage)
-        skills = find_skills(skill_folders(Path(info.workspace), config.home))
-    else:
-        root = workspace.resolve()
-        skills = find_skills(skill_folders(root, config.home))
-        instructions = load_instructions(root, config.home)
-        if config.executor == "docker":
-            system = system_prompt(root, "bash", instructions, SANDBOX_OS, skills)
-        else:
-            shell = _describe_shell(config.shell)
-            system = system_prompt(root, shell, instructions, skills=skills)
-        session_id = f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
-        info = SessionInfo(id=session_id, workspace=str(root), model=config.model, system=system)
-        meter = CostMeter()
-        for path, _ in instructions:
-            typer.secho(f"Following {path}", dim=True)
-    model = model or info.model
-
-    provider: Provider
-    if fake_script is not None:
-        provider = FakeProvider.from_file(fake_script)
-    else:
-        credential = load_credential(config, env)
-        provider = AnthropicProvider(credential, model, config.effort, config.max_tokens)
-    if resume is None:
-        store.create(info)  # only once the credential is known to be there
-
-    root = Path(info.workspace)
-    policy = load_with_trust(root, config.home, mode.value if mode else None).policy
-    transcript = TranscriptWriter(config.home / "transcripts" / f"{info.id}.jsonl")
-    spill_dir = config.home / "tool-output" / info.id
-    executor: LocalExecutor
-    if config.executor == "docker":
-        executor = DockerExecutor(root, spill_dir=spill_dir)
-    else:
-        executor = LocalExecutor(root, shell=config.shell, spill_dir=spill_dir)
-    permissions = Permissions(
-        policy,
-        inside=executor.contains,
-        relative=executor.relative,
-        approver=terminal_approver if can_prompt() else None,
-    )
-    tools: list[Tool[Any]] = [
-        ReadTool(),
-        WriteTool(),
-        EditTool(),
-        GlobTool(),
-        GrepTool(),
-        BashTool(),
-    ]
-    if skills:
-        tools.append(SkillTool(skills))
-    if config.subagents:
-        tools.append(TaskTool(config.subagent_max_steps))
-    session = Session(
-        provider=provider,
-        tools=tools,
-        ctx=ToolContext(executor=executor),
-        system=info.system,  # a resumed session keeps the exact prompt it started with
-        listeners=[Renderer().on_event, transcript.on_event, meter.on_event],
-        max_steps=config.max_steps,
-        compactor=Compactor(provider, config.compact_at, config.keep_messages),
-        permissions=permissions,
-        hooks=Hooks(policy.hooks, root) if policy.hooks else None,
-    )
-    session.messages = messages
-    session.turn = info.turns
-    saved = len(messages) - (1 if repaired else 0)
-    recorder = SessionRecorder(store, info.id, session, meter, saved=saved, title=info.title)
-    session.listeners.append(recorder.on_event)
-    recorder.save()  # saves the answers to any cut-off tool calls right away
-
-    label = "scripted responses" if fake_script else f"{model}, effort {config.effort}"
+def _banner(opened: OpenedSession, scripted: bool) -> None:
+    for path in opened.instructions:
+        typer.secho(f"Following {path}", dim=True)
+    config, info = opened.config, opened.info
+    label = "scripted responses" if scripted else f"{opened.model}, effort {config.effort}"
     label += f" | {config.executor}"
-    typer.secho(f"Zwans {__version__} | {label} | mode {policy.mode} | {root}", dim=True)
-    if resume is not None:
+    mode = opened.policy.policy.mode
+    typer.secho(f"Zwans {__version__} | {label} | mode {mode} | {info.workspace}", dim=True)
+    if opened.resumed:
         typer.secho(f"Resumed {info.id} after {_count(info.turns, 'turn')}: {info.title}", dim=True)
-    if repaired:
+    if opened.repaired:
         typer.secho("Its last turn was cut off mid-tool; those calls are marked unfinished.")
-    mcp = None
-    if config.mcp_servers:
-        mcp = McpServers(config.mcp_servers, root, env, config.home / "mcp-logs")
-    return _Opened(session, executor, meter, transcript, store, info.id, mcp)
 
 
-def _chat(opened: _Opened, runner: asyncio.Runner) -> int:
+def _chat(opened: OpenedSession, runner: asyncio.Runner) -> int:
     typer.secho("Type a task. Ctrl+C stops a running turn; 'exit' or Ctrl+C here quits.", dim=True)
     while True:
         try:
@@ -323,7 +250,7 @@ def _chat(opened: _Opened, runner: asyncio.Runner) -> int:
         _print_turn(opened)
 
 
-def _run_once(opened: _Opened, runner: asyncio.Runner, task: str) -> int:
+def _run_once(opened: OpenedSession, runner: asyncio.Runner, task: str) -> int:
     try:
         stop_reason = runner.run(opened.session.send(task))
     except KeyboardInterrupt:
@@ -332,7 +259,7 @@ def _run_once(opened: _Opened, runner: asyncio.Runner, task: str) -> int:
     return 0 if stop_reason == "end_turn" else 1
 
 
-def _print_turn(opened: _Opened) -> None:
+def _print_turn(opened: OpenedSession) -> None:
     context = f"context about {opened.session.context_tokens():,} tokens"
     hits = f"{opened.meter.cache_hit_rate:.0%} of input from cache so far"
     typer.secho(f"Turn cost ${opened.meter.turn_dollars:.4f}, {context}, {hits}", dim=True)
@@ -340,13 +267,6 @@ def _print_turn(opened: _Opened) -> None:
 
 def _count(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
-
-
-def _describe_shell(configured: str | None) -> str:
-    try:
-        return configured or find_bash()
-    except FileNotFoundError:
-        return "none found, so the Bash tool will fail"
 
 
 def _tolerate_unprintable_text() -> None:

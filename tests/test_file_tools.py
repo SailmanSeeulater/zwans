@@ -96,3 +96,20 @@ def test_edit_refuses_text_the_file_encoding_cannot_store(tmp_path: Path, ctx: T
 
     with pytest.raises(ToolError, match="can't be saved"):
         edit(ctx, "legacy.txt", "= 1", "= '☃'")
+
+
+def test_edit_and_write_report_a_diff_for_people_but_not_the_model(
+    tmp_path: Path, ctx: ToolContext
+) -> None:
+    (tmp_path / "calc.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    edited = edit(ctx, "calc.py", "return 1", "return 2")
+    created = asyncio.run(WriteTool().run(WriteInput(path="new.txt", content="hi"), ctx))
+    rewritten = asyncio.run(WriteTool().run(WriteInput(path="new.txt", content="bye\n"), ctx))
+
+    assert edited.content == "Replaced 1 occurrence in calc.py."
+    assert edited.diff == (
+        "--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n def f():\n-    return 1\n+    return 2\n"
+    )
+    assert created.diff == "--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+hi\n"
+    assert rewritten.diff is not None and "-hi\n+bye\n" in rewritten.diff

@@ -18,7 +18,7 @@ from zwans.events import (
 )
 
 # The argument most worth showing for each tool, so a call fits on one line.
-KEY_ARGS = ("path", "command", "pattern")
+KEY_ARGS = ("path", "command", "pattern", "description", "name", "ticket")
 
 
 class Renderer:

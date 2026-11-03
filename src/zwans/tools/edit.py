@@ -3,7 +3,7 @@
 from pydantic import BaseModel, Field
 
 from zwans.tools.base import ToolContext, ToolError, ToolOutput
-from zwans.tools.text import TextFile
+from zwans.tools.text import TextFile, unified_diff
 
 
 class EditInput(BaseModel):
@@ -52,4 +52,7 @@ class EditTool:
         updated = file.text.replace(old, new)
         await ctx.executor.write_bytes(args.path, file.encode(updated))
         replaced = f"{count} occurrences" if count > 1 else "1 occurrence"
-        return ToolOutput(content=f"Replaced {replaced} in {args.path}.")
+        return ToolOutput(
+            content=f"Replaced {replaced} in {args.path}.",
+            diff=unified_diff(args.path, file.text, updated),
+        )

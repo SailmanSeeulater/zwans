@@ -19,4 +19,5 @@ async def fit_output(output: ToolOutput, call_id: str, executor: Executor) -> To
         f"\n\n[... {hidden:,} characters not shown. The full output is saved at {path}. "
         "Use Read on it, with offset and limit, to see the rest.]\n\n"
     )
-    return ToolOutput(text[:HEAD_CHARS] + note + text[-TAIL_CHARS:], is_error=output.is_error)
+    shortened = text[:HEAD_CHARS] + note + text[-TAIL_CHARS:]
+    return ToolOutput(shortened, is_error=output.is_error, diff=output.diff)

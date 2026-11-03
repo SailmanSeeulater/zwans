@@ -4,11 +4,11 @@ A coding agent built from scratch: the loop that calls the model, the tools it u
 (in later phases) the sandbox and the evals that prove it works. See [SPEC.md](SPEC.md) for
 the full plan.
 
-**Status:** Phases 0 to 4 are done and Phase 5 (extensibility) is in review. Zwans can
+**Status:** Phases 0 to 5 are done and Phase 6 (server and web UI) is in review. Zwans can
 read, search, and edit a project and run its tests; it saves and resumes sessions, compacts
 long ones, and caches prompts. It asks before changing anything unless you loosen its policy,
 and it can run commands in a Docker container with filtered network access. Hooks, skills,
-MCP servers and subagents extend it.
+MCP servers and subagents extend it, and a web UI shows sessions and eval runs.
 
 ## Setup
 
@@ -196,6 +196,37 @@ starts, the project's last.
 When the conversation passes `compact_at` tokens, Zwans has the model write handoff notes
 for the older part and keeps the latest `keep_messages` messages word for word.
 
+## Web UI
+
+`zwans serve` starts a server on this machine, for the browser and for `zwans attach`:
+
+```bash
+cd web && npm ci && npm run build && cd ..    # once, and after the UI changes
+zwans serve                                   # prints a link: open it
+zwans attach                                  # a new session, from the terminal
+zwans attach 20261102-2049                    # join one that's open in the browser
+```
+
+The link carries a token after `#`, which the browser keeps; every API call and WebSocket
+needs it, and the server listens on 127.0.0.1 only. The server also leaves its address and
+token in `~/.zwans/server.json`, readable only by you, for `zwans attach`.
+
+- **Sessions:** start one in a folder, or resume a saved one. Text streams in as the model
+  writes it; each tool call is a card with its input and result, and Edit and Write show a
+  diff. When the policy asks, the question appears above the input box with Allow once,
+  Always allow and Deny. A Task call lists what its subagent did.
+- **One session, many clients:** every browser tab and `zwans attach` on the same session
+  sees the whole conversation and every new event, and any of them can send the next task
+  or answer a question. Ctrl+C in `zwans attach` interrupts the turn; with nothing running,
+  it detaches and the session keeps going in the server.
+- **Evals:** every run in `evals/reports/` with a pass-rate chart per suite, each run's
+  attempts and transcripts, and `compare` with its confidence intervals. Pick a task to see
+  two attempts' transcripts side by side, lined up step by step, with the first step where
+  they differ marked: that's where a regression starts.
+
+While working on the UI, `zwans serve --dev-origin http://localhost:3000` lets `npm run dev`
+(with `NEXT_PUBLIC_ZWANS_API=http://localhost:8765`) call the API.
+
 ## Evals
 
 Each folder in `evals/tasks/` is a task: a prompt, a starting `repo/`, a `check` command that
@@ -268,4 +299,5 @@ environment variables:
 ```bash
 ruff check . && ruff format --check . && mypy && pytest
 ZWANS_LIVE_TESTS=1 pytest -s tests/test_example.py   # also run against the real API
+cd web && npm run lint && npm run typecheck && npm test && npm run build
 ```

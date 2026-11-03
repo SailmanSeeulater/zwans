@@ -67,6 +67,7 @@ class ToolResult(_Event):
     # From outside the conversation (a file, a command, the web), so it may carry planted
     # instructions. Set when a policy is in use.
     untrusted: bool = False
+    diff: str | None = None  # what an Edit or Write changed, as a unified diff
 
 
 class HookReported(_Event):
@@ -88,7 +89,7 @@ class SubagentEvent(_Event):
     event: dict[str, Any]
 
     def inner(self) -> "Event":
-        return _event_adapter().validate_python(self.event)
+        return parse_event(self.event)
 
 
 class ContextCompacted(_Event):
@@ -138,6 +139,12 @@ type Event = (
 @cache
 def _event_adapter() -> TypeAdapter[Event]:
     return TypeAdapter(Annotated[Event, Field(discriminator="type")])
+
+
+def parse_event(data: dict[str, Any]) -> Event:
+    """An event from its JSON form, as transcripts and the server send it. Raises
+    pydantic.ValidationError for anything that isn't one."""
+    return _event_adapter().validate_python(data)
 
 
 def unwrap(event: Event) -> Event:

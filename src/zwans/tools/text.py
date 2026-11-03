@@ -1,10 +1,28 @@
 """Decode and re-encode files so edits keep the original encoding and line endings."""
 
 import codecs
+import difflib
 from dataclasses import dataclass
 from typing import Self
 
 from zwans.tools.base import ToolError
+
+MAX_DIFF_CHARS = 200_000  # beyond this a diff is no use to read, and bloats the transcript
+
+
+def unified_diff(path: str, before: str, after: str, *, new_file: bool = False) -> str:
+    """A unified diff of one file, like `git diff` shows."""
+    lines = difflib.unified_diff(
+        before.splitlines(keepends=True),
+        after.splitlines(keepends=True),
+        fromfile="/dev/null" if new_file else f"a/{path}",
+        tofile=f"b/{path}",
+    )
+    # A last line without a newline would run into the next header.
+    diff = "".join(line if line.endswith("\n") else line + "\n" for line in lines)
+    if len(diff) > MAX_DIFF_CHARS:
+        return f"--- a/{path}\n+++ b/{path}\n(The diff is too large to show.)\n"
+    return diff
 
 
 @dataclass(frozen=True)
