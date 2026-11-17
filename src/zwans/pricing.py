@@ -34,10 +34,14 @@ PRICES: dict[str, Price] = {
 DATED_ID = re.compile(r"-\d{8}$")
 
 
+def price_of(model: str) -> Price | None:
+    # Older models answer with a dated ID, such as claude-haiku-4-5-20251001.
+    return PRICES.get(model) or PRICES.get(DATED_ID.sub("", model))
+
+
 def cost(usage: UsageUpdated) -> float | None:
     """Dollars for one model call, or None when the model's price isn't known."""
-    # Older models answer with a dated ID, such as claude-haiku-4-5-20251001.
-    price = PRICES.get(usage.model) or PRICES.get(DATED_ID.sub("", usage.model))
+    price = price_of(usage.model)
     if price is None:
         return None
     total = (

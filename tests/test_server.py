@@ -121,7 +121,7 @@ def test_a_session_runs_a_turn_over_the_websocket(server: Server) -> None:
         messages = until(ws, "turn_ended")
         idle = ws.receive_json()
 
-    assert types(messages) == ["turn_started", "usage_updated", "turn_ended"]
+    assert types(messages) == ["turn_started", "usage_updated", "model_call", "turn_ended"]
     text = "".join(m["text"] for m in messages if m["type"] == "text_delta")
     assert text == "Hello from Zwans."
     assert messages[0]["type"] == "status" and messages[0]["running"] is True
@@ -159,7 +159,7 @@ def test_a_second_client_gets_the_backlog_and_follows_along(server: Server) -> N
         until(first, "turn_ended")
         with connect(server, session_id) as second:
             _, backlog = handshake(second)
-            assert types(backlog) == ["turn_started", "usage_updated", "turn_ended"]
+            assert types(backlog) == ["turn_started", "usage_updated", "model_call", "turn_ended"]
             second.send_json({"type": "prompt", "text": "Two."})
             seen_by_first = until(first, "turn_ended")
             seen_by_second = until(second, "turn_ended")
@@ -291,3 +291,54 @@ def test_eval_reports_transcripts_and_comparisons(server: Server) -> None:
 
 def test_without_a_built_ui_the_root_says_how_to_build_it(server: Server) -> None:
     assert "npm run build" in server.client.get("/").text
+
+
+def test_the_last_request_is_shown_as_the_api_got_it(server: Server) -> None:
+    session_id = server.new_session(FakeProvider([say("Hi.")]))
+    url = f"/api/sessions/{session_id}/request"
+    assert server.client.get(url, headers=AUTH).json() == {"request": None}
+
+    with connect(server, session_id) as ws:
+        handshake(ws)
+        ws.send_json({"type": "prompt", "text": "Say hi."})
+        until(ws, "turn_ended")
+
+    request = server.client.get(url, headers=AUTH).json()["request"]
+    said = {"role": "user", "content": [{"type": "text", "text": "Say hi."}]}
+    assert request["messages"][-1] == said
+    assert request["system"][0]["type"] == "text"
+    assert {tool["name"] for tool in request["tools"]} >= {"Read", "Bash"}
+
+
+def test_the_demo_fixes_its_project_and_compacts_on_the_second_turn(tmp_path: Path) -> None:
+    settings = ServerSettings(
+        config=Config(home=tmp_path / "home", subagents=False),
+        env={},  # no credential: the demo never needs one
+        token=TOKEN,
+        demo_pace=0,
+    )
+    with TestClient(create_app(settings)) as client:
+        prompts = client.get("/api/demo", headers=AUTH).json()["prompts"]
+        response = client.post("/api/sessions", json={"demo": True, "mode": "auto"}, headers=AUTH)
+        assert response.status_code == 201, response.text
+        status = response.json()
+        assert status["demo"] is True and status["compact_at"] < 10_000
+        workspace = Path(status["workspace"])
+
+        server = type("S", (), {"client": client})()
+        with connect(server, status["id"]) as ws:
+            handshake(ws)
+            ws.send_json({"type": "prompt", "text": prompts[0]})
+            first = until(ws, "turn_ended")
+            ws.send_json({"type": "prompt", "text": prompts[1]})
+            second = until(ws, "turn_ended")
+
+    results = [m for m in first + second if m["type"] == "tool_result"]
+    assert not any(m["is_error"] for m in results), results
+    assert "FAILED (failures=1)" in results[0]["content"]
+    assert "Ran 7 tests" in results[-1]["content"] and "\nOK\n" in results[-1]["content"]
+    assert "_term(tokens)" in (workspace / "calc.py").read_text()
+    assert "compaction" not in types(first) and types(second)[1] == "context_compacted"
+    calls = [m for m in first + second if m["type"] == "model_call"]
+    assert [c["purpose"] for c in calls].count("summary") == 1
+    assert all(c["dollars"] for c in calls)

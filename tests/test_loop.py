@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from zwans.events import (
     Error,
+    ModelCalled,
     TextDelta,
     ToolCallRequested,
     ToolResult,
@@ -78,7 +79,11 @@ def test_one_full_turn(ctx: ToolContext) -> None:
 
     events = asyncio.run(collect(run_turn(provider, [EchoTool()], messages, ctx)))
 
-    assert events == [
+    calls = [event for event in events if isinstance(event, ModelCalled)]
+    assert [call.tools for call in calls] == [["echo"], []]
+    assert [call.stop_reason for call in calls] == ["tool_use", "end_turn"]
+    assert calls[1].context.tool_results > 0 and calls[0].context.tool_results == 0
+    assert [event for event in events if not isinstance(event, ModelCalled)] == [
         TurnStarted(prompt="Echo hi"),
         TextDelta(text="Let me echo that."),
         UsageUpdated(input_tokens=0, output_tokens=0),

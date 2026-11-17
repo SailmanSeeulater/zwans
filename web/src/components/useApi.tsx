@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, readToken } from "@/lib/api";
 
-/** Load one API path, with a way to load it again. `null` waits without loading. */
-export function useApi<T>(path: string | null) {
+/** Load one API path, with a way to load it again. `null` waits without loading. With
+ * `everyMs`, it loads again on that interval while the page is visible. */
+export function useApi<T>(path: string | null, everyMs?: number) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -26,6 +27,14 @@ export function useApi<T>(path: string | null) {
       stale = true;
     };
   }, [path, version]);
+
+  useEffect(() => {
+    if (path === null || !everyMs) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") setVersion((v) => v + 1);
+    }, everyMs);
+    return () => clearInterval(timer);
+  }, [path, everyMs]);
 
   const reload = useCallback(() => setVersion((v) => v + 1), []);
   return { data, error, reload };

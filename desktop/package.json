@@ -1,0 +1,16 @@
+{
+  "name": "zwans-desktop",
+  "version": "0.1.0",
+  "description": "Zwans in its own window",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "app": "npm --prefix ../web run build && electron .",
+    "pack": "npm --prefix ../web run build && node -e \"require('fs').writeFileSync('checkout.txt', require('path').resolve('..'))\" && electron-packager . Zwans --out=dist --overwrite --ignore=^/dist"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^45.2.3"
+  }
+}

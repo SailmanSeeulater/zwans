@@ -19,7 +19,7 @@ export default function RunsPage() {
 
   const toggle = (name: string) =>
     setPicked((current) =>
-      current.includes(name) ? current.filter((n) => n !== name) : [...current.slice(-1), name],
+      current.includes(name) ? current.filter((n) => n !== name) : [...current, name],
     );
 
   if (hasToken === false) {
@@ -31,12 +31,12 @@ export default function RunsPage() {
     );
   }
 
-  const [a, b] = picked;
+  const [a, b] = picked.length === 2 ? picked : [];
   return (
     <main className="page page-wide">
       <h1>Evals</h1>
       <p className="muted">
-        Runs from <code>evals/reports/</code>. Tick two to compare them.
+        Runs from <code>evals/reports/</code>. Tick two to compare them, or several for a task matrix.
       </p>
       {error && <div className="notice notice-bad">{error}</div>}
       {runs && runs.length === 0 && <p className="muted">No reports yet. Run <code>zwans eval run</code>.</p>}
@@ -55,8 +55,14 @@ export default function RunsPage() {
             >
               Compare {a && b ? `${a} → ${b}` : "two runs"}
             </Link>
+            <Link
+              className="button"
+              href={picked.length >= 2 ? `/evals/matrix/?runs=${picked.map(encodeURIComponent).join(",")}` : "/evals/matrix/"}
+            >
+              {picked.length >= 2 ? `Task matrix of ${picked.length} runs` : "Task matrix"}
+            </Link>
             {picked.length > 0 && (
-              <button className="button" onClick={() => setPicked([])}>
+              <button className="button button-quiet" onClick={() => setPicked([])}>
                 Clear
               </button>
             )}

@@ -16,6 +16,8 @@ export interface ToolCall {
   id: string;
   name: string;
   args: Record<string, unknown>;
+  /** From the request to the result, when the events carry times. */
+  seconds?: number;
   result?: { content: string; isError: boolean; untrusted: boolean; diff: string | null };
   permission?: { state: PermissionState; reason: string; rules: string[] };
   hooks: { event: string; message: string }[];
@@ -28,7 +30,7 @@ export type Item =
   | { kind: "note"; text: string }
   | { kind: "tool"; call: ToolCall }
   | { kind: "error"; message: string }
-  | { kind: "compacted"; before: number; after: number }
+  | { kind: "compacted"; before: number; after: number; summary: string }
   | { kind: "hook"; event: string; message: string };
 
 export interface Turn {
@@ -49,6 +51,7 @@ export function buildTurns(events: RawEvent[]): Turn[] {
   const turns: Turn[] = [];
   const calls = new Map<string, ToolCall>(); // every call so far, by id, subagents' included
   const tasks = new Map<string, ToolCall>(); // running Task calls, by their description
+  const started = new Map<string, number>(); // when each call was requested, in ms
 
   const current = (): Turn => {
     let turn = turns.at(-1);
@@ -92,6 +95,7 @@ export function buildTurns(events: RawEvent[]): Turn[] {
           hooks: [],
           subcalls: [],
         };
+        if (event.time) started.set(call.id, Date.parse(str(event.time)));
         calls.set(call.id, call);
         if (parent) parent.subcalls.push(call);
         else if (items) items.push({ kind: "tool", call });
@@ -109,6 +113,8 @@ export function buildTurns(events: RawEvent[]): Turn[] {
       case "permission_resolved": {
         const call = calls.get(str(event.call_id));
         if (call?.permission) call.permission.state = event.allowed ? "allowed" : "declined";
+        // Time the call from the answer, so the wait for it isn't counted as the tool's.
+        if (call && event.time) started.set(call.id, Date.parse(str(event.time)));
         break;
       }
       case "permission_denied": {
@@ -125,6 +131,8 @@ export function buildTurns(events: RawEvent[]): Turn[] {
             untrusted: Boolean(event.untrusted),
             diff: typeof event.diff === "string" ? event.diff : null,
           };
+          const start = started.get(call.id);
+          if (start !== undefined && event.time) call.seconds = (Date.parse(str(event.time)) - start) / 1000;
         }
         break;
       }
@@ -154,6 +162,7 @@ export function buildTurns(events: RawEvent[]): Turn[] {
             kind: "compacted",
             before: num(event.tokens_before),
             after: num(event.tokens_after),
+            summary: str(event.summary),
           });
         }
         break;

@@ -41,6 +41,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 [tool.mypy]
 strict = true
 files = ["src", "tests"]
+exclude = ["src/zwans/demo/calc/"]  # the demo's sample project, not part of Zwans
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]

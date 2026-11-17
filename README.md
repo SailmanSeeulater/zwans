@@ -238,6 +238,23 @@ token in `~/.zwans/server.json`, readable only by you, for `zwans attach`.
 While working on the UI, `zwans serve --dev-origin http://localhost:3000` lets `npm run dev`
 (with `NEXT_PUBLIC_ZWANS_API=http://localhost:8765`) call the API.
 
+## Desktop app
+
+`desktop/` puts Zwans in its own window (macOS, Electron). It runs the Zwans installed from
+this checkout, from this folder, so it uses the same `.env` and `~/.zwans/config.toml`.
+
+```bash
+cd desktop && npm install
+npm run app    # build the web UI and open the app
+npm run pack   # or build desktop/dist/Zwans-darwin-arm64/Zwans.app
+```
+
+`Zwans.app` can go in Applications or the Dock, but it keeps pointing at this checkout: after
+changing the web UI, `npm --prefix web run build` is enough; after moving the repo or changing
+`desktop/`, run `npm run pack` again. Closing the window stops its sessions, which you can
+resume from the sidebar. Commands run directly on the Mac (the jail is Linux-only), so
+stay in `ask` mode unless you trust the task.
+
 ## Evals
 
 Each folder in `evals/tasks/` is a task: a prompt, a starting `repo/`, a `check` command that

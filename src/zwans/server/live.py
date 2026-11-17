@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from zwans import demo as zwans_demo
 from zwans.config import Config
 from zwans.events import Error, Event
 from zwans.policy.engine import Approval, PermissionRequest
@@ -33,9 +34,10 @@ class Busy(Exception):
 
 
 class LiveSession:
-    def __init__(self, opened: OpenedSession, warnings: list[str]) -> None:
+    def __init__(self, opened: OpenedSession, warnings: list[str], demo: bool = False) -> None:
         self.opened = opened
         self.warnings = warnings  # MCP servers that didn't start, an untrusted policy, ...
+        self.demo = demo  # the scripted replay, with no API calls
         self.events: list[Message] = _earlier_events(opened.transcript.path)
         self.clients: set[asyncio.Queue[Message]] = set()
         self.turn: asyncio.Task[None] | None = None
@@ -68,6 +70,8 @@ class LiveSession:
             "context_tokens": opened.session.context_tokens(),
             "waiting_for": sorted(self.pending),  # permission questions nobody has answered
             "warnings": self.warnings,
+            "demo": self.demo,
+            "compact_at": opened.config.compact_at,
         }
 
     def _first_prompt(self) -> str:
@@ -148,6 +152,7 @@ class HubSettings:
     config: Config
     env: Mapping[str, str]
     make_provider: ProviderFactory | None = None  # tests replace the model
+    demo_pace: float = zwans_demo.PACE  # tests replay the demo at full speed
 
 
 class SessionHub:
@@ -172,6 +177,18 @@ class SessionHub:
                 return self.live[session_id]
             return await self._open(workspace=Path("."), resume=session_id, mode=mode)
 
+    async def demo(self, mode: str | None = None) -> LiveSession:
+        """A new demo session, in a fresh copy of the demo project."""
+        pace = self.settings.demo_pace
+        return await self._open(
+            workspace=zwans_demo.copy_project(),
+            mode=mode,
+            model=zwans_demo.MODEL,
+            config=zwans_demo.config(self.settings.config),
+            make_provider=lambda _config, _model: zwans_demo.provider(pace),
+            demo=True,
+        )
+
     def saved_id(self, id_or_prefix: str) -> str:
         """Raises SessionError if no saved session matches."""
         store = SessionStore(self.settings.config.home / "sessions.db")
@@ -180,11 +197,17 @@ class SessionHub:
         finally:
             store.close()
 
-    async def _open(self, **kwargs: Any) -> LiveSession:
+    async def _open(
+        self,
+        config: Config | None = None,
+        make_provider: ProviderFactory | None = None,
+        demo: bool = False,
+        **kwargs: Any,
+    ) -> LiveSession:
         opened = open_session(
-            self.settings.config,
+            config or self.settings.config,
             self.settings.env,
-            make_provider=self.settings.make_provider,
+            make_provider=make_provider or self.settings.make_provider,
             **kwargs,
         )
         try:
@@ -198,7 +221,9 @@ class SessionHub:
                 f"{opened.policy.untrusted} would loosen the policy or run hooks, but it isn't "
                 "trusted, so those parts are left out. Trust it from the terminal with `zwans`."
             )
-        live = LiveSession(opened, warnings)
+        if demo:
+            warnings.insert(0, zwans_demo.NOTE)
+        live = LiveSession(opened, warnings, demo)
         self.live[live.id] = live
         return live
 

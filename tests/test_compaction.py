@@ -8,7 +8,15 @@ from pydantic import BaseModel
 
 from zwans.context.compaction import SUMMARY_HEADER, Compactor
 from zwans.context.tokens import approx_tokens
-from zwans.events import ContextCompacted, Event, TextDelta, ThinkingDelta, TurnEnded, UsageUpdated
+from zwans.events import (
+    ContextCompacted,
+    Event,
+    ModelCalled,
+    TextDelta,
+    ThinkingDelta,
+    TurnEnded,
+    UsageUpdated,
+)
 from zwans.messages import Message, RawBlock, TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse
 from zwans.session import Session
@@ -74,7 +82,10 @@ def test_compaction_summarizes_old_messages_and_keeps_recent_ones_without_thinki
 
     events = asyncio.run(compactor.maybe_compact(messages))
 
-    assert [type(event) for event in events] == [ContextCompacted, UsageUpdated]
+    assert [type(event) for event in events] == [ContextCompacted, UsageUpdated, ModelCalled]
+    assert isinstance(events[0], ContextCompacted) and events[0].summary
+    assert 0 < events[0].tokens_after < events[0].tokens_before
+    assert isinstance(events[2], ModelCalled) and events[2].purpose == "summary"
     first = messages[0].content[0]
     assert isinstance(first, TextBlock)
     assert first.text.startswith(SUMMARY_HEADER)

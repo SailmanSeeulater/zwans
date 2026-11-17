@@ -96,6 +96,40 @@ class ContextCompacted(_Event):
     type: Literal["context_compacted"] = "context_compacted"
     tokens_before: int
     tokens_after: int
+    summary: str = ""  # what the model wrote to stand in for the older messages
+
+
+class ContextSplit(BaseModel):
+    """What one request held, in tokens, by part. The parts are character estimates scaled
+    so they add up to what the API counted; only the total is exact."""
+
+    model_config = ConfigDict(frozen=True)
+    system: int = 0
+    tools: int = 0  # the tool definitions: names, descriptions, input schemas
+    messages: int = 0  # the conversation, except tool results
+    tool_results: int = 0
+
+
+class ModelCalled(_Event):
+    """One request to the model, finished: what it cost, how long it took, what it held.
+    It follows that call's usage_updated, which stays the event cost is counted from."""
+
+    type: Literal["model_call"] = "model_call"
+    purpose: Literal["turn", "summary"] = "turn"  # a summary call is part of compaction
+    model: str = ""
+    stop_reason: str = ""
+    seconds: float = 0.0
+    first_token_seconds: float | None = None  # until the first streamed text, if any
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    dollars: float | None = None  # None when the model's price isn't known
+    # The model's prices in dollars per million tokens: input, output, cache_write and
+    # cache_read. With them the UI can split the cost and price the call without the cache.
+    prices: dict[str, float] | None = None
+    tools: list[str] = Field(default_factory=list)  # the tool calls it asked for, by name
+    context: ContextSplit = Field(default_factory=ContextSplit)
 
 
 class UsageUpdated(_Event):
@@ -131,6 +165,7 @@ type Event = (
     | SubagentEvent
     | ContextCompacted
     | UsageUpdated
+    | ModelCalled
     | TurnEnded
     | Error
 )

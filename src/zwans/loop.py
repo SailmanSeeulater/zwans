@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from zwans.context.calls import TimedCall, context_split, counted_input
 from zwans.context.compaction import Compactor
 from zwans.context.truncation import fit_output
 from zwans.events import (
@@ -24,7 +25,7 @@ from zwans.ext.hooks import Hooks
 from zwans.messages import ContentBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.policy.engine import Approval, PermissionRequest, Permissions, denial_message
 from zwans.policy.rules import Decision
-from zwans.providers.base import ModelResponse, Provider, ProviderError
+from zwans.providers.base import Provider, ProviderError
 from zwans.tools.base import Tool, ToolContext, ToolError, ToolOutput
 
 INTERRUPTED = "Interrupted by the user before this finished."
@@ -57,24 +58,24 @@ async def run_turn(
     yield TurnStarted(prompt=_last_user_text(messages))
 
     for _ in range(max_steps):
-        response: ModelResponse | None = None
+        model_call = TimedCall()
         try:
             if compactor is not None:
                 for event in await compactor.maybe_compact(messages):
                     yield event
-            async for item in provider.stream(system, messages, tools):
-                if isinstance(item, ModelResponse):
-                    response = item
-                else:
-                    yield item
+                model_call = TimedCall()  # a summary call isn't part of this one's time
+            async for item in model_call.stream(provider, system, messages, tools):
+                yield item
         except ProviderError as exc:
             yield Error(message=str(exc))
             return
+        response = model_call.response
         if response is None:
             yield Error(message="The model's stream ended without a response.")
             return
 
         yield response.usage_event()
+        yield model_call.event(context_split(system, tools, messages, counted_input(response)))
         messages.append(Message(role="assistant", content=list(response.content)))
         if compactor is not None:
             compactor.observe(response, len(messages))

@@ -8,6 +8,13 @@
 
 const TOKEN_KEY = "zwans-token";
 
+declare global {
+  interface Window {
+    /** Set only inside the desktop app (desktop/preload.cjs). */
+    zwansDesktop?: { pickFolder(): Promise<string | null> };
+  }
+}
+
 /** Where the API is: the page's own server, or a separate one while developing with
  * `next dev` (set NEXT_PUBLIC_ZWANS_API=http://localhost:8765). */
 export const API_BASE = process.env.NEXT_PUBLIC_ZWANS_API ?? "";
@@ -92,6 +99,43 @@ export interface SessionStatus {
   context_tokens: number;
   waiting_for: string[];
   warnings: string[];
+  /** The scripted replay: no API calls. */
+  demo?: boolean;
+  /** Estimated context tokens that trigger a compaction. */
+  compact_at?: number;
+}
+
+export interface DemoInfo {
+  /** What each of the demo's turns is scripted for. */
+  prompts: string[];
+  note: string;
+  /** Whether the server has a credential set. It may still be refused. */
+  has_credential: boolean;
+}
+
+/** The last request a session sent, exactly as the API got it (never the credential). */
+export interface LastRequest {
+  request: Record<string, unknown> | null;
+}
+
+/** Keeps a session's first task, for its page to send once it has connected. */
+export function rememberFirstPrompt(id: string, prompt: string) {
+  try {
+    sessionStorage.setItem(`zwans-first-prompt:${id}`, prompt);
+  } catch {
+    // storage refused: the user types it instead
+  }
+}
+
+export function takeFirstPrompt(id: string): string | null {
+  try {
+    const key = `zwans-first-prompt:${id}`;
+    const prompt = sessionStorage.getItem(key);
+    sessionStorage.removeItem(key);
+    return prompt;
+  } catch {
+    return null;
+  }
 }
 
 export interface SavedSession {

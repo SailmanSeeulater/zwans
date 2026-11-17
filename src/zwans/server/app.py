@@ -19,6 +19,7 @@ that client only.
 
 import asyncio
 import contextlib
+import json
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -36,7 +37,8 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect
 
 from zwans import __version__
-from zwans.config import ConfigError
+from zwans import demo as zwans_demo
+from zwans.config import ConfigError, load_credential
 from zwans.executor.docker import DockerError
 from zwans.policy.rules import Mode, PolicyError
 from zwans.server import evals
@@ -62,9 +64,10 @@ class ServerSettings(HubSettings):
 
 
 class NewSession(BaseModel):
-    workspace: str
+    workspace: str = ""
     mode: Mode | None = None
     model: str | None = None
+    demo: bool = False  # the scripted replay in a copy of the demo project; ignores the rest
 
 
 class OpenSession(BaseModel):
@@ -132,7 +135,12 @@ def create_app(settings: ServerSettings) -> FastAPI:
     @api.post("/sessions", status_code=status.HTTP_201_CREATED)
     async def create_session(body: NewSession) -> Message:
         try:
-            live = await hub.create(Path(body.workspace).expanduser(), body.mode, body.model)
+            if body.demo:
+                live = await hub.demo(body.mode)
+            elif not body.workspace:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a folder to work in.")
+            else:
+                live = await hub.create(Path(body.workspace).expanduser(), body.mode, body.model)
         except (FileNotFoundError, ConfigError, PolicyError, DockerError) as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
         return live.status()
@@ -151,10 +159,32 @@ def create_app(settings: ServerSettings) -> FastAPI:
     def get_session(session_id: str) -> Message:
         return _live(hub, session_id).status()
 
+    @api.get("/sessions/{session_id}/request")
+    def last_request(session_id: str) -> dict[str, Any]:
+        """The body of the last request this session sent to the model, as the API got it.
+        Null before the first call. It never holds the credential, which the client sends."""
+        provider = _live(hub, session_id).opened.session.provider
+        request = getattr(provider, "last_request", None)
+        return {"request": json.loads(json.dumps(request, default=str)) if request else None}
+
     @api.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
     async def close_session(session_id: str) -> None:
         _live(hub, session_id)
         await hub.close(session_id)
+
+    @api.get("/demo")
+    def demo_prompts() -> dict[str, Any]:
+        """What the demo's turns are scripted for, so the UI can offer them."""
+        try:
+            load_credential(settings.config, settings.env)
+            has_credential = True
+        except ConfigError:
+            has_credential = False
+        return {
+            "prompts": list(zwans_demo.PROMPTS),
+            "note": zwans_demo.NOTE,
+            "has_credential": has_credential,  # whether one is set; it may still be refused
+        }
 
     @api.get("/evals")
     def list_runs() -> list[dict[str, Any]]:

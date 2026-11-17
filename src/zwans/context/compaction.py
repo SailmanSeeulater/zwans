@@ -8,6 +8,7 @@ present and the API would reject (or drop) them once that history is gone.
 import json
 from collections.abc import Sequence
 
+from zwans.context.calls import TimedCall, context_split, counted_input
 from zwans.context.tokens import approx_tokens
 from zwans.events import ContextCompacted, Event
 from zwans.messages import Message, RawBlock, TextBlock, ToolResultBlock, ToolUseBlock
@@ -60,18 +61,26 @@ class Compactor:
         if cut is None:
             return []
 
-        response = await self._summarize(messages[:cut])
+        call, request = await self._summarize(messages[:cut])
+        response = call.response
+        assert response is not None
+        context = context_split(SUMMARY_SYSTEM, [], request, counted_input(response))
+        usage: list[Event] = [response.usage_event(), call.event(context, "summary")]
         summary = "".join(b.text for b in response.content if isinstance(b, TextBlock)).strip()
         if not summary:
-            return [response.usage_event()]  # e.g. a refusal: carry on uncompacted
+            return usage  # e.g. a refusal: carry on uncompacted
+        removed = approx_tokens(messages)
         kept = [_without_thinking(message) for message in messages[cut:]]
         summary_message = Message(
             role="user", content=[TextBlock(text=SUMMARY_HEADER + summary)], turn=kept[0].turn
         )
         messages[:] = [summary_message, *kept]
         self._counted_tokens = self._counted_messages = 0  # the next response recounts
-        compacted = ContextCompacted(tokens_before=before, tokens_after=approx_tokens(messages))
-        return [compacted, response.usage_event()]
+        # Measured like `before`, which counts the system prompt and tools too: only the
+        # messages changed.
+        after = max(before - removed + approx_tokens(messages), approx_tokens(messages))
+        compacted = ContextCompacted(tokens_before=before, tokens_after=after, summary=summary)
+        return [compacted, *usage]
 
     def _cut_point(self, messages: Sequence[Message]) -> int | None:
         """Where the kept part starts. It must be an assistant message, so no tool result is kept
@@ -81,16 +90,15 @@ class Compactor:
                 return index
         return None
 
-    async def _summarize(self, older: Sequence[Message]) -> ModelResponse:
+    async def _summarize(self, older: Sequence[Message]) -> tuple[TimedCall, list[Message]]:
         prompt = "Write the handoff notes for this conversation:\n\n" + render_transcript(older)
         request = [Message(role="user", content=[TextBlock(text=prompt)])]
-        response = None
-        async for item in self.provider.stream(SUMMARY_SYSTEM, request, []):
-            if isinstance(item, ModelResponse):
-                response = item
-        if response is None:
+        call = TimedCall()
+        async for _ in call.stream(self.provider, SUMMARY_SYSTEM, request, []):
+            pass
+        if call.response is None:
             raise ProviderError("The summary request ended without a response.")
-        return response
+        return call, request
 
 
 def render_transcript(messages: Sequence[Message]) -> str:

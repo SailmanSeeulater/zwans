@@ -2,6 +2,7 @@
 
 import { keyArgument, type Item, type ToolCall, type Turn } from "@/lib/events";
 import { DiffBody } from "./DiffBody";
+import { Markdown } from "./Markdown";
 
 export type Answer = "once" | "always" | "no";
 
@@ -40,7 +41,7 @@ function TurnFoot({ turn }: { turn: Turn }) {
 function ItemView({ item, onAnswer }: { item: Item; onAnswer?: Props["onAnswer"] }) {
   switch (item.kind) {
     case "text":
-      return <div className="model-text">{item.text}</div>;
+      return <Markdown text={item.text} />;
     case "note":
       return <div className="model-note">{item.text}</div>;
     case "tool":
@@ -49,9 +50,13 @@ function ItemView({ item, onAnswer }: { item: Item; onAnswer?: Props["onAnswer"]
       return <div className="notice notice-bad">Error: {item.message}</div>;
     case "compacted":
       return (
-        <div className="muted">
-          Older messages summarized: about {item.before.toLocaleString()} → {item.after.toLocaleString()} tokens
-        </div>
+        <details className="compacted">
+          <summary>
+            Compacted: the older messages became a summary, about {item.before.toLocaleString()} →{" "}
+            {item.after.toLocaleString()} tokens
+          </summary>
+          {item.summary && <Markdown text={item.summary} />}
+        </details>
       );
     case "hook":
       return (
@@ -62,14 +67,16 @@ function ItemView({ item, onAnswer }: { item: Item; onAnswer?: Props["onAnswer"]
   }
 }
 
-function stateOf(call: ToolCall): { text: string; className: string } {
+function stateOf(call: ToolCall): { mark: string; tone: string; text: string } {
   const state = call.permission?.state;
-  if (state === "asking") return { text: "waiting for you", className: "status-stopped" };
-  if (state === "declined") return { text: "declined", className: "status-failed" };
-  if (state === "denied") return { text: "refused", className: "status-failed" };
-  if (!call.result) return { text: "running…", className: "muted" };
-  if (call.result.isError) return { text: "error", className: "status-failed" };
-  return { text: "", className: "" };
+  if (state === "asking") return { mark: "?", tone: "tone-ask", text: "waiting for you" };
+  if (state === "declined") return { mark: "✕", tone: "tone-bad", text: "you declined" };
+  if (state === "denied") return { mark: "✕", tone: "tone-bad", text: "the policy refused" };
+  if (!call.result) return { mark: "…", tone: "tone-run", text: "running" };
+  const time = call.seconds !== undefined ? `${call.seconds < 1 ? call.seconds.toFixed(2) : call.seconds.toFixed(1)} s` : "";
+  const who = state === "allowed" ? "you allowed" : "";
+  const text = [call.result.isError ? "error" : "", who, time].filter(Boolean).join(" · ");
+  return call.result.isError ? { mark: "✕", tone: "tone-bad", text } : { mark: "✓", tone: "tone-ok", text };
 }
 
 export function ToolCard({ call, onAnswer }: { call: ToolCall; onAnswer?: Props["onAnswer"] }) {
@@ -80,11 +87,14 @@ export function ToolCard({ call, onAnswer }: { call: ToolCall; onAnswer?: Props[
     <>
       <details className={`tool ${call.result?.isError ? "tool-error" : ""}`} open={Boolean(diff) || asking}>
         <summary>
+          <span className={`tool-mark ${state.tone}`} aria-hidden="true">
+            {state.mark}
+          </span>
           <span className="tool-name">{call.name}</span>
           <span className="tool-arg" title={keyArgument(call)}>
             {keyArgument(call)}
           </span>
-          <span className={`tool-state ${state.className}`}>{state.text}</span>
+          <span className={`tool-state ${state.tone === "tone-bad" ? "status-failed" : ""}`}>{state.text}</span>
         </summary>
         <div className="tool-body">
           {call.permission && call.permission.state !== "asking" && (

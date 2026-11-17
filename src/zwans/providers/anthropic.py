@@ -70,6 +70,9 @@ class AnthropicProvider:
         self.prompt_cache = prompt_cache
         self.traits = TRAITS.get(model, Traits())
         self.betas = _betas(self.traits)
+        # The last request body, as sent, for the web UI's inspector. The credential is on
+        # the client, never in here.
+        self.last_request: dict[str, Any] | None = None
         # The SDK retries rate limits, overloads, and connection errors with backoff.
         if credential.mode == "api_key":
             self._client = anthropic.AsyncAnthropic(api_key=credential.token, max_retries=4)
@@ -86,6 +89,7 @@ class AnthropicProvider:
             attempt += 1
             try:
                 request = self.request(system, messages, tools)
+                self.last_request = {k: v for k, v in request.items() if v is not anthropic.omit}
                 async with self._client.beta.messages.stream(**request) as stream:
                     async for event in stream:
                         if event.type == "text":
