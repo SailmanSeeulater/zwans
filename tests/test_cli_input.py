@@ -289,6 +289,22 @@ def test_resume_lists_this_workspaces_sessions_and_picks_one(
     asyncio.run(opened.close())
 
 
+def test_resume_shows_titles_with_escape_codes_as_text(
+    tmp_path: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The title is the start of the first prompt, which may have come from the web UI.
+    earlier = opened_session(tmp_path, workspace, ["Done."])
+    asyncio.run(earlier.session.send("Fix\x1b[1A\x1b[2K it"))
+    asyncio.run(earlier.close())
+    opened = opened_session(tmp_path, workspace, [])
+
+    asyncio.run(Commands(opened).run("/resume"))
+
+    out = capsys.readouterr().out
+    assert "\x1b" not in out and "Fix\\x1b[1A\\x1b[2K it" in out
+    asyncio.run(opened.close())
+
+
 def test_undoing_says_which_files_were_removed_and_which_restored() -> None:
     # The undoing's own changes: deleting a file the turn added, adding back one it deleted.
     undone = [Change("deleted", "docs/usage.md"), Change("added", "notes.txt")]

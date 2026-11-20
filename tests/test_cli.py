@@ -6,8 +6,10 @@ from typing import cast
 import pytest
 from typer.testing import CliRunner, Result
 
+import zwans.cli.app as cli_app
 from zwans import __version__
 from zwans.cli.app import _replay, app
+from zwans.cli.attach import AttachError
 from zwans.cli.commands import Commands, Reopen
 from zwans.messages import Message, TextBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse
@@ -340,3 +342,75 @@ def test_switching_to_another_session_in_the_chat_keeps_its_model(tmp_path: Path
     store = SessionStore(tmp_path / "home" / "sessions.db")
     assert store.get(session_id).model == "claude-haiku-4-5"
     store.close()
+
+
+def test_titles_and_prompts_with_escape_codes_are_shown_as_text(tmp_path: Path) -> None:
+    # A prompt can come from the web UI, another terminal or a script, and becomes the title.
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    env = {"ZWANS_HOME": str(tmp_path / "home")}
+    runner = CliRunner()
+    script = _script(tmp_path / "script.json", "Hi.")
+    args = ["-w", str(workspace), "--fake-script", str(script)]
+    started = runner.invoke(app, ["run", "Say\x1b[2J hi\rthere", *args], env=env)
+    listing = runner.invoke(app, ["sessions"], env=env)
+    session_id = listing.output.split()[0]
+
+    resumed = _chat(tmp_path, "exit\n", "--resume", session_id)
+
+    assert started.exit_code == 0, started.output
+    # CliRunner drops raw escape codes, so check that they were shown as text instead.
+    assert listing.output.rstrip().endswith("  Say\\x1b[2J hi there")
+    assert "after 1 turn: Say\\x1b[2J hi there\n" in resumed.output
+    assert "\n> Say\\x1b[2J hi\\x0dthere\nHi.\n" in resumed.output
+
+
+def test_an_mcp_servers_problem_is_shown_as_text(tmp_path: Path) -> None:
+    # The problem can quote what the server said, or its command, which a project can set.
+    config = tmp_path / "config.toml"
+    config.write_text('[mcp_servers.odd]\ncommand = "no-such\\u001b[2K"\n', "utf-8")
+    script = _script(tmp_path / "script.json", "Hi.")
+    env = {"ZWANS_HOME": str(tmp_path / "home"), "ZWANS_CONFIG": str(config)}
+
+    result = CliRunner().invoke(
+        app, ["run", "Hi", "-w", str(tmp_path), "--fake-script", str(script)], env=env
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "MCP server skipped: odd: couldn't start no-such\\x1b[2K: " in result.output
+
+
+def test_attach_shows_the_servers_status_and_errors_as_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    status = {
+        "id": "s1",
+        "model": "m",
+        "mode": "ask",
+        "workspace": "/w\x1b[2K",
+        "warnings": ["MCP server skipped: bad\x1b]0;x\x07"],
+    }
+
+    class Detached:
+        def __init__(self, *args: object) -> None:
+            pass
+
+        async def run(self) -> None:
+            pass
+
+    def refuse(*args: object) -> dict[str, object]:
+        raise AttachError("No saved session starts with 'x\x1b[2K'.")
+
+    monkeypatch.setattr(cli_app, "read_server_file", lambda home: {"url": "u", "token": "t"})
+    monkeypatch.setattr(cli_app, "Attached", Detached)
+    env = {"ZWANS_HOME": str(tmp_path / "home")}
+    monkeypatch.setattr(cli_app, "open_remote", lambda *args: status)
+    shown = CliRunner().invoke(app, ["attach"], env=env)
+    monkeypatch.setattr(cli_app, "open_remote", refuse)
+    refused = CliRunner().invoke(app, ["attach", "x"], env=env)
+
+    assert shown.exit_code == 0, shown.output
+    assert "| /w\\x1b[2K\n" in shown.output
+    assert "MCP server skipped: bad\\x1b]0;x\\x07\n" in shown.output
+    assert refused.exit_code == 2
+    assert "starts with 'x\\x1b[2K'." in refused.output

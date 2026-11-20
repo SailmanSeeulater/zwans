@@ -19,6 +19,7 @@ from zwans.cli.evals import eval_app
 from zwans.cli.input import MENTIONED, Composer, echoing, expand_mentions
 from zwans.cli.render import Renderer
 from zwans.cli.serve import read_server_file, serve
+from zwans.cli.terminal_text import printable
 from zwans.config import ConfigError, load_settings
 from zwans.context.compaction import SUMMARY_HEADER
 from zwans.events import TextDelta, ToolCallRequested, ToolResult, TurnEnded
@@ -150,9 +151,10 @@ def sessions(limit: Annotated[int, typer.Option(min=1, help="How many to list.")
         when = info.updated_at.replace("T", " ")[:16]
         dollars = float(info.usage.get("dollars", 0.0))
         turns = f"{info.turns:>4} {'turn' if info.turns == 1 else 'turns':<5}"
-        folder = _short_path(info.workspace, WORKSPACE_WIDTH)
+        folder = _short_path(printable(info.workspace), WORKSPACE_WIDTH)
         line = f"{info.id}  {when}  {turns}  ${dollars:7.4f}  {folder:<{WORKSPACE_WIDTH}}"
-        typer.echo(f"{line}  {info.title}".rstrip())
+        # A title is the start of a prompt, which may have come from the web UI or a script.
+        typer.echo(f"{line}  {printable(info.title)}".rstrip())
 
 
 def _short_path(path: str, width: int) -> str:
@@ -182,13 +184,13 @@ def attach(
     url, token = str(server["url"]), str(server["token"])
     try:
         status = open_remote(url, token, session, workspace, mode.value if mode else None)
-    except AttachError as exc:
-        typer.secho(str(exc), fg="red", err=True)
+    except AttachError as exc:  # its detail can name the workspace or the session asked for
+        typer.secho(printable(str(exc)), fg="red", err=True)
         raise typer.Exit(2) from exc
     label = f"{status['model']} | mode {status['mode']} | {status['workspace']}"
-    typer.secho(f"Attached to {status['id']} | {label}", dim=True)
-    for warning in status.get("warnings", []):
-        typer.secho(warning, fg="yellow")
+    typer.secho(printable(f"Attached to {status['id']} | {label}"), dim=True)
+    for warning in status.get("warnings", []):  # such as an MCP server's error
+        typer.secho(printable(str(warning)), fg="yellow")
     typer.secho(
         "Type a task. Ctrl+C stops a running turn; with nothing running, Ctrl+C or 'exit' "
         "detaches and the session carries on in the server.",
@@ -253,8 +255,10 @@ def _start(
             continue
         if ignored is not None and ignored != Path(opened.info.workspace):
             typer.secho(
-                f"Session {opened.id} works in {opened.info.workspace}, so -w {ignored} "
-                "is ignored.",
+                printable(
+                    f"Session {opened.id} works in {opened.info.workspace}, so -w {ignored} "
+                    "is ignored."
+                ),
                 fg="yellow",
                 err=True,
             )
@@ -308,7 +312,7 @@ def _run_session(
                 return outcome
             started = True
             for problem in problems:
-                typer.secho(f"MCP server skipped: {problem}", fg="yellow", err=True)
+                typer.secho(printable(f"MCP server skipped: {problem}"), fg="yellow", err=True)
             if opened.mcp is not None and not rewound:
                 for name in opened.mcp.servers:
                     count = sum(t.connection.name == name for t in tools)
@@ -336,14 +340,17 @@ def _report_leaving(opened: OpenedSession, outcome: int | Reopen) -> None:
 
 def _banner(opened: OpenedSession, scripted: bool, files_kept: bool = False) -> None:
     for path in opened.instructions:
-        typer.secho(f"Following {path}", dim=True)
+        typer.secho(printable(f"Following {path}"), dim=True)
     config, info = opened.config, opened.info
     label = "scripted responses" if scripted else f"{opened.model}, effort {config.effort}"
     label += f" | {config.executor}"
     mode = opened.policy.policy.mode
-    typer.secho(f"Zwans {__version__} | {label} | mode {mode} | {info.workspace}", dim=True)
+    # The folder's name and the title (the first prompt's start) can hold any character.
+    banner = f"Zwans {__version__} | {label} | mode {mode} | {info.workspace}"
+    typer.secho(printable(banner), dim=True)
     if opened.resumed:
-        typer.secho(f"Resumed {info.id} after {_count(info.turns, 'turn')}: {info.title}", dim=True)
+        resumed = f"Resumed {info.id} after {_count(info.turns, 'turn')}: {info.title}"
+        typer.secho(printable(resumed), dim=True)
         if files_kept:
             typer.secho(
                 f"Turns after turn {info.turns} were dropped from the conversation. The files "
@@ -375,9 +382,11 @@ def _replay(opened: OpenedSession) -> None:
                 typer.secho("[Older messages were summarized here]", fg="magenta")
             elif isinstance(block, TextBlock) and message.turn not in prompted:
                 prompted.add(message.turn)
-                typer.secho(f"\n> {block.text.split(MENTIONED)[0]}", bold=True)
+                # The prompt may have come from the web UI, another terminal or a script.
+                typer.secho(f"\n> {printable(block.text.split(MENTIONED)[0])}", bold=True)
             elif isinstance(block, TextBlock):  # such as a stop hook's, sent back to the model
-                typer.secho(f"  {block.text.splitlines()[0] if block.text else ''}", dim=True)
+                note = block.text.splitlines()[0] if block.text else ""
+                typer.secho(f"  {printable(note)}", dim=True)
             elif isinstance(block, ToolUseBlock):
                 renderer.on_event(
                     ToolCallRequested(call_id=block.id, name=block.name, args=block.input)
