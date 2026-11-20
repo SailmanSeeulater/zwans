@@ -96,6 +96,21 @@ def test_a_redone_turn_uses_its_newer_checkpoint(workspace: Path, tmp_path: Path
     assert asyncio.run(go()) == [Change("added", "c.txt")]
 
 
+def test_a_workspace_moved_mid_session_turns_checkpoints_off(
+    workspace: Path, tmp_path: Path
+) -> None:
+    checkpoints = Checkpoints(workspace, tmp_path / "home", "s1")
+    asyncio.run(checkpoints.save(1))
+    workspace.rename(tmp_path / "moved")
+
+    asyncio.run(checkpoints.save(2))  # doesn't raise: the turn goes on without one
+
+    assert not checkpoints.available
+    assert checkpoints.problem == (
+        f"Checkpoints are off for this session: the workspace {workspace} no longer exists."
+    )
+
+
 def test_without_git_checkpoints_are_off(
     workspace: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

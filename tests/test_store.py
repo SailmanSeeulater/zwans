@@ -298,6 +298,27 @@ def test_the_model_chosen_for_a_session_is_saved_with_it(tmp_path: Path) -> None
     assert switched.model == again.model == "claude-sonnet-5-5"
 
 
+def test_an_unknown_model_is_saved_only_once_it_has_replied(tmp_path: Path) -> None:
+    first = open_fake(tmp_path, tmp_path, ["Hi."], model="claude-haiku-4-5")
+    asyncio.run(first.session.send("Hi"))
+    asyncio.run(first.close())
+    store = SessionStore(tmp_path / "home" / "sessions.db")
+
+    # A typo: its turn fails, so the session keeps the model it had.
+    typo = open_fake(tmp_path, tmp_path, [], resume=first.id, model="nope")
+    asyncio.run(typo.session.send("Again"))
+    asyncio.run(typo.close())
+    assert typo.model == "nope"
+    assert store.get(first.id).model == "claude-haiku-4-5"
+
+    # A newer model Zwans has no price for yet works, so it's kept.
+    newer = open_fake(tmp_path, tmp_path, ["Hello."], resume=first.id, model="claude-opus-9-0")
+    assert store.get(first.id).model == "claude-haiku-4-5"
+    asyncio.run(newer.session.send("Again"))
+    asyncio.run(newer.close())
+    assert store.get(first.id).model == "claude-opus-9-0"
+
+
 def test_resuming_a_session_whose_folder_is_gone_says_so(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     workspace.mkdir()

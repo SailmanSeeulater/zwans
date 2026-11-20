@@ -43,6 +43,7 @@ class PermissionRequested(_Event):
     call_id: str
     reason: str
     rules: list[str] = []  # what "always allow" would add
+    preview: str | None = None  # what an Edit or Write would change, as a unified diff
 
 
 class PermissionDenied(_Event):

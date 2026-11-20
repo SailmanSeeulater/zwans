@@ -31,28 +31,38 @@ class EditTool:
 
     async def run(self, args: EditInput, ctx: ToolContext) -> ToolOutput:
         file = TextFile.decode(await ctx.executor.read_bytes(args.path))
-        # TextFile.text always uses "\n", so normalize the model's strings the same way.
-        old = args.old_string.replace("\r\n", "\n")
-        new = args.new_string.replace("\r\n", "\n")
-        if old == new:
-            raise ToolError("old_string and new_string are the same, so there is nothing to do.")
-
-        count = file.text.count(old)
-        if count == 0:
-            raise ToolError(
-                f"old_string was not found in {args.path}. Read the file again and copy the "
-                "text exactly, including whitespace."
-            )
-        if count > 1 and not args.replace_all:
-            raise ToolError(
-                f"old_string appears {count} times in {args.path}. Add surrounding lines to "
-                "make it unique, or set replace_all to true."
-            )
-
-        updated = file.text.replace(old, new)
+        updated, count = _replace(file.text, args)
         await ctx.executor.write_bytes(args.path, file.encode(updated))
         replaced = f"{count} occurrences" if count > 1 else "1 occurrence"
         return ToolOutput(
             content=f"Replaced {replaced} in {args.path}.",
             diff=unified_diff(args.path, file.text, updated),
         )
+
+    async def preview(self, args: EditInput, ctx: ToolContext) -> str:
+        """The diff this call would make, with the file's own line numbers, for the user to
+        see before allowing it. Raises ToolError when the call would fail."""
+        file = TextFile.decode(await ctx.executor.read_bytes(args.path))
+        updated, _ = _replace(file.text, args)
+        return unified_diff(args.path, file.text, updated)
+
+
+def _replace(text: str, args: EditInput) -> tuple[str, int]:
+    """The file's text with the edit made, and how many places it changed."""
+    # TextFile.text always uses "\n", so normalize the model's strings the same way.
+    old = args.old_string.replace("\r\n", "\n")
+    new = args.new_string.replace("\r\n", "\n")
+    if old == new:
+        raise ToolError("old_string and new_string are the same, so there is nothing to do.")
+    count = text.count(old)
+    if count == 0:
+        raise ToolError(
+            f"old_string was not found in {args.path}. Read the file again and copy the "
+            "text exactly, including whitespace."
+        )
+    if count > 1 and not args.replace_all:
+        raise ToolError(
+            f"old_string appears {count} times in {args.path}. Add surrounding lines to "
+            "make it unique, or set replace_all to true."
+        )
+    return text.replace(old, new), count

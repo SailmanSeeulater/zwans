@@ -19,6 +19,7 @@ from zwans.cli.input import (
     Composer,
     echoing,
     expand_mentions,
+    toolbar_line,
 )
 from zwans.config import Config
 from zwans.messages import TextBlock
@@ -232,11 +233,29 @@ def test_compact_model_and_cost_commands(
     assert "  claude-sonnet-5-5  (current)" in out and "  claude-opus-5-5\n" in out
     assert "/rewind goes on a line of its own, so nothing was done." in out
     assert "Nothing to compact yet" in out
+    assert out.count("Compacting: the model is summarizing") == 1  # said before the wait
     assert "Summary of it all." in opened.session.messages[0].content[0].model_dump_json()
     assert opened.model == "claude-sonnet-5-5"
     assert opened.store.get(opened.id).model == "claude-sonnet-5-5"  # resuming keeps it
     assert "Session: " in out and "Context: about" in out
     assert "There's no /nope" in out
+    asyncio.run(opened.close())
+
+
+def test_a_compact_that_fails_says_why_and_keeps_the_messages(
+    tmp_path: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    opened = opened_session(tmp_path, workspace, ["One.", "Two."])  # none left for a summary
+
+    async def go() -> None:
+        await opened.session.send("First")
+        await opened.session.send("Second")
+        await Commands(opened).run("/compact")
+
+    asyncio.run(go())
+    out = capsys.readouterr().out
+    assert "Couldn't compact: FakeProvider ran out of scripted responses" in out
+    assert len(opened.session.messages) == 4
     asyncio.run(opened.close())
 
 
@@ -272,3 +291,22 @@ def test_undoing_says_which_files_were_removed_and_which_restored() -> None:
     assert _describe_undo([Change("changed", "a.py"), Change("added", "b.py")]) == (
         "Restored a.py, b.py to how they were."
     )
+
+
+STATUS = "claude-opus-5-5 · default · context 3k · $0.01"
+
+
+@pytest.mark.parametrize("width", [200, 80, 50, 30, 12, 3])
+def test_the_toolbar_fits_the_terminal(width: int) -> None:
+    line = toolbar_line(STATUS, width)
+
+    assert len(line) <= max(width - 1, 2)
+    assert line.startswith(" claude-" if width > 10 else " ")
+
+
+def test_the_toolbar_drops_hints_before_the_status() -> None:
+    assert toolbar_line(STATUS, 200).endswith("@ file · / commands")
+    assert toolbar_line(STATUS, 62) == f" {STATUS} · Enter sends"
+    assert toolbar_line(STATUS, 30) == " claude-opus-5-5 · default"
+    assert toolbar_line(STATUS, 12) == " claude-op…"
+    assert toolbar_line("", 30) == " Enter sends"

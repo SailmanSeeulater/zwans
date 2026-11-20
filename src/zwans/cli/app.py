@@ -295,21 +295,25 @@ def _run_session(
     # One event loop for the whole session, so the API client's connections stay usable.
     # SIGTERM and SIGHUP (the terminal closing) still close the session, stopping its jobs.
     with SessionRunner() as runner:
-        try:
-            tools, problems = runner.run(opened.start())
-        except DockerError as exc:
-            typer.secho(str(exc), fg="red", err=True)
-            runner.run(opened.close())
-            return 2
-        for problem in problems:
-            typer.secho(f"MCP server skipped: {problem}", fg="yellow", err=True)
-        if opened.mcp is not None and not rewound:
-            for name in opened.mcp.servers:
-                count = sum(t.connection.name == name for t in tools)
-                if count:
-                    typer.secho(f"MCP {name}: {_count(count, 'tool')}", dim=True)
         outcome: int | Reopen = 1
+        started = False
         try:
+            # Inside the try, so a signal or Ctrl+C while MCP servers or the container start
+            # still closes whatever had started.
+            try:
+                tools, problems = runner.run(opened.start())
+            except DockerError as exc:
+                typer.secho(str(exc), fg="red", err=True)
+                outcome = 2
+                return outcome
+            started = True
+            for problem in problems:
+                typer.secho(f"MCP server skipped: {problem}", fg="yellow", err=True)
+            if opened.mcp is not None and not rewound:
+                for name in opened.mcp.servers:
+                    count = sum(t.connection.name == name for t in tools)
+                    if count:
+                        typer.secho(f"MCP {name}: {_count(count, 'tool')}", dim=True)
             if task is None:
                 outcome = _chat(opened, runner, switch.draft if switch else "", hint=not rewound)
             else:
@@ -317,12 +321,17 @@ def _run_session(
             return outcome
         finally:
             runner.run_cleanup(opened.close())
-            if not isinstance(outcome, Reopen):  # only when leaving Zwans, not switching
-                typer.secho(f"\nSession cost: {opened.meter.summary()}", dim=True)
-                if not opened.empty:  # an empty session isn't kept
-                    typer.secho(f"To continue it: zwans --resume {opened.id}", dim=True)
-            elif outcome.resume != opened.id:  # switching to another, so say what this one cost
-                typer.secho(f"Left {opened.id}, which cost {opened.meter.summary()}.", dim=True)
+            if started:  # one that never started has nothing to report
+                _report_leaving(opened, outcome)
+
+
+def _report_leaving(opened: OpenedSession, outcome: int | Reopen) -> None:
+    if not isinstance(outcome, Reopen):  # only when leaving Zwans, not switching
+        typer.secho(f"\nSession cost: {opened.meter.summary()}", dim=True)
+        if not opened.empty:  # an empty session isn't kept
+            typer.secho(f"To continue it: zwans --resume {opened.id}", dim=True)
+    elif outcome.resume != opened.id:  # switching to another, so say what this one cost
+        typer.secho(f"Left {opened.id}, which cost {opened.meter.summary()}.", dim=True)
 
 
 def _banner(opened: OpenedSession, scripted: bool, files_kept: bool = False) -> None:

@@ -45,6 +45,7 @@ MAX_LISTING = 200
 MENTIONED = "\n\nThe files I mentioned, as they are now:\n\n"  # between a message and its files
 PASTE_ON, PASTE_OFF = "\x1b[?2004h", "\x1b[?2004l"  # the terminal's bracketed paste mode
 SKIPPED_FOLDERS = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", ".next"})
+HINTS = ("Enter sends", "Esc Enter new line", "@ file", "/ commands")
 
 
 @dataclass(frozen=True)
@@ -233,9 +234,8 @@ class Composer:
         return await self._session.prompt_async(FormattedText([("bold", "> ")]), default=draft)
 
     def _toolbar(self) -> FormattedText:
-        hints = "Enter sends · Esc Enter new line · @ file · / commands"
-        status = self._status()
-        return FormattedText([("", f" {status} · {hints}" if status else f" {hints}")])
+        width = self._session.app.output.get_size().columns
+        return FormattedText([("", toolbar_line(self._status(), width))])
 
     @contextmanager
     def typing_ahead(
@@ -272,6 +272,19 @@ class Composer:
             finally:
                 loop.remove_reader(fd)
         store_typeahead(self._session.app.input, _key_presses(bytes(typed)))
+
+
+def toolbar_line(status: str, width: int) -> str:
+    """The status and key hints, cut down to fit a terminal `width` columns wide: hints go
+    first, then the status's last parts, so a narrow terminal still shows the model."""
+    parts = [*(p for p in status.split(" · ") if p), *HINTS]
+    room = max(width - 2, 1)  # a leading space, and the last column, which would wrap
+    while len(parts) > 1 and len(" · ".join(parts)) > room:
+        parts.pop()
+    line = " · ".join(parts)
+    if len(line) > room:
+        line = line[: room - 1] + "…"
+    return f" {line}"
 
 
 @contextmanager

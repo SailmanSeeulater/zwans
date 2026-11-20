@@ -1,6 +1,14 @@
 "use client";
 
-import { keyArgument, type Item, type ToolCall, type Turn } from "@/lib/events";
+import {
+  canAlwaysAllow,
+  diffOf,
+  keyArgument,
+  writeKind,
+  type Item,
+  type ToolCall,
+  type Turn,
+} from "@/lib/events";
 import { TODO_TOOL, todosOf } from "@/lib/todos";
 import { DiffBody } from "./DiffBody";
 import { Markdown } from "./Markdown";
@@ -108,7 +116,7 @@ function TodoCard({ call }: { call: ToolCall }) {
 
 export function ToolCard({ call, onAnswer }: { call: ToolCall; onAnswer?: Props["onAnswer"] }) {
   const state = stateOf(call);
-  const diff = call.result?.diff;
+  const diff = diffOf(call);
   const asking = call.permission?.state === "asking";
   return (
     <>
@@ -134,6 +142,7 @@ export function ToolCard({ call, onAnswer }: { call: ToolCall; onAnswer?: Props[
               {hook.event} hook: {hook.message}
             </p>
           ))}
+          {writeKind(call) && <p className="muted">{writeKind(call)}</p>}
           {diff ? (
             <DiffBody text={diff} />
           ) : (
@@ -168,7 +177,7 @@ export function ToolCard({ call, onAnswer }: { call: ToolCall; onAnswer?: Props[
 }
 
 export function AskBar({ call, onAnswer }: { call: ToolCall; onAnswer?: Props["onAnswer"] }) {
-  const always = call.permission?.rules.join(", ") || "this exact call";
+  const always = call.permission?.rules.join(", ") ?? "";
   return (
     <div className="ask" role="group" aria-label="Permission request">
       <div className="ask-reason">{call.permission?.reason}</div>
@@ -177,9 +186,11 @@ export function AskBar({ call, onAnswer }: { call: ToolCall; onAnswer?: Props["o
           <button className="button button-primary" onClick={() => onAnswer(call.id, "once")}>
             Allow once
           </button>
-          <button className="button" onClick={() => onAnswer(call.id, "always")} title={always}>
-            Always allow ({always})
-          </button>
+          {canAlwaysAllow(call) && (
+            <button className="button" onClick={() => onAnswer(call.id, "always")} title={always}>
+              Always allow ({always})
+            </button>
+          )}
           <button className="button button-danger" onClick={() => onAnswer(call.id, "no")}>
             Deny
           </button>

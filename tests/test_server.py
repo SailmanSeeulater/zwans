@@ -10,9 +10,8 @@ from starlette.websockets import WebSocketDisconnect
 
 from zwans.config import Config
 from zwans.eval.runner import AttemptResult, EvalConfig, Report, Summary
-from zwans.events import TextDelta, ThinkingDelta
 from zwans.messages import Message, TextBlock, ToolUseBlock
-from zwans.providers.base import ModelResponse
+from zwans.providers.base import ModelResponse, StreamItem
 from zwans.providers.fake import FakeProvider
 from zwans.server.app import ServerSettings, create_app
 from zwans.tools.base import Tool
@@ -30,7 +29,7 @@ class SlowProvider(FakeProvider):
 
     async def stream(
         self, system: str, messages: Sequence[Message], tools: Sequence[Tool[Any]]
-    ) -> AsyncIterator[TextDelta | ThinkingDelta | ModelResponse]:
+    ) -> AsyncIterator[StreamItem]:
         await asyncio.sleep(self.delay)
         async for item in super().stream(system, messages, tools):
             yield item

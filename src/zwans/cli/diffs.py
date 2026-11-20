@@ -14,13 +14,15 @@ INDENT = "    "
 
 def show_diff(diff: str, limit: int = MAX_LINES) -> None:
     """A unified diff without its file headers (the call line already names the file)."""
-    lines = [line for line in diff.splitlines() if not line.startswith(("--- ", "+++ "))]
-    _show(lines, limit)
+    _show(_body(diff), limit)
 
 
-def show_change(tool: str, args: dict[str, Any]) -> None:
-    """What a call is about to change, so the user doesn't approve it blind."""
-    if tool == "Edit":
+def show_change(tool: str, args: dict[str, Any], preview: str | None = None) -> None:
+    """What a call is about to change, so the user doesn't approve it blind. `preview` is the
+    diff against the file as it is now, when the loop could work it out."""
+    if preview is not None and tool in ("Edit", "Write"):
+        show_preview(tool, preview)
+    elif tool == "Edit":
         _show(edit_lines(args), MAX_LINES)
     elif tool == "Write" and isinstance(args.get("content"), str):
         lines = args["content"].splitlines()
@@ -38,6 +40,36 @@ def show_change(tool: str, args: dict[str, Any]) -> None:
                 typer.secho(f"{INDENT}{printable(line)}", dim=True)
             if len(lines) > MAX_LINES:
                 typer.secho(f"{INDENT}... {_count(len(lines) - MAX_LINES, 'more line')}", dim=True)
+
+
+def show_preview(tool: str, preview: str) -> None:
+    """A file tool's diff, after a line saying whether a Write makes a new file or replaces
+    one, and how much of it."""
+    if tool == "Write":
+        typer.secho(f"{INDENT}{describe_write(preview)}", dim=True)
+    _show(_body(preview), MAX_LINES)
+
+
+def describe_write(preview: str) -> str:
+    """ "New file (3 lines):", or what replacing the existing file changes."""
+    lines = _body(preview)
+    added = sum(line.startswith("+") for line in lines)
+    removed = sum(line.startswith("-") for line in lines)
+    if preview.startswith("--- /dev/null"):
+        return f"New file ({_count(added, 'line')}):" if added else "New file, empty."
+    if not lines:
+        return "Replaces the existing file with the same contents."
+    if not added and not removed:  # the diff was too large to show
+        return "Replaces the existing file:"
+    return (
+        f"Replaces the existing file: {_count(removed, 'line')} removed, "
+        f"{_count(added, 'line')} added:"
+    )
+
+
+def _body(diff: str) -> list[str]:
+    """A unified diff's lines without its file headers."""
+    return [line for line in diff.splitlines() if not line.startswith(("--- ", "+++ "))]
 
 
 def edit_lines(args: dict[str, Any]) -> list[str]:

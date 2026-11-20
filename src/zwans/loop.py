@@ -33,7 +33,7 @@ from zwans.messages import (
 )
 from zwans.policy.engine import Approval, PermissionRequest, Permissions, denial_message
 from zwans.policy.rules import Decision
-from zwans.providers.base import Provider, ProviderError
+from zwans.providers.base import Provider, ProviderError, ServerBlock
 from zwans.tools.base import Tool, ToolContext, ToolError, ToolOutput
 from zwans.web import web_calls, web_results
 
@@ -65,6 +65,7 @@ async def run_turn(
     requires before it accepts the model's earlier thinking blocks back.
     """
     tools_by_name = {tool.name: tool for tool in tools}
+    web = _WebShown()
     yield TurnStarted(prompt=_last_user_text(messages))
 
     for _ in range(max_steps):
@@ -76,6 +77,10 @@ async def run_turn(
                     yield event
                 model_call = TimedCall()  # a summary call isn't part of this one's time
             async for item in model_call.stream(provider, system, messages, tools):
+                if isinstance(item, ServerBlock):
+                    for event in web.events([item.block], permissions):
+                        yield event
+                    continue
                 if isinstance(item, TextDelta):
                     streamed.append(item.text)
                 yield item
@@ -95,7 +100,7 @@ async def run_turn(
         messages.append(Message(role="assistant", content=list(response.content)))
         if compactor is not None:
             compactor.observe(response, len(messages))
-        for event in _web_events(response.content, permissions):
+        for event in web.events(response.content, permissions):  # any not streamed already
             yield event
         calls = [block for block in response.content if isinstance(block, ToolUseBlock)]
 
@@ -144,7 +149,7 @@ async def run_turn(
                             )
                             refusal = f"A pre_tool hook blocked this call: {blocked.message}"
                     if refusal is None and permissions is not None and tool is not None:
-                        async for step in _gate(permissions, tool, call):
+                        async for step in _gate(permissions, tool, call, ctx):
                             if isinstance(step, str):
                                 refusal = step
                             else:
@@ -200,7 +205,7 @@ async def run_turn(
 
 
 async def _gate(
-    permissions: Permissions, tool: Tool[Any], call: ToolUseBlock
+    permissions: Permissions, tool: Tool[Any], call: ToolUseBlock, ctx: ToolContext
 ) -> AsyncIterator[Event | str]:
     """Check one call against the policy, asking the user when it says so. Yields the
     permission events, then, if the call must not run, the message for the model."""
@@ -210,8 +215,13 @@ async def _gate(
     can_ask = permissions.approver is not None
     approval: Approval | None = None
     if verdict.decision == Decision.ASK and can_ask:
-        yield PermissionRequested(call_id=call.id, reason=verdict.reason, rules=list(verdict.rules))
-        request = PermissionRequest(call.id, call.name, call.input, verdict.reason, verdict.rules)
+        preview = await _preview(tool, call, ctx)
+        yield PermissionRequested(
+            call_id=call.id, reason=verdict.reason, rules=list(verdict.rules), preview=preview
+        )
+        request = PermissionRequest(
+            call.id, call.name, call.input, verdict.reason, verdict.rules, preview
+        )
         approval = await permissions.ask(request)
         yield PermissionResolved(call_id=call.id, allowed=approval != Approval.NO)
         if approval != Approval.NO:
@@ -221,26 +231,56 @@ async def _gate(
     yield denial_message(verdict, approval, can_ask)
 
 
-def _web_events(content: Sequence[ContentBlock], permissions: Permissions | None) -> list[Event]:
-    """Events for the web searches and fetches the API ran while writing this reply, so they
-    show like other tool calls. A paused reply can hold a call whose result comes in the next."""
-    calls = web_calls(content)
-    events: list[Event] = [
-        ToolCallRequested(call_id=call.id, name=call.name, args=call.args) for call in calls
-    ]
-    names = {call.id: call.name for call in calls}
-    for result in web_results(content):
-        name = names.get(result.call_id, "web_search")
-        untrusted = permissions.observe(name, result.is_error) if permissions else False
-        events.append(
-            ToolResult(
-                call_id=result.call_id,
-                content=result.content,
-                is_error=result.is_error,
-                untrusted=untrusted,
+async def _preview(tool: Tool[Any], call: ToolUseBlock, ctx: ToolContext) -> str | None:
+    """The diff a file tool's call would make, so the question can show it: whether a Write
+    makes a new file or replaces one, and what an Edit changes, in the file's context."""
+    preview = getattr(tool, "preview", None)
+    if preview is None:
+        return None
+    try:
+        args = tool.input_model.model_validate(call.input)
+        diff = await preview(args, ctx)
+    except (ValidationError, ToolError, OSError):
+        return None  # the call would fail too; the question shows its input instead
+    return diff if isinstance(diff, str) else None
+
+
+class _WebShown:
+    """The web searches and fetches the API ran in this turn, shown like other tool calls.
+
+    Providers pass each one on as it streams in, so it shows before the text that follows
+    it; anything a provider didn't stream is shown from the finished reply. A paused reply
+    can hold a call whose result comes in the next one.
+    """
+
+    def __init__(self) -> None:
+        self.names: dict[str, str] = {}  # call id: web_search or web_fetch
+        self.shown: set[tuple[str, str]] = set()  # ("call" or "result", call id)
+
+    def events(
+        self, content: Sequence[ContentBlock], permissions: Permissions | None
+    ) -> list[Event]:
+        events: list[Event] = []
+        for call in web_calls(content):
+            self.names[call.id] = call.name
+            if ("call", call.id) not in self.shown:
+                self.shown.add(("call", call.id))
+                events.append(ToolCallRequested(call_id=call.id, name=call.name, args=call.args))
+        for result in web_results(content):
+            if ("result", result.call_id) in self.shown:
+                continue
+            self.shown.add(("result", result.call_id))
+            name = self.names.get(result.call_id, "web_search")
+            untrusted = permissions.observe(name, result.is_error) if permissions else False
+            events.append(
+                ToolResult(
+                    call_id=result.call_id,
+                    content=result.content,
+                    is_error=result.is_error,
+                    untrusted=untrusted,
+                )
             )
-        )
-    return events
+        return events
 
 
 def answer_pending_calls(messages: list[Message]) -> bool:

@@ -44,6 +44,9 @@ class PermissionRequest:
     args: dict[str, Any]
     reason: str
     rules: tuple[str, ...]
+    # What an Edit or Write would change, as a unified diff against the file as it is now
+    # (from /dev/null for a new file). None when there's nothing to show or it can't be read.
+    preview: str | None = None
 
 
 class Approver(Protocol):

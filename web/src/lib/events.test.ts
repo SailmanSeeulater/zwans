@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTurns, waitingCalls, type RawEvent } from "./events";
+import { buildTurns, canAlwaysAllow, diffOf, waitingCalls, writeKind, type RawEvent, type ToolCall } from "./events";
 
 describe("buildTurns", () => {
   it("groups text, calls, results, diffs and questions into turns", () => {
@@ -53,5 +53,40 @@ describe("buildTurns", () => {
     expect(task?.kind === "tool" && task.call.subcalls.map((c) => [c.name, c.result?.content])).toEqual([
       ["Grep", "x.py:3"],
     ]);
+  });
+});
+
+describe("permission questions", () => {
+  const ask = (rules: string[], preview?: string): ToolCall => {
+    const events: RawEvent[] = [
+      { type: "turn_started", prompt: "Go." },
+      { type: "tool_call_requested", call_id: "w", name: "Write", args: { path: "a.py", content: "x = 1\n" } },
+      { type: "permission_requested", call_id: "w", reason: "Write a.py changes files", rules, preview },
+    ];
+    const item = buildTurns(events)[0]!.items[0];
+    if (item?.kind !== "tool") throw new Error("no call");
+    return item.call;
+  };
+
+  it("offers always only when there are rules for it to add", () => {
+    expect(canAlwaysAllow(ask(["Write(a.py)"]))).toBe(true);
+    expect(canAlwaysAllow(ask([]))).toBe(false);
+  });
+
+  it("shows the diff a Write would make, and whether it makes a new file", () => {
+    const created = ask([], "--- /dev/null\n+++ b/a.py\n@@ -0,0 +1 @@\n+x = 1\n");
+    expect(diffOf(created)).toContain("+x = 1");
+    expect(writeKind(created)).toBe("New file");
+    const replaced = ask([], "--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-y = 2\n+x = 1\n");
+    expect(writeKind(replaced)).toBe("Replaces the existing file");
+    expect(diffOf(ask([]))).toBeNull();
+  });
+
+  it("shows what a call changed once it has run, not the preview", () => {
+    const call = ask([], "--- /dev/null\n+++ b/a.py\n");
+    call.permission!.state = "declined";
+    call.result = { content: "Declined.", isError: true, untrusted: false, diff: null };
+    expect(diffOf(call)).toBeNull();
+    expect(writeKind(call)).toBe("");
   });
 });

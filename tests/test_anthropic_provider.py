@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Mapping
 from types import SimpleNamespace
 
 import anthropic
@@ -19,7 +20,7 @@ from zwans.providers.anthropic import (
     sources_note,
     tool_param,
 )
-from zwans.providers.base import ModelResponse, ProviderError
+from zwans.providers.base import ModelResponse, ProviderError, ServerBlock
 from zwans.tools.base import ToolContext, ToolOutput
 
 THINKING = {"type": "thinking", "thinking": "", "signature": "sig-abc"}
@@ -343,6 +344,64 @@ def test_separate_text_blocks_stream_as_paragraphs() -> None:
 
     texts = [item.text for item in items if isinstance(item, TextDelta)]
     assert texts == ["Looking it up.", "\n\nFound it", " here."]
+
+
+def _block_stop(block: Mapping[str, object]) -> object:
+    content_block = SimpleNamespace(type=block["type"], to_dict=lambda mode: block)
+    return SimpleNamespace(type="content_block_stop", content_block=content_block)
+
+
+def test_web_calls_are_passed_on_as_they_stream_before_the_sources() -> None:
+    search: dict[str, object] = {
+        "type": "server_tool_use",
+        "id": "s1",
+        "name": "web_search",
+        "input": {"q": "x"},
+    }
+    result: dict[str, object] = {
+        "type": "web_search_tool_result",
+        "tool_use_id": "s1",
+        "content": [],
+    }
+    citation = {
+        "type": "web_search_result_location",
+        "url": "https://a.example",
+        "title": "A",
+        "cited_text": "a",
+        "encrypted_index": "abc",
+    }
+    events = [
+        _block_start("text"),
+        _text("Looking."),
+        _block_stop({"type": "text", "text": "Looking."}),
+        _block_start("server_tool_use"),
+        _block_stop(search),
+        _block_start("web_search_tool_result"),
+        _block_stop(result),
+        _block_start("text"),
+        _text("Found."),
+    ]
+    content: list[dict[str, object]] = [
+        {"type": "text", "text": "Looking."},
+        search,
+        result,
+        {"type": "text", "text": "Found.", "citations": [citation]},
+    ]
+
+    items = asyncio.run(_collect(_scripted_provider(events, content)))
+
+    order = [
+        item.text if isinstance(item, TextDelta) else item.block.type
+        for item in items
+        if isinstance(item, TextDelta | ServerBlock)
+    ]
+    assert order == [
+        "Looking.",
+        "server_tool_use",
+        "web_search_tool_result",
+        "\n\nFound.",
+        "\n\nSources:\n- A: https://a.example",
+    ]
 
 
 def test_cited_pages_are_listed_after_the_reply() -> None:

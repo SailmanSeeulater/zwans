@@ -33,7 +33,8 @@ def can_prompt() -> bool:
 
 async def terminal_approver(request: PermissionRequest) -> Approval:
     typer.secho(f"  ? {printable(request.reason)}", fg="yellow")
-    show_change(request.tool, request.args)  # what the call would do, a long command in full
+    # What the call would do: a file tool's diff, or a long command in full.
+    show_change(request.tool, request.args, request.preview)
     if not request.rules:  # "always" couldn't take effect, as after untrusted content
         answer = _prompt("  Allow it? [y]es / [N]o: ")
         return Approval.ONCE if answer.strip().lower() in ("y", "yes") else Approval.NO

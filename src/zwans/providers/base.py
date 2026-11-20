@@ -34,6 +34,16 @@ class ModelResponse(BaseModel):
         )
 
 
+class ServerBlock(BaseModel):
+    """A block the API ran itself, such as a web search or its results, passed on as soon as
+    it has streamed in, so it shows in order with the text around it."""
+
+    block: RawBlock
+
+
+type StreamItem = TextDelta | ThinkingDelta | ServerBlock | ModelResponse
+
+
 class ProviderError(Exception):
     """The model couldn't be reached, or rejected the request, after any retries."""
 
@@ -41,8 +51,9 @@ class ProviderError(Exception):
 class Provider(Protocol):
     def stream(
         self, system: str, messages: Sequence[Message], tools: Sequence[Tool[Any]]
-    ) -> AsyncIterator[TextDelta | ThinkingDelta | ModelResponse]:
-        """Yield text and progress notes as they arrive, then the complete response last."""
+    ) -> AsyncIterator[StreamItem]:
+        """Yield text, progress notes and server-run blocks as they arrive, then the complete
+        response last."""
         ...
 
     async def aclose(self) -> None:

@@ -19,7 +19,8 @@ export interface ToolCall {
   /** From the request to the result, when the events carry times. */
   seconds?: number;
   result?: { content: string; isError: boolean; untrusted: boolean; diff: string | null };
-  permission?: { state: PermissionState; reason: string; rules: string[] };
+  /** `rules` is what "always allow" would add; `preview` the diff an Edit or Write would make. */
+  permission?: { state: PermissionState; reason: string; rules: string[]; preview: string | null };
   hooks: { event: string; message: string }[];
   /** For a Task call: what its subagent did. */
   subcalls: ToolCall[];
@@ -106,7 +107,8 @@ export function buildTurns(events: RawEvent[]): Turn[] {
         const call = calls.get(str(event.call_id));
         if (call) {
           const rules = Array.isArray(event.rules) ? event.rules.map(String) : [];
-          call.permission = { state: "asking", reason: str(event.reason), rules };
+          const preview = typeof event.preview === "string" ? event.preview : null;
+          call.permission = { state: "asking", reason: str(event.reason), rules, preview };
         }
         break;
       }
@@ -119,7 +121,7 @@ export function buildTurns(events: RawEvent[]): Turn[] {
       }
       case "permission_denied": {
         const call = calls.get(str(event.call_id));
-        if (call) call.permission = { state: "denied", reason: str(event.reason), rules: [] };
+        if (call) call.permission = { state: "denied", reason: str(event.reason), rules: [], preview: null };
         break;
       }
       case "tool_result": {
@@ -203,4 +205,26 @@ export function keyArgument(call: Pick<ToolCall, "name" | "args">): string {
     if (typeof value === "string" && value) return value.split("\n")[0] ?? "";
   }
   return "";
+}
+
+/**
+ * Whether "always allow" would take effect for this question. Without rules to add (as for a
+ * network command once untrusted content has been read) it would only allow the call once,
+ * so it isn't offered, as in the terminal.
+ */
+export function canAlwaysAllow(call: ToolCall): boolean {
+  return (call.permission?.rules.length ?? 0) > 0;
+}
+
+/** The diff to show on a call's card: what it changed, or, until it has run, what it would. */
+export function diffOf(call: ToolCall): string | null {
+  if (call.result) return call.result.diff;
+  return call.permission?.preview ?? null;
+}
+
+/** For a Write waiting for an answer: whether it makes a new file or replaces one. */
+export function writeKind(call: ToolCall): string {
+  const preview = call.permission?.state === "asking" ? call.permission.preview : null;
+  if (call.name !== "Write" || preview === null) return "";
+  return preview.startsWith("--- /dev/null") ? "New file" : "Replaces the existing file";
 }

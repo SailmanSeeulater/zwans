@@ -16,8 +16,16 @@ from pydantic import ValidationError
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
 
+from zwans.cli.diffs import show_change
 from zwans.cli.render import Renderer
-from zwans.events import PermissionRequested, PermissionResolved, TurnStarted, parse_event
+from zwans.cli.terminal_text import printable
+from zwans.events import (
+    PermissionRequested,
+    PermissionResolved,
+    ToolCallRequested,
+    TurnStarted,
+    parse_event,
+)
 
 ANSWERS = {"y": "once", "yes": "once", "a": "always", "always": "always"}
 
@@ -64,6 +72,8 @@ class Attached:
         self.renderer = Renderer()
         self.running = False
         self.waiting: list[str] = []  # permission questions this terminal could answer
+        self.always: set[str] = set()  # those of them where "always" would take effect
+        self.calls: dict[str, tuple[str, dict[str, Any]]] = {}  # id: the tool and its input
         self.lines: asyncio.Queue[str | None] = asyncio.Queue()
         self.ws: ClientConnection | None = None
         self.done = asyncio.Event()
@@ -130,15 +140,31 @@ class Attached:
                 self._typed.remove(event.prompt)
             else:  # sent from the browser or another terminal, or before this one attached
                 typer.secho(f"\n» {event.prompt}", bold=True)
+        elif isinstance(event, ToolCallRequested):
+            self.calls[event.call_id] = (event.name, event.args)
         elif isinstance(event, PermissionRequested):
-            self.waiting.append(event.call_id)
-            always = ", ".join(event.rules) or "this call"
-            typer.secho(f"  ? {event.reason}", fg="yellow")
-            typer.secho(f"  Allow it? [y]es / [a]lways ({always}) / [N]o: ", fg="yellow", nl=False)
+            self.renderer.on_event(event)  # ends the line it was on
+            self._ask(event)
+            return
         elif isinstance(event, PermissionResolved) and event.call_id in self.waiting:
             self.waiting.remove(event.call_id)
+            self.always.discard(event.call_id)
             typer.echo("allowed" if event.allowed else "declined")
         self.renderer.on_event(event)
+
+    def _ask(self, event: PermissionRequested) -> None:
+        """The question, with the same preview as in the chat: a file tool's diff, or a long
+        command in full. "always" is offered only when it would take effect."""
+        self.waiting.append(event.call_id)
+        typer.secho(f"  ? {printable(event.reason)}", fg="yellow")
+        name, args = self.calls.get(event.call_id, ("", {}))
+        show_change(name, args, event.preview)
+        if not event.rules:  # as after untrusted content: "always" would work like "once"
+            typer.secho("  Allow it? [y]es / [N]o: ", fg="yellow", nl=False)
+            return
+        self.always.add(event.call_id)
+        always = printable(", ".join(event.rules))
+        typer.secho(f"  Allow it? [y]es / [a]lways ({always}) / [N]o: ", fg="yellow", nl=False)
 
     def _prompt(self) -> None:
         typer.echo("\n> ", nl=False)
@@ -150,8 +176,10 @@ class Attached:
                 return
             line = line.strip()
             if self.waiting:
-                answer = ANSWERS.get(line.lower(), "no")
                 call_id = self.waiting[0]
+                answer = ANSWERS.get(line.lower(), "no")
+                if answer == "always" and call_id not in self.always:
+                    answer = "no"  # it wasn't offered, as in the chat
                 await ws.send(json.dumps({"type": "approve", "call_id": call_id, "answer": answer}))
             elif line in ("exit", "quit"):
                 return

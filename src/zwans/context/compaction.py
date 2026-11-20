@@ -101,6 +101,10 @@ class Compactor:
         compacted = ContextCompacted(tokens_before=before, tokens_after=after, summary=summary)
         return [compacted, *usage]
 
+    def can_compact(self, messages: Sequence[Message]) -> bool:
+        """Whether there's enough to summarize: `compact` would call the model."""
+        return self._cut_point(messages) is not None
+
     def _cut_point(self, messages: Sequence[Message]) -> int | None:
         """Where the kept part starts. It must be an assistant message, so no tool result is kept
         without the tool call it answers, and at least two messages must be summarized."""

@@ -19,6 +19,7 @@ SEARCH = "web_search"
 FETCH = "web_fetch"
 NAMES = frozenset({SEARCH, FETCH})
 RESULT_TYPES = frozenset({"web_search_tool_result", "web_fetch_tool_result"})
+SERVER_TYPES = RESULT_TYPES | {"server_tool_use"}  # the blocks a provider streams as they end
 SEARCH_DOLLARS = 0.01  # $10 per 1,000 searches, on top of tokens; fetches cost only tokens
 FETCH_MAX_TOKENS = 25_000  # a page longer than this is cut, so one fetch can't fill the context
 

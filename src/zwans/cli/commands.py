@@ -9,6 +9,7 @@ from zwans.cli.input import MENTIONED, Command
 from zwans.events import ContextCompacted
 from zwans.messages import TextBlock
 from zwans.pricing import PRICES, price_of
+from zwans.providers.base import ProviderError
 from zwans.runtime import OpenedSession
 from zwans.session import Session
 from zwans.store import SessionError
@@ -98,9 +99,13 @@ class Commands:
             _say(f"{checkpoints.problem if checkpoints else off} So turns can't be undone.")
             return None
         session = self.opened.session
-        turns = {t: c for t, c in (await checkpoints.turns()).items() if t <= session.turn}
-        if not argument:
-            await self._list_turns(sorted(turns)[-TURNS_SHOWN:])
+        try:
+            turns = {t: c for t, c in (await checkpoints.turns()).items() if t <= session.turn}
+            if not argument:
+                await self._list_turns(sorted(turns)[-TURNS_SHOWN:])
+                return None
+        except CheckpointError as exc:  # such as when the workspace was moved
+            _say(f"Couldn't read the checkpoints: {exc}", fg="red")
             return None
         if not argument.isdigit() or int(argument) not in turns:
             what = "Nothing to undo yet." if undo else f"There's no turn {argument} to go back to."
@@ -113,7 +118,7 @@ class Commands:
             return None
         try:
             undone = await checkpoints.restore(turn)
-        except CheckpointError as exc:
+        except (CheckpointError, OSError) as exc:
             _say(f"Couldn't put the files back: {exc}", fg="red")
             return None
         if undone:
@@ -150,11 +155,19 @@ class Commands:
         if session.compactor is None:
             _say("This session doesn't compact.", fg="yellow")
             return
-        events = await session.compactor.compact(session.messages)
+        if not session.compactor.can_compact(session.messages):
+            _say("Nothing to compact yet: the conversation is too short.")
+            return
+        _say("Compacting: the model is summarizing the older messages...")  # it takes a while
+        try:
+            events = await session.compactor.compact(session.messages)
+        except ProviderError as exc:
+            _say(f"Couldn't compact: {exc}", fg="red")
+            return
         for event in events:
             session.emit(event)  # the renderer shows it, and the saved session is rewritten
         if not any(isinstance(event, ContextCompacted) for event in events):
-            _say("Nothing to compact yet: the conversation is too short.")
+            _say("The model wrote no summary, so nothing was compacted.", fg="yellow")
 
     def _model(self, name: str) -> None:
         current = self.opened.model

@@ -79,6 +79,8 @@ class Checkpoints:
             )
         except CheckpointError as exc:
             self.problem = f"Checkpoints are off for this session: {exc}"
+        except OSError as exc:  # the workspace was moved or deleted, or the disk is full, ...
+            self.problem = f"Checkpoints are off for this session: {self._describe(exc)}"
 
     async def turns(self) -> dict[int, str]:
         """The turns with a checkpoint, and each one's latest snapshot commit. A turn redone
@@ -156,22 +158,31 @@ class Checkpoints:
             if code
         ]
 
+    def _describe(self, exc: OSError) -> str:
+        if not self.workspace.is_dir():
+            return f"the workspace {self.workspace} no longer exists."
+        message = exc.strerror or str(exc)
+        return f"{message}: {exc.filename}" if exc.filename else message
+
     async def _git(self, *args: str, stdin: str | None = None, strip: bool = True) -> str:
-        process = await asyncio.create_subprocess_exec(
-            "git",
-            f"--git-dir={self.git_dir}",
-            f"--work-tree={self.workspace}",
-            "-c",
-            "core.autocrlf=false",
-            "-c",
-            "core.quotePath=false",
-            *args,
-            cwd=self.workspace,
-            env={**os.environ, **AUTHOR},
-            stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "git",
+                f"--git-dir={self.git_dir}",
+                f"--work-tree={self.workspace}",
+                "-c",
+                "core.autocrlf=false",
+                "-c",
+                "core.quotePath=false",
+                *args,
+                cwd=self.workspace,
+                env={**os.environ, **AUTHOR},
+                stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except OSError as exc:  # git can't start in a workspace that's gone
+            raise CheckpointError(self._describe(exc)) from exc
         try:
             out, err = await asyncio.wait_for(
                 process.communicate(stdin.encode() if stdin is not None else None),

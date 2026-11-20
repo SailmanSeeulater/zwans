@@ -12,8 +12,9 @@ from anthropic.types.beta import BetaMessage
 from zwans.config import Credential, Effort, PromptCache
 from zwans.events import TextDelta, ThinkingDelta
 from zwans.messages import ContentBlock, Message, RawBlock, TextBlock, ToolUseBlock
-from zwans.providers.base import ModelResponse, ProviderError
+from zwans.providers.base import ModelResponse, ProviderError, ServerBlock, StreamItem
 from zwans.tools.base import Tool, input_schema
+from zwans.web import SERVER_TYPES
 from zwans.web import tool_params as web_tool_params
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"  # if a classifier declines, use another model
@@ -92,7 +93,7 @@ class AnthropicProvider:
 
     async def stream(
         self, system: str, messages: Sequence[Message], tools: Sequence[Tool[Any]]
-    ) -> AsyncIterator[TextDelta | ThinkingDelta | ModelResponse]:
+    ) -> AsyncIterator[StreamItem]:
         attempt = 0
         cut_offs = 0
         while True:
@@ -113,6 +114,13 @@ class AnthropicProvider:
                             said, new_block = True, False
                         elif event.type == "thinking" and event.thinking:
                             yield ThinkingDelta(text=event.thinking)
+                        elif event.type == "content_block_stop":
+                            # A web search or its results, complete: pass it on now, so it
+                            # shows before the text that follows it.
+                            block = event.content_block
+                            if block.type in SERVER_TYPES:
+                                data = block.to_dict(mode="json")
+                                yield ServerBlock(block=RawBlock(type=block.type, data=data))
                     message = await stream.get_final_message()
             except ValueError as exc:
                 # With eager input streaming the SDK raises this for tool input it can't

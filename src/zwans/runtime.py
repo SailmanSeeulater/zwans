@@ -12,7 +12,7 @@ from zwans.checkpoints import Checkpoints
 from zwans.config import Config, load_credential
 from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
-from zwans.events import Event
+from zwans.events import Event, ModelCalled
 from zwans.executor.background import BackgroundJobs
 from zwans.executor.docker import SANDBOX_OS, DockerExecutor
 from zwans.executor.jail import JAIL_OS, JailExecutor
@@ -23,7 +23,7 @@ from zwans.mcp.tools import McpServers, McpTool
 from zwans.messages import Message
 from zwans.policy.engine import Approver, Permissions
 from zwans.policy.rules import LoadedPolicy, Mode, load_policy
-from zwans.pricing import CostMeter
+from zwans.pricing import CostMeter, price_of
 from zwans.prompt import system_prompt
 from zwans.providers.anthropic import AnthropicProvider
 from zwans.providers.base import Provider
@@ -119,6 +119,7 @@ def open_session(
     messages: list[Message] = []
     repaired = False
     followed: list[Path] = []
+    unsaved_model: str | None = None
     if resume is not None:
         try:
             found = store.get(resume)
@@ -131,9 +132,13 @@ def open_session(
         except SessionError:
             store.close()  # the server carries on after a failed resume
             raise
-        if model and model != info.model:
+        if model and model != info.model and price_of(model) is not None:
             store.set_model(info.id, model)  # --model switches it, as /model does
             info.model = model
+        elif model and model != info.model:
+            # A name Zwans doesn't know may be a typo, which would 404 on every later resume
+            # too. It's saved once a reply from it comes in.
+            unsaved_model = model
         meter = CostMeter.restore(info.usage)
         skills = find_skills(skill_folders(Path(info.workspace), config.home))
     else:
@@ -220,6 +225,8 @@ def open_session(
     saved = len(messages) - (1 if repaired else 0)
     recorder = SessionRecorder(store, info.id, session, meter, saved=saved, title=info.title)
     session.listeners.append(recorder.on_event)
+    if unsaved_model is not None:
+        session.listeners.append(_ModelSaver(store, info, provider, unsaved_model).on_event)
     recorder.save()  # saves the answers to any cut-off tool calls right away
 
     mcp = None
@@ -242,6 +249,27 @@ def open_session(
         resumed=resume is not None,
         repaired=repaired,
     )
+
+
+class _ModelSaver:
+    """Saves a model with the session once a reply from it has come in, so it's known to work."""
+
+    def __init__(
+        self, store: SessionStore, info: SessionInfo, provider: Provider, model: str
+    ) -> None:
+        self.store = store
+        self.info = info
+        self.provider = provider
+        self.model: str | None = model
+
+    def on_event(self, event: Event) -> None:
+        if self.model is None or not isinstance(event, ModelCalled) or event.purpose != "turn":
+            return
+        # Unless /model has switched to another since, which it saved itself.
+        if getattr(self.provider, "model", self.model) == self.model:
+            self.store.set_model(self.info.id, self.model)
+            self.info.model = self.model
+        self.model = None
 
 
 def describe_shell(configured: str | None) -> str:

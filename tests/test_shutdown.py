@@ -159,3 +159,42 @@ def test_sigterm_during_a_session_stops_its_background_jobs(tmp_path: Path) -> N
     assert "Session cost:" in text
     assert process_gone(int((workspace / "job.pid").read_text()))
     assert process_gone(int((workspace / "turn.pid").read_text()))
+
+
+def test_sigterm_while_mcp_servers_start_stops_them(tmp_path: Path) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    config = tmp_path / "config.toml"
+    # A server that never answers `initialize`, so Zwans is still starting when told to quit.
+    config.write_text(
+        '[mcp_servers.slow]\ncommand = "sh"\nargs = ["-c", "echo $$ > mcp.pid; exec sleep 305"]\n',
+        "utf-8",
+    )
+    script_path = tmp_path / "script.json"
+    done = ModelResponse(content=[TextBlock(text="Done.")], stop_reason="end_turn")
+    script_path.write_text(json.dumps([done.model_dump(mode="json")]), "utf-8")
+    env = {**os.environ, "ZWANS_HOME": str(tmp_path / "home"), "ZWANS_CONFIG": str(config)}
+    env["PYTHONPATH"] = os.pathsep.join(sys.path)  # this checkout's zwans
+    argv = ["run", "Hi", "-w", str(workspace), "--fake-script", str(script_path)]
+    zwans = subprocess.Popen(
+        [sys.executable, "-c", "from zwans.cli.app import app; app()", *argv],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    try:
+        deadline = time.monotonic() + 30
+        while not (workspace / "mcp.pid").exists() and zwans.poll() is None:
+            assert time.monotonic() < deadline, "the MCP server never started"
+            time.sleep(0.1)
+        time.sleep(0.2)
+        zwans.send_signal(signal.SIGTERM)
+        output, _ = zwans.communicate(timeout=30)
+    finally:
+        if zwans.poll() is None:
+            zwans.kill()
+
+    text = output.decode("utf-8", errors="replace")
+    assert zwans.returncode == 128 + signal.SIGTERM, text
+    assert process_gone(int((workspace / "mcp.pid").read_text()))

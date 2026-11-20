@@ -68,7 +68,9 @@ and how much input came from the prompt cache.
 A session is saved as soon as you send something, and one you close without sending anything
 isn't kept. `zwans sessions` shows each one's turns, cost, folder and first message. A session
 keeps its model, whether chosen with `--model` or `/model`, and its folder: `--resume` says so
-when `-w` names another one, and works in the session's folder. A turn that fails before the model
+when `-w` names another one, and works in the session's folder. A model Zwans doesn't know,
+given with `--resume <id> --model <name>`, is kept only once it has answered, so a typo doesn't
+stick to the session. A turn that fails before the model
 answers, such as on an API error, is taken back, and in the chat your message goes back into
 the input to send again. `--rewind` only drops turns from the conversation and leaves the
 files as they are; `/rewind` and `/undo` in the chat put the files back too.
@@ -82,7 +84,8 @@ shows what it found. Piped to a file, the output is plain text.
 In the chat, Enter sends and Esc then Enter (or Ctrl+J) starts a new line; pasted text keeps
 its lines. Up and Down go through earlier messages, kept in `~/.zwans/history`. Ctrl+C clears
 what you've typed, and Ctrl+D quits. A line under the prompt shows the model, the mode, the
-context size and the session's cost so far. What you type while a turn runs isn't shown; it
+context size and the session's cost so far, then key hints; in a narrow terminal the hints go
+first, then the end of the status, so the line never wraps. What you type while a turn runs isn't shown; it
 waits for the prompt, and each line of it is then sent as its own message, while a paste goes
 as one. Ctrl+C drops it along with the turn. When Zwans asks you to approve a tool call,
 only what you type after the question answers it. Resuming a session in the chat shows its
@@ -128,8 +131,9 @@ refused call goes back to the model as an error that says why.
 | `ask` (default) | The same | File changes and every other command |
 | `auto` | Also edits, and commands that change files or run code (`pytest`, `make`, `git commit`) | Commands that use the network (`curl`, `pip install`, `git push`) or that Zwans can't classify |
 
-The question shows what the call would do: an Edit's old and new lines, a Write's new
-contents, or the whole of a long command, here-document included. Escape codes in them are
+The question shows what the call would do: an Edit's change as a diff of the file, a Write's
+diff with a line saying whether it makes a new file or replaces one (and how many lines it
+removes and adds), or the whole of a long command, here-document included. Escape codes in them are
 shown as text (such as `\x1b`), so they can't hide part of the change. At a prompt, `y`
 allows the call once, `a` allows that exact call, as shown, for the rest of the session, and
 anything else (or Ctrl+C) declines. `a` isn't offered when it couldn't take effect: for a call
@@ -311,7 +315,8 @@ documentation or an error message. The Claude API runs both on Anthropic's serve
 - a search costs $0.01 on top of tokens, which the cost shown includes; a fetch costs only
   the tokens of the page, at most 25,000.
 
-When an answer cites pages it found, Zwans lists them under it as Sources.
+Each search and fetch shows as it happens, like a tool call, between the text written before
+and after it. When an answer cites pages it found, Zwans lists them under it as Sources.
 
 Set `web = false` to turn them off.
 
@@ -342,8 +347,9 @@ the prompt of the undone turn is back in the input line, to edit and send again.
 
 A snapshot holds what git would, so files the project's `.gitignore` leaves out, and folders
 like `node_modules`, aren't brought back. Nor is anything a command did outside the
-workspace, such as installing a package. If snapshotting takes over a minute, checkpoints
-turn off for the session. Set `checkpoints = false` to turn them off yourself.
+workspace, such as installing a package. If snapshotting takes over a minute, or fails (as
+when the workspace is moved or deleted mid-session), checkpoints turn off for the session and
+Zwans says why. Set `checkpoints = false` to turn them off yourself.
 
 ### Long sessions
 
@@ -370,10 +376,11 @@ token in `~/.zwans/server.json`, readable only by you, for `zwans attach`.
 - **Sessions:** start one in a folder, or resume a saved one. Text streams in as the model
   writes it; each tool call is a card with its input and result, and Edit and Write show a
   diff. When the policy asks, the question appears above the input box with Allow once,
-  Always allow and Deny. A Task call lists what its subagent did.
+  Always allow (only when it would take effect, as in the terminal) and Deny, and an Edit or
+  Write shows the diff it would make. A Task call lists what its subagent did.
 - **One session, many clients:** every browser tab and `zwans attach` on the same session
   sees the whole conversation and every new event, and any of them can send the next task
-  or answer a question. Ctrl+C in `zwans attach` interrupts the turn; with nothing running,
+  or answer a question. `zwans attach` asks the same way the chat does, with the same preview. Ctrl+C in `zwans attach` interrupts the turn; with nothing running,
   it detaches and the session keeps going in the server.
 - **Evals:** every run in `evals/reports/` with a pass-rate chart per suite, each run's
   attempts and transcripts, and `compare` with its confidence intervals. Pick a task to see

@@ -7,7 +7,14 @@ from helpers import collect, user
 
 from zwans.config import Credential
 from zwans.context.compaction import render_transcript
-from zwans.events import ModelCalled, ToolCallRequested, ToolResult, TurnEnded, UsageUpdated
+from zwans.events import (
+    ModelCalled,
+    TextDelta,
+    ToolCallRequested,
+    ToolResult,
+    TurnEnded,
+    UsageUpdated,
+)
 from zwans.executor.local import LocalExecutor
 from zwans.loop import run_turn
 from zwans.messages import Message, RawBlock, TextBlock
@@ -164,6 +171,27 @@ def test_a_paused_turn_is_sent_back_and_web_calls_show_as_tool_calls(tmp_path: P
     ]
     assert sum(isinstance(e, UsageUpdated) for e in events) == 2
     assert events[-1] == TurnEnded(stop_reason="end_turn")
+
+
+def test_web_calls_show_in_order_with_the_text_around_them(tmp_path: Path) -> None:
+    content = [
+        TextBlock(text="Looking it up."),
+        *raw(SEARCH_CALL, SEARCH_RESULT),
+        TextBlock(text="Set read=5."),
+    ]
+    provider = FakeProvider([ModelResponse(content=content, stop_reason="end_turn")])
+    executor = LocalExecutor(tmp_path)
+    run = run_turn(provider, [], [user("Timeouts?")], ToolContext(executor=executor))
+
+    events = asyncio.run(collect(run))
+
+    shown = [
+        e.text if isinstance(e, TextDelta) else type(e).__name__
+        for e in events
+        if isinstance(e, TextDelta | ToolCallRequested | ToolResult)
+    ]
+    # Once each, as they streamed: not again from the finished reply.
+    assert shown == ["Looking it up.", "ToolCallRequested", "ToolResult", "Set read=5."]
 
 
 def test_the_summarizer_sees_web_calls() -> None:

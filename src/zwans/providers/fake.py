@@ -11,11 +11,12 @@ from typing import Any, Self
 
 from pydantic import TypeAdapter
 
-from zwans.events import TextDelta, ThinkingDelta
-from zwans.messages import Message, TextBlock
+from zwans.events import TextDelta
+from zwans.messages import Message, RawBlock, TextBlock
 from zwans.providers.anthropic import EPHEMERAL, message_param, tool_param
-from zwans.providers.base import ModelResponse, ProviderError
+from zwans.providers.base import ModelResponse, ProviderError, ServerBlock, StreamItem
 from zwans.tools.base import Tool
+from zwans.web import SERVER_TYPES
 
 WORDS_PER_DELTA = 3
 
@@ -37,7 +38,7 @@ class FakeProvider:
 
     async def stream(
         self, system: str, messages: Sequence[Message], tools: Sequence[Tool[Any]]
-    ) -> AsyncIterator[TextDelta | ThinkingDelta | ModelResponse]:
+    ) -> AsyncIterator[StreamItem]:
         self.requests.append(list(messages))
         if not self._script:
             raise ProviderError("FakeProvider ran out of scripted responses")
@@ -56,7 +57,9 @@ class FakeProvider:
         if self.pace:
             await asyncio.sleep(self.pace * 15)  # the wait for the first token
         for block in response.content:
-            if isinstance(block, TextBlock):
+            if isinstance(block, RawBlock) and block.type in SERVER_TYPES:
+                yield ServerBlock(block=block)  # in order with the text, as the API streams it
+            elif isinstance(block, TextBlock):
                 if not self.pace:
                     yield TextDelta(text=block.text)
                     continue

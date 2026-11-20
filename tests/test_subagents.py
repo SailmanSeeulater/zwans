@@ -11,8 +11,6 @@ from zwans.eval.injection import PlantedActions
 from zwans.events import (
     Event,
     SubagentEvent,
-    TextDelta,
-    ThinkingDelta,
     ToolCallRequested,
     ToolResult,
     UsageUpdated,
@@ -23,7 +21,7 @@ from zwans.ext.hooks import Hooks, HookSpec
 from zwans.messages import Message, TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.policy.engine import Permissions
 from zwans.policy.rules import Policy
-from zwans.providers.base import ModelResponse
+from zwans.providers.base import ModelResponse, StreamItem
 from zwans.providers.fake import FakeProvider
 from zwans.session import Session
 from zwans.tools.base import Tool, ToolContext, ToolOutput
@@ -57,7 +55,7 @@ class Recording(FakeProvider):
 
     async def stream(
         self, system: str, messages: Sequence[Message], tools: Sequence[Tool[Any]]
-    ) -> AsyncIterator[TextDelta | ThinkingDelta | ModelResponse]:
+    ) -> AsyncIterator[StreamItem]:
         self.systems.append(system)
         self.tool_names.append([tool.name for tool in tools])
         if self.delay and system.endswith(SUBAGENT_NOTE):

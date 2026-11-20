@@ -16,7 +16,7 @@ from zwans.context.tokens import block_chars
 from zwans.events import ContextSplit, ModelCalled, TextDelta, ThinkingDelta
 from zwans.messages import Message, ToolResultBlock, ToolUseBlock
 from zwans.pricing import cost, price_of
-from zwans.providers.base import ModelResponse, Provider
+from zwans.providers.base import ModelResponse, Provider, ServerBlock
 from zwans.tools.base import Tool, input_schema
 from zwans.web import web_calls
 
@@ -64,7 +64,7 @@ class TimedCall:
         system: str,
         messages: Sequence[Message],
         tools: Sequence[Tool[Any]],
-    ) -> AsyncIterator[TextDelta | ThinkingDelta]:
+    ) -> AsyncIterator[TextDelta | ThinkingDelta | ServerBlock]:
         async for item in provider.stream(system, messages, tools):
             if isinstance(item, ModelResponse):
                 self.response = item
