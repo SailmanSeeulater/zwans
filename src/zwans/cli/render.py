@@ -13,7 +13,7 @@ from rich.markdown import Heading, Markdown, MarkdownElement
 from rich.theme import Theme
 
 from zwans.cli.diffs import show_diff
-from zwans.cli.terminal_text import printable
+from zwans.cli.terminal_text import printable, printable_keeping_colours
 from zwans.events import (
     ContextCompacted,
     Error,
@@ -200,7 +200,8 @@ class Renderer:
         # Rich pads lines to the terminal's width, which garbles them when it's narrowed, and
         # pads tables and code with blank lines, where one between blocks is enough.
         lines: list[str] = []
-        for line in captured.get().split("\n"):
+        # Markdown decodes entities, so "&#x202E;" only becomes a bidi override in rich's output.
+        for line in printable_keeping_colours(captured.get()).split("\n"):
             line = TRAILING_SPACE.sub(r"\1", line)
             blank = not click.unstyle(line).strip()
             if not blank or (lines and lines[-1]):

@@ -14,7 +14,7 @@ import uvicorn
 
 from zwans.cli.attach import Attached, AttachError, _websocket_url, open_remote
 from zwans.config import Config
-from zwans.events import Event, PermissionRequested, ToolCallRequested
+from zwans.events import Event, PermissionRequested, ToolCallRequested, TurnStarted
 from zwans.messages import TextBlock
 from zwans.providers.base import ModelResponse
 from zwans.providers.fake import FakeProvider
@@ -140,3 +140,16 @@ def test_attach_shows_the_change_and_offers_always_only_when_it_works(
     assert _answers(attached, ["a"]) == [{"type": "approve", "call_id": "w", "answer": "no"}]
     attached.waiting.remove("w")
     assert _answers(attached, ["a"]) == [{"type": "approve", "call_id": "b", "answer": "always"}]
+
+
+def test_attach_prints_other_clients_prompts_and_server_errors_as_text(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    attached = Attached("http://127.0.0.1:1", TOKEN, "s1", stdin=io.StringIO())
+
+    attached._show(TurnStarted(prompt="hi\x1b[1A\x1b[2K").model_dump(mode="json"))
+    attached._show({"type": "server_error", "message": "bad\rgood"})
+
+    out = capsys.readouterr().out
+    assert "\x1b" not in out and "\r" not in out
+    assert "» hi\\x1b[1A\\x1b[2K" in out and "  bad\\x0dgood" in out

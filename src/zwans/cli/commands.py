@@ -6,6 +6,7 @@ import typer
 
 from zwans.checkpoints import Change, CheckpointError
 from zwans.cli.input import MENTIONED, Command
+from zwans.cli.terminal_text import printable
 from zwans.events import ContextCompacted
 from zwans.messages import TextBlock
 from zwans.pricing import PRICES, price_of
@@ -105,7 +106,7 @@ class Commands:
                 await self._list_turns(sorted(turns)[-TURNS_SHOWN:])
                 return None
         except CheckpointError as exc:  # such as when the workspace was moved
-            _say(f"Couldn't read the checkpoints: {exc}", fg="red")
+            _say(f"Couldn't read the checkpoints: {printable(str(exc))}", fg="red")
             return None
         if not argument.isdigit() or int(argument) not in turns:
             what = "Nothing to undo yet." if undo else f"There's no turn {argument} to go back to."
@@ -119,7 +120,7 @@ class Commands:
         try:
             undone = await checkpoints.restore(turn)
         except (CheckpointError, OSError) as exc:
-            _say(f"Couldn't put the files back: {exc}", fg="red")
+            _say(f"Couldn't put the files back: {printable(str(exc))}", fg="red")
             return None
         if undone:
             _say(_describe_undo(undone))
@@ -136,7 +137,7 @@ class Commands:
         for turn in turns:
             changes = await checkpoints.changes(turn)
             changed = _describe(changes) if changes else "no file changes"
-            prompt = _prompt_of(self.opened.session, turn).split("\n")[0][:60]
+            prompt = printable(_prompt_of(self.opened.session, turn).split("\n")[0][:60])
             typer.echo(f"  {turn:>3}. {prompt}")
             typer.secho(f"       {changed}", dim=True)
         _say(
@@ -227,7 +228,8 @@ class Commands:
         for number, info in enumerate(found, start=1):
             when = info.updated_at.replace("T", " ")[:16]
             turns = f"{info.turns} turn{'s' if info.turns != 1 else ''}"
-            typer.echo(f"  {number:>2}. {when}  {turns:>9}  {info.title}")
+            # The title is the start of the first prompt, which may hold escape codes.
+            typer.echo(f"  {number:>2}. {when}  {turns:>9}  {printable(info.title)}")
         _say("/resume <number> switches to one.")
         return None
 
@@ -243,14 +245,15 @@ def _prompt_of(session: Session, turn: int) -> str:
 
 def _describe(changes: list[Change]) -> str:
     """ "calc.py (changed), notes.md (added)", and how many more."""
-    return _names([f"{c.path} ({c.status})" for c in changes])
+    # Names come from git unquoted, and a file can be named with escape codes.
+    return _names([f"{printable(c.path)} ({c.status})" for c in changes])
 
 
 def _describe_undo(undone: list[Change]) -> str:
     """What going back did to the files, as "Removed notes.md, which was new; restored calc.py
     to how it was." The changes are the undoing's, so a file it deleted was a new one."""
-    removed = [c.path for c in undone if c.status == "deleted"]
-    restored = [c.path for c in undone if c.status != "deleted"]
+    removed = [printable(c.path) for c in undone if c.status == "deleted"]
+    restored = [printable(c.path) for c in undone if c.status != "deleted"]
     parts = []
     if removed:
         parts.append(f"removed {_names(removed)}, which {_was(removed)} new")

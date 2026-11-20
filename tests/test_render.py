@@ -270,3 +270,18 @@ def test_escape_codes_from_the_model_or_a_command_are_shown_as_text(
     assert "> Bash cat notes.txt\\x1b[2K\\x1b[1Gls" in out
     assert "  red\n  hidden\n  (exit code 0)\n" in out  # colours dropped, so nothing is concealed
     assert "All done.\\x1b[1A\\x1b[2K" in out
+
+
+def test_markdown_entities_cant_turn_into_bidi_overrides(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # printable() sees "&#x202E;" as plain text; markdown decodes it to U+202E afterwards.
+    out = shown(
+        capsys,
+        TextDelta(text="Done &#x202E;fdp.exe&#x202C; and **bold**\n"),
+        TurnEnded(stop_reason="end_turn"),
+        markdown=True,
+    )
+
+    assert "\u202e" not in out and "\u202c" not in out
+    assert "Done \\u202efdp.exe\\u202c and" in click.unstyle(out)

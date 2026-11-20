@@ -168,3 +168,37 @@ def test_undo_reverts_the_files_and_the_turn(
     )
     assert reopened.session.messages == [] and reopened.session.turn == 0
     asyncio.run(reopened.close())
+
+
+def test_rewind_and_undo_print_names_and_prompts_as_text(
+    workspace: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # git lists names unquoted, so a file named with escape codes reaches the listing as is.
+    name = "evil\x1b[2K\r.md"
+    write = ToolUseBlock(id="t1", name="Write", input={"path": name, "content": "hi"})
+    script = [
+        ModelResponse(content=[write], stop_reason="tool_use"),
+        ModelResponse(content=[TextBlock(text="Wrote it.")], stop_reason="end_turn"),
+    ]
+    opened = open_session(
+        Config(home=tmp_path / "home"),
+        {},
+        workspace=workspace,
+        mode="auto",
+        make_provider=lambda config, model: FakeProvider(script),
+    )
+    commands = Commands(opened)
+
+    async def go() -> None:
+        await opened.session.send("Go\x1b[1A")
+        assert (workspace / name).exists()
+        await commands.run("/rewind")
+        await commands.run("/undo")
+
+    asyncio.run(go())
+    asyncio.run(opened.close())
+
+    out = capsys.readouterr().out
+    assert "\x1b" not in out and "\r" not in out
+    assert "1. Go\\x1b[1A" in out and "evil\\x1b[2K\\x0d.md (added)" in out
+    assert "Removed evil\\x1b[2K\\x0d.md, which was new." in out

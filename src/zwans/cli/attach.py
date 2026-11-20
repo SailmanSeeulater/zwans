@@ -111,7 +111,8 @@ class Attached:
                 self._show(json.loads(raw))
         except ConnectionClosed as closed:
             reason = closed.rcvd.reason if closed.rcvd else ""
-            typer.secho(f"\nThe server closed the connection. {reason}".rstrip(), fg="yellow")
+            note = f"\nThe server closed the connection. {printable(reason)}".rstrip()
+            typer.secho(note, fg="yellow")
 
     def _show(self, message: dict[str, Any]) -> None:
         kind = message.get("type")
@@ -129,7 +130,7 @@ class Attached:
                 self._prompt()
             return
         if kind == "server_error":
-            typer.secho(f"  {message.get('message')}", fg="yellow")
+            typer.secho(f"  {printable(str(message.get('message')))}", fg="yellow")
             return
         try:
             event = parse_event(message)
@@ -139,7 +140,7 @@ class Attached:
             if event.prompt in self._typed:
                 self._typed.remove(event.prompt)
             else:  # sent from the browser or another terminal, or before this one attached
-                typer.secho(f"\n» {event.prompt}", bold=True)
+                typer.secho(f"\n» {printable(event.prompt)}", bold=True)
         elif isinstance(event, ToolCallRequested):
             self.calls[event.call_id] = (event.name, event.args)
         elif isinstance(event, PermissionRequested):

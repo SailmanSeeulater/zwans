@@ -17,6 +17,14 @@ def printable(text: str) -> str:
     return UNSAFE.sub(_escape, COLOURS.sub("", text.replace("\r\n", "\n")))
 
 
+def printable_keeping_colours(text: str) -> str:
+    """Like printable(), but keeps colour codes: for text Zwans styled itself, such as rich's
+    rendering of the model's markdown, where entities like &#x202E; are decoded only after
+    printable() has seen the source."""
+    parts = re.split(f"({COLOURS.pattern})", text)
+    return "".join(part if index % 2 else printable(part) for index, part in enumerate(parts))
+
+
 def _escape(match: re.Match[str]) -> str:
     code = ord(match.group())
     return f"\\x{code:02x}" if code < 0x100 else f"\\u{code:04x}"
