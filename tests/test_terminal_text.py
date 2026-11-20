@@ -1,4 +1,4 @@
-from zwans.cli.terminal_text import printable
+from zwans.cli.terminal_text import printable, printable_keeping_colours
 
 
 def test_cursor_and_erase_codes_are_shown_as_text() -> None:
@@ -17,3 +17,11 @@ def test_bidirectional_overrides_are_shown_as_text() -> None:
 def test_ordinary_text_is_left_alone() -> None:
     text = "def f():\n\treturn 'héllo · ✓'\r\n"
     assert printable(text) == "def f():\n\treturn 'héllo · ✓'\n"
+
+
+def test_keeping_colours_still_escapes_everything_else() -> None:
+    text = "\x1b[1mbold\x1b[0m \u202efdp.exe\u202c \x1b[2K\rx"
+
+    assert printable_keeping_colours(text) == (
+        "\x1b[1mbold\x1b[0m \\u202efdp.exe\\u202c \\x1b[2K\\x0dx"
+    )

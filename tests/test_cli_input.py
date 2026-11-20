@@ -12,7 +12,15 @@ from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
 from zwans.checkpoints import Change
-from zwans.cli.commands import COMMANDS, Commands, Quit, Reopen, _describe_undo, is_command
+from zwans.cli.commands import (
+    COMMANDS,
+    Commands,
+    Quit,
+    Reopen,
+    _describe,
+    _describe_undo,
+    is_command,
+)
 from zwans.cli.input import (
     MAX_FILE_CHARS,
     ChatCompleter,
@@ -310,3 +318,11 @@ def test_the_toolbar_drops_hints_before_the_status() -> None:
     assert toolbar_line(STATUS, 30) == " claude-opus-5-5 · default"
     assert toolbar_line(STATUS, 12) == " claude-op…"
     assert toolbar_line("", 30) == " Enter sends"
+
+
+def test_file_names_with_escape_codes_are_shown_as_text() -> None:
+    # git gives the names unquoted, so a file can be named to act on the terminal.
+    evil = "a\x1b[2K\r.py"
+
+    assert _describe_undo([Change("deleted", evil)]) == "Removed a\\x1b[2K\\x0d.py, which was new."
+    assert _describe([Change("changed", evil)]) == "a\\x1b[2K\\x0d.py (changed)"

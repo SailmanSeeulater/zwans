@@ -134,7 +134,9 @@ refused call goes back to the model as an error that says why.
 The question shows what the call would do: an Edit's change as a diff of the file, a Write's
 diff with a line saying whether it makes a new file or replaces one (and how many lines it
 removes and adds), or the whole of a long command, here-document included. Escape codes in them are
-shown as text (such as `\x1b`), so they can't hide part of the change. At a prompt, `y`
+shown as text (such as `\x1b`), so they can't hide part of the change; the same goes for
+the model's replies (bidi overrides written as HTML entities included), file names in
+`/rewind` and `/undo`, and everything `zwans attach` prints. At a prompt, `y`
 allows the call once, `a` allows that exact call, as shown, for the rest of the session, and
 anything else (or Ctrl+C) declines. `a` isn't offered when it couldn't take effect: for a call
 an `ask` rule covers, or a network command once untrusted content has been read. Text typed
