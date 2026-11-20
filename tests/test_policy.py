@@ -599,7 +599,8 @@ def test_the_terminal_offers_always_only_with_rules(
     request = PermissionRequest("c1", "Bash", {"command": command}, "it asks", ())
     assert asyncio.run(approval.terminal_approver(request)) == Approval.NO
     assert prompts[-1] == "  Allow it? [y]es / [N]o: "
-    assert "  | one\n  | two\n  | EOF\n" in capsys.readouterr().out
+    shown = [line.strip() for line in capsys.readouterr().out.splitlines()]
+    assert shown[-3:] == ["one", "two", "EOF"]  # the here-document's body is shown
 
     rules = ("Bash(touch x)",)
     request = PermissionRequest("c2", "Bash", {"command": "touch x"}, "it asks", rules)

@@ -6,6 +6,8 @@ from pathlib import Path
 
 import typer
 
+from zwans.cli.diffs import show_change
+from zwans.cli.terminal_text import printable
 from zwans.policy.engine import Approval, PermissionRequest
 from zwans.policy.rules import (
     Decision,
@@ -30,29 +32,14 @@ def can_prompt() -> bool:
 
 
 async def terminal_approver(request: PermissionRequest) -> Approval:
-    command = request.args.get("command")
-    if request.tool == "Bash" and isinstance(command, str) and "\n" in command:
-        # The tool line above shows only the first line; a here-document's body matters too.
-        for line in _shown_lines(command):
-            typer.secho(f"  | {line}", dim=True)
-    typer.secho(f"  ? {request.reason}", fg="yellow")
+    typer.secho(f"  ? {printable(request.reason)}", fg="yellow")
+    show_change(request.tool, request.args)  # what the call would do, a long command in full
     if not request.rules:  # "always" couldn't take effect, as after untrusted content
         answer = _prompt("  Allow it? [y]es / [N]o: ")
         return Approval.ONCE if answer.strip().lower() in ("y", "yes") else Approval.NO
-    always = ", ".join(_cut(rule) for rule in request.rules)
+    always = printable(", ".join(_cut(rule) for rule in request.rules))
     answer = _prompt(f"  Allow it? [y]es / [a]lways ({always}) / [N]o: ")
     return ANSWERS.get(answer.strip().lower(), Approval.NO)
-
-
-MAX_SHOWN_LINES = 20
-
-
-def _shown_lines(command: str) -> list[str]:
-    lines = [_cut(line, 160) for line in command.splitlines()]
-    if len(lines) > MAX_SHOWN_LINES:
-        more = len(lines) - MAX_SHOWN_LINES + 1
-        lines = [*lines[: MAX_SHOWN_LINES - 1], f"... ({more} more lines)"]
-    return lines
 
 
 def _cut(text: str, limit: int = 80) -> str:
@@ -80,12 +67,12 @@ def load_with_trust(workspace: Path, home: Path, mode: PolicyMode | None) -> Loa
     root = path.resolve().parent.parent
     scripts = [script.relative_to(root).as_posix() for script in hook_scripts(path)]
     typer.secho(f"{path} came with this workspace and would:", fg="yellow")
-    for item in loosening:
-        typer.secho(f"  {item}", fg="yellow")
+    for item in loosening:  # from a file that came with the workspace, so possibly hostile
+        typer.secho(f"  {printable(item)}", fg="yellow")
     if scripts:
         typer.secho(
             f"Trusting it also trusts the scripts its hooks run, as they are now: "
-            f"{', '.join(scripts)}",
+            f"{printable(', '.join(scripts))}",
             fg="yellow",
         )
     if can_prompt() and _prompt("Trust this file? [y/N]: ").strip().lower() in ("y", "yes"):
@@ -101,6 +88,7 @@ def _prompt(text: str) -> str:
     The event loop's own Ctrl+C handler would only cancel the turn after the next Enter, so
     the default one is put back while waiting for an answer.
     """
+    _discard_typeahead()
     previous = signal.signal(signal.SIGINT, signal.default_int_handler)
     try:
         return input(text)
@@ -109,3 +97,22 @@ def _prompt(text: str) -> str:
         return ""
     finally:
         signal.signal(signal.SIGINT, previous)
+
+
+def _discard_typeahead() -> None:
+    """Drop what was typed while the turn ran, as sudo does, so a stray line can't answer the
+    question (and a stray "y" can't allow a call the user never saw)."""
+    if not sys.stdin.isatty():
+        return
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            while msvcrt.kbhit():
+                msvcrt.getwch()
+        else:
+            import termios
+
+            termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+    except (OSError, ValueError):
+        pass  # not a real terminal after all; nothing to drop
