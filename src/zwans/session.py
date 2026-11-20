@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
+from zwans.context.calls import context_split
 from zwans.context.compaction import Compactor
 from zwans.events import Event, TurnEnded
 from zwans.ext.hooks import Hooks
@@ -46,15 +47,24 @@ class Session:
         for tool in self.tools:
             if isinstance(tool, TaskTool):
                 tool.parent = self
+        self._measure_overhead()
 
     def context_tokens(self) -> int:
         """About how many tokens the next request will send."""
         return self.compactor.estimate(self.messages) if self.compactor else 0
 
+    def _measure_overhead(self) -> None:
+        """Tell the compactor what the system prompt and tool definitions add to each request,
+        for its estimates before the API has counted one, as in a session just resumed."""
+        if self.compactor is not None:
+            split = context_split(self.system, self.tools, [])
+            self.compactor.overhead = split.system + split.tools
+
     async def send(self, prompt: str, images: Sequence[ImageBlock] = ()) -> str:
         """Run one turn and return why it ended: "end_turn", "interrupted", "error", ...
         `images` go before the prompt, as the API recommends."""
         self.turn += 1
+        self._measure_overhead()  # MCP tools may have joined since
         if self.before_turn is not None:
             await self.before_turn(self.turn)
         content: list[ContentBlock] = [*images, TextBlock(text=prompt)]

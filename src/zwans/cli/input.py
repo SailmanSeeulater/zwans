@@ -2,7 +2,8 @@
 
 Enter sends. Esc then Enter, or Ctrl+J, starts a new line, and pasted text keeps its lines.
 Up and Down walk through earlier messages, which are kept in ~/.zwans/history across
-sessions. Tab completes a /command at the start, or an @path anywhere.
+sessions. Tab completes a /command at the start, or an @path anywhere. What's typed while a
+turn runs waits, unechoed, and each line of it is sent in turn once the prompt is back.
 
 An @path names a file in the workspace: its text goes along with the message, so the model
 doesn't spend a step reading it. A folder sends its listing.
@@ -10,9 +11,12 @@ doesn't spend a step reading it. A folder sends its listing.
 
 import os
 import re
-from collections.abc import Callable, Iterable, Sequence
+import sys
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TextIO
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
@@ -25,6 +29,9 @@ from prompt_toolkit.output import Output
 
 from zwans.images import ImageError, image_block, media_type
 from zwans.messages import ImageBlock
+
+if sys.platform != "win32":
+    import termios
 
 MENTION = re.compile(r"(?<!\S)@(\S+)")
 TRAILING = ",.;:!?)]}'\""  # punctuation after a mention, as in "look at @calc.py."
@@ -39,6 +46,7 @@ class Command:
     name: str
     help: str
     argument: str = ""  # shown in /help, as "/model [name]"
+    choices: tuple[str, ...] = ()  # what Tab completes the argument to
 
 
 @dataclass
@@ -125,6 +133,13 @@ class ChatCompleter(Completer):
             for command in self.commands:
                 if command.name.startswith(before[1:]):
                     yield Completion(f"/{command.name}", -len(before), display_meta=command.help)
+            return
+        name, _, typed = before[1:].partition(" ")
+        choices = [c for command in self.commands if command.name == name for c in command.choices]
+        if before.startswith("/") and choices and not any(c.isspace() for c in typed):
+            for choice in choices:
+                if choice.startswith(typed):
+                    yield Completion(choice, -len(typed))
             return
         word = before.split()[-1] if before and not before[-1].isspace() else ""
         if word.startswith("@"):
@@ -215,3 +230,42 @@ class Composer:
         hints = "Enter sends · Esc Enter new line · @ file · / commands"
         status = self._status()
         return FormattedText([("", f" {status} · {hints}" if status else f" {hints}")])
+
+
+@contextmanager
+def typing_ahead(stream: TextIO | None = None) -> Iterator[None]:
+    """While a turn runs, keep what the user types for the next prompt, unechoed, instead of
+    letting the terminal print it into the output. Enter stays Enter rather than becoming a
+    new line (Ctrl+J), so the prompt sends each line typed ahead as its own message."""
+    with _terminal_input(stream or sys.stdin, echo=False):
+        yield
+
+
+@contextmanager
+def echoing(stream: TextIO | None = None) -> Iterator[None]:
+    """Show typing again for a question asked mid-turn, such as an approval. Anything typed
+    before the question is dropped, so it can't be taken as the answer."""
+    with _terminal_input(stream or sys.stdin, echo=True):
+        yield
+
+
+@contextmanager
+def _terminal_input(stream: TextIO, echo: bool) -> Iterator[None]:
+    if sys.platform == "win32" or not stream.isatty():
+        yield
+        return
+    fd = stream.fileno()
+    saved = termios.tcgetattr(fd)
+    changed = list(saved)
+    if echo:
+        termios.tcflush(fd, termios.TCIFLUSH)
+        changed[0] |= termios.ICRNL
+        changed[3] |= termios.ECHO
+    else:
+        changed[0] &= ~termios.ICRNL
+        changed[3] &= ~termios.ECHO
+    termios.tcsetattr(fd, termios.TCSANOW, changed)
+    try:
+        yield
+    finally:
+        termios.tcsetattr(fd, termios.TCSANOW, saved)
