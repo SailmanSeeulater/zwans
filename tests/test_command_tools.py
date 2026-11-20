@@ -37,10 +37,14 @@ def test_glob_and_grep_skip_installed_packages_without_a_gitignore(
     found = asyncio.run(GlobTool().run(GlobInput(pattern="**/*.js"), ctx))
     matched = asyncio.run(GrepTool().run(GrepInput(pattern="greet"), ctx))
     inside = asyncio.run(GrepTool().run(GrepInput(pattern="greet", path="node_modules"), ctx))
+    named = asyncio.run(GlobTool().run(GlobInput(pattern="node_modules/**/*.js"), ctx))
+    globbed = asyncio.run(GrepTool().run(GrepInput(pattern="greet", glob="node_modules/**"), ctx))
 
     assert found.content == "src/a.js"
     assert matched.content == "src/a.js:1:function greet() {}"
     assert inside.content == "node_modules/pkg/a.js:1:function greet() {}"
+    assert named.content == "node_modules/pkg/a.js"
+    assert globbed.content == "node_modules/pkg/a.js:1:function greet() {}"
 
 
 @needs_rg

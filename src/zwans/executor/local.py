@@ -96,7 +96,7 @@ class LocalExecutor:
             done, _ = await asyncio.wait([pump], timeout=2)
             if not done:
                 pump.cancel()
-                _close_pipes(process)
+                close_pipes(process)
         exit_code = None if timed_out else process.returncode
         return CommandResult(output=output.text(), exit_code=exit_code, timed_out=timed_out)
 
@@ -229,7 +229,7 @@ async def wait_exit(process: asyncio.subprocess.Process, timeout: float | None =
     return True
 
 
-def _close_pipes(process: asyncio.subprocess.Process) -> None:
+def close_pipes(process: asyncio.subprocess.Process) -> None:
     """Close a finished program's pipes that something else still holds open, so they aren't
     left for the garbage collector after the event loop has closed."""
     transport = getattr(process, "_transport", None)  # asyncio has no public way to do this

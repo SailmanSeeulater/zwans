@@ -32,3 +32,21 @@ def test_output_the_command_already_dropped_isnt_promised(tmp_path: Path) -> Non
 
     assert "The full output" not in shortened
     assert "27,888,923 bytes from the middle were dropped while the command ran" in shortened
+
+
+class _NoSearchOutside(LocalExecutor):
+    """Like the jail, whose searches can't reach saved tool output."""
+
+    def search_path(self, path: str) -> str:
+        return self.relative(path)
+
+
+def test_grep_is_only_suggested_where_it_can_reach_the_saved_output(tmp_path: Path) -> None:
+    text = "x\n" * MAX_RESULT_CHARS
+    jailed = _NoSearchOutside(tmp_path / "work", spill_dir=tmp_path / "spill")
+
+    shortened = asyncio.run(fit_output(ToolOutput(text), "toolu_1", jailed)).content
+
+    assert "or Grep" in fit(tmp_path, text)
+    assert "Grep" not in shortened
+    assert "Use Read on it, with offset and limit, to see the rest." in shortened

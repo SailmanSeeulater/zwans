@@ -23,9 +23,13 @@ async def fit_output(output: ToolOutput, call_id: str, executor: Executor) -> To
             f"The output is saved at {path}, but it's shortened too: {dropped:,} bytes from "
             "the middle were dropped while the command ran, and they can't be recovered."
         )
+    tools = "Read on it, with offset and limit, or Grep"
+    try:
+        executor.search_path(path)
+    except PermissionError:  # a jail can't search outside the workspace
+        tools = "Read on it, with offset and limit,"
     note = (
-        f"\n\n[... {hidden:,} characters not shown here. {saved} Use Read on it, with offset "
-        "and limit, or Grep, to see the rest.]\n\n"
+        f"\n\n[... {hidden:,} characters not shown here. {saved} Use {tools} to see the rest.]\n\n"
     )
     shortened = text[:HEAD_CHARS] + note + text[-TAIL_CHARS:]
     return ToolOutput(shortened, is_error=output.is_error, diff=output.diff, images=output.images)

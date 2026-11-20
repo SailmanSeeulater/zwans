@@ -1,4 +1,7 @@
 import asyncio
+import gc
+import os
+import signal
 import sys
 import time
 from pathlib import Path
@@ -108,6 +111,55 @@ def test_closing_stops_what_finished_jobs_left_running(tmp_path: Path) -> None:
         return read
 
     assert process_gone(int(asyncio.run(go()).splitlines()[0]))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="process groups are a POSIX idea")
+def test_what_a_finished_job_left_running_counts_toward_the_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(background, "MAX_JOBS", 1)
+    ctx = context(tmp_path)
+    assert ctx.jobs is not None
+    jobs = ctx.jobs
+
+    async def go() -> str:
+        await bash(ctx, "sleep 305 & echo $!")
+        read = await output(ctx, "bg1", wait=10)
+        try:
+            with pytest.raises(ToolError, match="1 jobs are already running"):
+                await bash(ctx, "sleep 60")
+        finally:
+            await jobs.close()
+        return read
+
+    assert process_gone(int(asyncio.run(go()).splitlines()[0]))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="process groups are a POSIX idea")
+def test_killing_a_job_closes_output_held_by_something_that_left_its_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unraisable: list[str] = []
+    monkeypatch.setattr(sys, "unraisablehook", lambda info: unraisable.append(repr(info)))
+    escape = (
+        f"{sys.executable} -c 'import os, time; os.setsid(); print(os.getpid(), flush=True); "
+        "time.sleep(30)' & echo started"
+    )
+
+    async def go() -> str:
+        ctx = context(tmp_path)
+        assert ctx.jobs is not None
+        await bash(ctx, escape)
+        read = await output(ctx, "bg1", wait=10)
+        await ctx.jobs.close()
+        return read
+
+    read = asyncio.run(go())
+    pid = next(int(line) for line in read.splitlines() if line.isdigit())
+    os.kill(pid, signal.SIGKILL)  # it left the group, so it's still there
+    gc.collect()  # what would otherwise be closed after the event loop, and complain
+
+    assert unraisable == []
 
 
 def test_old_output_is_dropped_and_said_so(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -7,7 +7,7 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 
-from zwans.executor.local import LocalExecutor, wait_exit
+from zwans.executor.local import LocalExecutor, close_pipes, wait_exit
 
 MAX_JOBS = 8
 KEEP_BYTES = 1_000_000  # of each job's output; older output is dropped first
@@ -33,12 +33,17 @@ class Job:
     def running(self) -> bool:
         return self.process.returncode is None
 
+    @property
+    def left_running(self) -> bool:
+        """Whether its shell has exited but something it started still holds its output."""
+        open_output = self.pump is not None and not self.pump.done()
+        return not self.running and open_output and not self.stopped
+
     def status(self) -> str:
         if self.running:
             return f"still running after {time.monotonic() - self.started:.0f}s"
         code = self.process.returncode
-        if self.pump is not None and not self.pump.done() and not self.stopped:
-            # Its output is still open, so something it started holds it.
+        if self.left_running:
             return f"exited with code {code}, but something it started is still running"
         return f"finished with exit code {code}"
 
@@ -68,7 +73,8 @@ class BackgroundJobs:
         self._count = 0
 
     async def start(self, command: str) -> Job:
-        running = [job for job in self.jobs.values() if job.running]
+        # A server started as `server & echo started` counts too, though its shell exited.
+        running = [job for job in self.jobs.values() if job.running or job.left_running]
         if len(running) >= MAX_JOBS:
             raise JobError(f"{len(running)} jobs are already running. Stop one with KillBash.")
         process = await self.executor.start_process(self.executor.shell_argv(command))
@@ -99,8 +105,11 @@ class BackgroundJobs:
         await self.executor.stop_process(job.process)
         job.stopped = True
         if job.pump is not None:
-            await asyncio.wait([job.pump], timeout=2)
-            job.pump.cancel()
+            done, _ = await asyncio.wait([job.pump], timeout=2)
+            if not done:
+                # Something that left its process group still holds the output open.
+                job.pump.cancel()
+                close_pipes(job.process)
 
     async def close(self) -> None:
         """Stop every job: the session is ending. Finished ones too, since what they left

@@ -65,6 +65,56 @@ def test_sighup_stops_printing_to_the_closed_terminal(monkeypatch: pytest.Monkey
     assert detached == [True]
 
 
+def test_a_signal_during_cleanup_doesnt_stop_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shutdown, "_detach_from_terminal", lambda: None)  # keep pytest's output
+    steps: list[str] = []
+
+    async def work() -> None:
+        asyncio.get_running_loop().call_later(0.05, os.kill, os.getpid(), signal.SIGHUP)
+        await asyncio.sleep(10)
+
+    async def close() -> None:
+        # The shell passes the terminal's SIGHUP on, so a second one can come while closing.
+        os.kill(os.getpid(), signal.SIGHUP)
+        await asyncio.sleep(0.2)
+        steps.append("closed")
+
+    with pytest.raises(SystemExit) as exit_info, SessionRunner() as runner:
+        try:
+            runner.run(work())
+        finally:
+            runner.run_cleanup(close())
+
+    assert exit_info.value.code == 128 + signal.SIGHUP
+    assert steps == ["closed"]
+
+
+def test_a_signal_while_closing_normally_lets_the_cleanup_finish() -> None:
+    steps: list[str] = []
+
+    async def close() -> None:
+        os.kill(os.getpid(), signal.SIGTERM)
+        await asyncio.sleep(0.2)
+        steps.append("closed")
+
+    with SessionRunner() as runner:
+        runner.run_cleanup(close())
+
+    assert steps == ["closed"]
+
+
+def test_an_ignored_sighup_stays_ignored() -> None:
+    previous = signal.signal(signal.SIGHUP, signal.SIG_IGN)  # as under nohup
+    try:
+        with SessionRunner() as runner:
+            assert signal.getsignal(signal.SIGHUP) == signal.SIG_IGN
+            os.kill(os.getpid(), signal.SIGHUP)
+            assert runner.run(asyncio.sleep(0.1, "still here")) == "still here"
+        assert signal.getsignal(signal.SIGHUP) == signal.SIG_IGN
+    finally:
+        signal.signal(signal.SIGHUP, previous)
+
+
 @needs_bash
 def test_sigterm_during_a_session_stops_its_background_jobs(tmp_path: Path) -> None:
     workspace = tmp_path / "work"

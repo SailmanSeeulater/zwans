@@ -30,11 +30,15 @@ class SessionRunner(asyncio.Runner):  # type: ignore[misc]
         self._main: asyncio.Task[Any] | None = None  # what `run` is running now
         self._signal: int | None = None
         self._cancelled = False  # the signal cancelled the current `run`
+        self._closing = False  # the session is being closed, which a signal mustn't stop
         self._previous: dict[int, _Handler] = {}
 
     def __enter__(self) -> Self:
         super().__enter__()
         for sig in STOP_SIGNALS:
+            # An ignored signal stays ignored, as SIGHUP is under nohup.
+            if signal.getsignal(sig) == signal.SIG_IGN:
+                continue
             with contextlib.suppress(ValueError):  # not the main thread, as in some tests
                 self._previous[sig] = signal.signal(sig, self._on_signal)
         return self
@@ -57,6 +61,12 @@ class SessionRunner(asyncio.Runner):  # type: ignore[misc]
             raise self._exit()
         return result
 
+    def run_cleanup[T](self, coro: Coroutine[Any, Any, T]) -> T:
+        """Run what closes the session. A stop signal arriving meanwhile doesn't cancel it:
+        it's what stops the jobs."""
+        self._closing = True
+        return self.run(coro)
+
     async def _track[T](self, coro: Coroutine[Any, Any, T]) -> T:
         self._main = asyncio.current_task()
         try:
@@ -65,9 +75,13 @@ class SessionRunner(asyncio.Runner):  # type: ignore[misc]
             self._main = None
 
     def _on_signal(self, signum: int, frame: FrameType | None) -> None:
-        self._signal = signum
         if signum == getattr(signal, "SIGHUP", None):
             _detach_from_terminal()
+        if self._closing:
+            # Already closing, perhaps because of an earlier signal (the shell passes SIGHUP
+            # on too): let the cleanup finish.
+            return
+        self._signal = signum
         main = self._main
         if main is not None and not main.done():
             self._cancelled = True
@@ -76,6 +90,7 @@ class SessionRunner(asyncio.Runner):  # type: ignore[misc]
             raise self._exit()
 
     def _exit(self) -> SystemExit:
+        self._closing = True  # the `finally` that catches it closes the session
         return SystemExit(128 + (self._signal or 0))
 
 

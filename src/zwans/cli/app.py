@@ -237,7 +237,7 @@ def _run_session(
                 outcome = _run_once(opened, runner, task)
             return outcome
         finally:
-            runner.run(opened.close())
+            runner.run_cleanup(opened.close())
             if not isinstance(outcome, Reopen):  # only when leaving Zwans, not switching
                 typer.secho(f"\nSession cost: {opened.meter.summary()}", dim=True)
                 typer.secho(f"To continue it: zwans --resume {opened.id}", dim=True)

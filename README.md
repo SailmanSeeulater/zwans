@@ -95,7 +95,8 @@ Everything is kept in `~/.zwans/`: sessions in `sessions.db`, an event log per s
 already cut in the middle as it runs, and the model is told so.
 
 `Grep` and `Glob` skip what `.gitignore` leaves out, and also `node_modules`, `.venv` and
-the other folders checkpoints leave out, unless the path searched is inside one of them.
+the other folders checkpoints leave out, unless the path searched is inside one of them or
+the glob names one.
 
 ### Permissions
 
