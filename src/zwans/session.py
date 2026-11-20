@@ -1,7 +1,7 @@
 """A conversation with the agent: the history, plus everyone listening to its events."""
 
 import asyncio
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from zwans.context.compaction import Compactor
@@ -41,6 +41,8 @@ class Session:
         self.hooks = hooks
         self.messages: list[Message] = []
         self.turn = 0  # how many user turns the session has had
+        # Awaited with the turn's number before it starts, as checkpoints.py snapshots files.
+        self.before_turn: Callable[[int], Awaitable[None]] | None = None
         for tool in self.tools:
             if isinstance(tool, TaskTool):
                 tool.parent = self
@@ -52,6 +54,8 @@ class Session:
     async def send(self, prompt: str) -> str:
         """Run one turn and return why it ended: "end_turn", "interrupted", "error", ..."""
         self.turn += 1
+        if self.before_turn is not None:
+            await self.before_turn(self.turn)
         self.messages.append(Message(role="user", content=[TextBlock(text=prompt)], turn=self.turn))
         stop_reason = "error"
         turn = run_turn(

@@ -67,6 +67,7 @@ class Config(BaseModel):
     max_tokens: int = 64_000  # per model call, thinking included
     max_steps: int = 50  # model calls allowed in one turn
     subagents: bool = True  # offer the Task tool
+    checkpoints: bool = True  # snapshot the workspace before each turn, so /undo works
     todos: bool = True  # offer TodoWrite, a checklist the model keeps for long tasks
     web: bool = True  # offer web search and fetch, which the Claude API runs (see web.py)
     subagent_max_steps: int = 30  # model calls allowed in one subagent's task

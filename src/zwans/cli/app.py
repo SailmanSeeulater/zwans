@@ -181,7 +181,8 @@ def _start(
     except ConfigError as exc:
         typer.secho(str(exc), fg="red", err=True)
         return 2
-    # /clear and /resume close the session and open another, so this can go round again.
+    # /clear, /resume and /undo close the session and open another, so this can go round again.
+    draft = ""
     while True:
         try:
             opened = open_session(
@@ -200,14 +201,16 @@ def _start(
         except (ConfigError, SessionError, PolicyError) as exc:
             typer.secho(str(exc), fg="red", err=True)
             return 2
-        outcome = _run_session(opened, task, scripted=fake_script is not None)
+        outcome = _run_session(opened, task, scripted=fake_script is not None, draft=draft)
         if not isinstance(outcome, Reopen):
             return outcome
         workspace = Path(opened.info.workspace)
-        resume, rewind, model = outcome.resume, None, opened.model
+        resume, rewind, model, draft = outcome.resume, outcome.rewind, opened.model, outcome.draft
 
 
-def _run_session(opened: OpenedSession, task: str | None, scripted: bool) -> int | Reopen:
+def _run_session(
+    opened: OpenedSession, task: str | None, scripted: bool, draft: str = ""
+) -> int | Reopen:
     _banner(opened, scripted)
     # One event loop for the whole session, so the API client's connections stay usable.
     with asyncio.Runner() as runner:
@@ -224,14 +227,18 @@ def _run_session(opened: OpenedSession, task: str | None, scripted: bool) -> int
                 count = sum(t.connection.name == name for t in tools)
                 if count:
                     typer.secho(f"MCP {name}: {_count(count, 'tool')}", dim=True)
+        outcome: int | Reopen = 1
         try:
             if task is None:
-                return _chat(opened, runner)
-            return _run_once(opened, runner, task)
+                outcome = _chat(opened, runner, draft)
+            else:
+                outcome = _run_once(opened, runner, task)
+            return outcome
         finally:
             runner.run(opened.close())
-            typer.secho(f"\nSession cost: {opened.meter.summary()}", dim=True)
-            typer.secho(f"To continue it: zwans --resume {opened.id}", dim=True)
+            if not isinstance(outcome, Reopen):  # only when leaving Zwans, not switching
+                typer.secho(f"\nSession cost: {opened.meter.summary()}", dim=True)
+                typer.secho(f"To continue it: zwans --resume {opened.id}", dim=True)
 
 
 def _banner(opened: OpenedSession, scripted: bool) -> None:
@@ -248,7 +255,7 @@ def _banner(opened: OpenedSession, scripted: bool) -> None:
         typer.secho("Its last turn was cut off mid-tool; those calls are marked unfinished.")
 
 
-def _chat(opened: OpenedSession, runner: asyncio.Runner) -> int | Reopen:
+def _chat(opened: OpenedSession, runner: asyncio.Runner, draft: str = "") -> int | Reopen:
     workspace = Path(opened.info.workspace)
     commands = Commands(opened)
     composer: Composer | None = None
@@ -261,7 +268,8 @@ def _chat(opened: OpenedSession, runner: asyncio.Runner) -> int | Reopen:
         try:
             if composer is not None:
                 typer.echo()
-                line = runner.run(composer.read()).strip()
+                line = runner.run(composer.read(draft)).strip()
+                draft = ""
             else:
                 line = input("\n> ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -285,10 +293,13 @@ def _chat(opened: OpenedSession, runner: asyncio.Runner) -> int | Reopen:
             if opened.session.permissions is not None:
                 # File contents may carry instructions, just as when the model reads them.
                 opened.session.permissions.observe("Read", is_error=False)
+        checkpoint_problem = opened.checkpoints.problem if opened.checkpoints else None
         try:
             runner.run(opened.session.send(mentions.text))
         except KeyboardInterrupt:
             typer.secho("Interrupted. The conversation is kept, so carry on.", fg="yellow")
+        if opened.checkpoints and opened.checkpoints.problem != checkpoint_problem:
+            typer.secho(str(opened.checkpoints.problem), fg="yellow")
         _print_turn(opened)
 
 

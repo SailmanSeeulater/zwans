@@ -58,6 +58,8 @@ are left for the model to read in parts.
 |---|---|
 | `/help` | Lists the commands |
 | `/clear` | Starts a new session in the same workspace |
+| `/undo` | Undoes the last turn: puts the files back and drops it from the conversation |
+| `/rewind [turn]` | Lists the turns and the files each changed, or goes back to before one |
 | `/compact` | Summarizes the older messages now, to free up context |
 | `/model [name]` | Shows the model, or switches to another for the rest of the session |
 | `/cost` | What the session has cost, and how full its context is |
@@ -246,6 +248,18 @@ For a task with several steps, the model keeps a checklist with the `TodoWrite` 
 updates it as it goes. The terminal prints it each time it changes; the web UI pins it above
 the message box while the turn runs. Set `todos = false` to turn it off.
 
+### Checkpoints
+
+Before each turn, Zwans snapshots the workspace into a git repository of its own in
+`~/.zwans/checkpoints/`, so `/undo` and `/rewind` can put the files back. It never touches
+the project's `.git`, and it works in folders that aren't git repositories. After an undo,
+the prompt of the undone turn is back in the input line, to edit and send again.
+
+A snapshot holds what git would, so files the project's `.gitignore` leaves out, and folders
+like `node_modules`, aren't brought back. Nor is anything a command did outside the
+workspace, such as installing a package. If snapshotting takes over a minute, checkpoints
+turn off for the session. Set `checkpoints = false` to turn them off yourself.
+
 ### Long sessions
 
 When the conversation passes `compact_at` tokens, Zwans has the model write handoff notes
@@ -364,6 +378,7 @@ environment variables:
 | `max_steps` | `50` | Model calls allowed in one turn |
 | `subagents` | `true` | Offer the `Task` tool |
 | `todos` | `true` | Offer the `TodoWrite` tool |
+| `checkpoints` | `true` | Snapshot the workspace before each turn, so `/undo` can put files back |
 | `web` | `true` | Offer web search and fetch, which the Claude API runs |
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
 | `compact_at` | `200000` | Estimated context tokens that trigger a compaction |

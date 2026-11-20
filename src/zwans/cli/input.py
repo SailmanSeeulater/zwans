@@ -27,6 +27,7 @@ MENTION = re.compile(r"(?<!\S)@(\S+)")
 TRAILING = ",.;:!?)]}'\""  # punctuation after a mention, as in "look at @calc.py."
 MAX_FILE_CHARS = 100_000  # a bigger file is named but not sent; the model can Read parts of it
 MAX_LISTING = 200
+MENTIONED = "\n\nThe files I mentioned, as they are now:\n\n"  # between a message and its files
 SKIPPED_FOLDERS = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", ".next"})
 
 
@@ -77,7 +78,7 @@ def expand_mentions(message: str, workspace: Path) -> Mentions:
         result.files.append(relative)
     if blocks:
         joined = "\n\n".join(blocks)
-        result.text = f"{message}\n\nThe files I mentioned, as they are now:\n\n{joined}"
+        result.text = f"{message}{MENTIONED}{joined}"
     return result
 
 
@@ -187,10 +188,10 @@ class Composer:
             output=output,
         )
 
-    async def read(self) -> str:
-        """The next message. Raises EOFError (Ctrl+D) or KeyboardInterrupt (Ctrl+C on an empty
-        line) when the user wants to stop."""
-        return await self._session.prompt_async(FormattedText([("bold", "> ")]))
+    async def read(self, draft: str = "") -> str:
+        """The next message, starting from `draft`. Raises EOFError (Ctrl+D) or
+        KeyboardInterrupt (Ctrl+C on an empty line) when the user wants to stop."""
+        return await self._session.prompt_async(FormattedText([("bold", "> ")]), default=draft)
 
     def _toolbar(self) -> FormattedText:
         hints = "Enter sends · Esc Enter new line · @ file · / commands"

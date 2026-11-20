@@ -123,11 +123,12 @@ class SessionStore:
             self._db.execute("UPDATE sessions SET model = ? WHERE id = ?", (model, session_id))
 
     def rewind(self, session_id: str, turn: int) -> None:
-        """Delete every turn after `turn`. Turns already summarized away can't be returned to."""
+        """Delete every turn after `turn`. Turns already summarized away can't be returned to,
+        but 0, an empty conversation, always can."""
         (first,) = self._db.execute(
             "SELECT MIN(turn) FROM messages WHERE session_id = ?", (session_id,)
         ).fetchone()
-        if first is not None and turn < first:
+        if first is not None and 0 < turn < first:
             raise SessionError(
                 f"Turns before {first} were summarized when the session was compacted, "
                 f"so the earliest turn to rewind to is {first}."

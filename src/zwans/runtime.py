@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from zwans.checkpoints import Checkpoints
 from zwans.config import Config, load_credential
 from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
@@ -56,6 +57,7 @@ class OpenedSession:
     policy: LoadedPolicy
     model: str
     mcp: McpServers | None = None
+    checkpoints: Checkpoints | None = None  # the files before each turn, for /undo
     instructions: list[Path] = field(default_factory=list)  # instruction files, for a new one
     resumed: bool = False
     repaired: bool = False  # its last turn was cut off mid-tool
@@ -182,6 +184,10 @@ def open_session(
     )
     session.messages = messages
     session.turn = info.turns
+    checkpoints = None
+    if config.checkpoints:
+        checkpoints = Checkpoints(root, config.home, info.id)
+        session.before_turn = checkpoints.save
     saved = len(messages) - (1 if repaired else 0)
     recorder = SessionRecorder(store, info.id, session, meter, saved=saved, title=info.title)
     session.listeners.append(recorder.on_event)
@@ -201,6 +207,7 @@ def open_session(
         policy=loaded,
         model=model,
         mcp=mcp,
+        checkpoints=checkpoints,
         instructions=followed,
         resumed=resume is not None,
         repaired=repaired,
