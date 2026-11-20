@@ -23,6 +23,9 @@ from prompt_toolkit.input import Input
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from prompt_toolkit.output import Output
 
+from zwans.images import ImageError, image_block, media_type
+from zwans.messages import ImageBlock
+
 MENTION = re.compile(r"(?<!\S)@(\S+)")
 TRAILING = ",.;:!?)]}'\""  # punctuation after a mention, as in "look at @calc.py."
 MAX_FILE_CHARS = 100_000  # a bigger file is named but not sent; the model can Read parts of it
@@ -44,6 +47,7 @@ class Mentions:
 
     text: str  # the message with the files' contents after it
     files: list[str] = field(default_factory=list)  # workspace-relative paths that were sent
+    images: list[ImageBlock] = field(default_factory=list)  # from mentioned image files
     problems: list[str] = field(default_factory=list)  # @paths that couldn't be sent
 
 
@@ -63,6 +67,12 @@ def expand_mentions(message: str, workspace: Path) -> Mentions:
             continue
         if path.is_dir():
             blocks.append(f'<folder path="{relative}">\n{_listing(path)}\n</folder>')
+        elif _is_image(path):
+            try:
+                result.images.append(image_block(path.read_bytes(), f"@{name}"))
+            except (OSError, ImageError) as exc:
+                result.problems.append(str(exc))
+                continue
         else:
             try:
                 text = path.read_text(encoding="utf-8-sig")
@@ -80,6 +90,14 @@ def expand_mentions(message: str, workspace: Path) -> Mentions:
         joined = "\n\n".join(blocks)
         result.text = f"{message}{MENTIONED}{joined}"
     return result
+
+
+def _is_image(path: Path) -> bool:
+    try:
+        with path.open("rb") as file:
+            return media_type(file.read(16)) is not None
+    except OSError:
+        return False
 
 
 def _listing(folder: Path) -> str:

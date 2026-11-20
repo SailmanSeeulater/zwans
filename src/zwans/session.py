@@ -8,7 +8,7 @@ from zwans.context.compaction import Compactor
 from zwans.events import Event, TurnEnded
 from zwans.ext.hooks import Hooks
 from zwans.loop import run_turn
-from zwans.messages import Message, TextBlock
+from zwans.messages import ContentBlock, ImageBlock, Message, TextBlock
 from zwans.policy.engine import Permissions
 from zwans.providers.base import Provider
 from zwans.tools.base import Tool, ToolContext
@@ -51,12 +51,14 @@ class Session:
         """About how many tokens the next request will send."""
         return self.compactor.estimate(self.messages) if self.compactor else 0
 
-    async def send(self, prompt: str) -> str:
-        """Run one turn and return why it ended: "end_turn", "interrupted", "error", ..."""
+    async def send(self, prompt: str, images: Sequence[ImageBlock] = ()) -> str:
+        """Run one turn and return why it ended: "end_turn", "interrupted", "error", ...
+        `images` go before the prompt, as the API recommends."""
         self.turn += 1
         if self.before_turn is not None:
             await self.before_turn(self.turn)
-        self.messages.append(Message(role="user", content=[TextBlock(text=prompt)], turn=self.turn))
+        content: list[ContentBlock] = [*images, TextBlock(text=prompt)]
+        self.messages.append(Message(role="user", content=content, turn=self.turn))
         stop_reason = "error"
         turn = run_turn(
             self.provider,

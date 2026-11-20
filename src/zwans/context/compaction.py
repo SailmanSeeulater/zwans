@@ -11,7 +11,14 @@ from collections.abc import Sequence
 from zwans.context.calls import TimedCall, context_split, counted_input
 from zwans.context.tokens import approx_tokens
 from zwans.events import ContextCompacted, Event
-from zwans.messages import Message, RawBlock, TextBlock, ToolResultBlock, ToolUseBlock
+from zwans.messages import (
+    ImageBlock,
+    Message,
+    RawBlock,
+    TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+)
 from zwans.providers.base import ModelResponse, Provider, ProviderError
 from zwans.web import web_calls, web_results
 
@@ -119,7 +126,9 @@ def render_transcript(messages: Sequence[Message]) -> str:
                 lines.append(f"TOOL CALL {block.name}: {_preview(arguments)}")
             elif isinstance(block, ToolResultBlock):
                 label = "TOOL ERROR" if block.is_error else "TOOL RESULT"
-                lines.append(f"{label}: {_preview(block.content)}")
+                lines.append(f"{label}: {_preview(block.text())}")
+            elif isinstance(block, ImageBlock):
+                lines.append(f"{message.role.upper()}: [an image]")
             else:  # the web searches and fetches the API ran
                 for call in web_calls([block]):
                     lines.append(f"TOOL CALL {call.name}: {json.dumps(call.args)}")

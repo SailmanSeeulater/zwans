@@ -136,7 +136,7 @@ class Commands:
         for command in COMMANDS:
             usage = f"/{command.name} {command.argument}".strip()
             typer.echo(f"  {usage:<26} {command.help}")
-        _say("Start a message with @path to send a file's text with it.")
+        _say("Start a message with @path to send a file's text, or an image, with it.")
 
     async def _compact(self) -> None:
         session = self.opened.session

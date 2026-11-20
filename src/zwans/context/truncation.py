@@ -20,4 +20,4 @@ async def fit_output(output: ToolOutput, call_id: str, executor: Executor) -> To
         "Use Read on it, with offset and limit, to see the rest.]\n\n"
     )
     shortened = text[:HEAD_CHARS] + note + text[-TAIL_CHARS:]
-    return ToolOutput(shortened, is_error=output.is_error, diff=output.diff)
+    return ToolOutput(shortened, is_error=output.is_error, diff=output.diff, images=output.images)

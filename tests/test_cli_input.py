@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,9 @@ from zwans.messages import TextBlock
 from zwans.providers.base import ModelResponse
 from zwans.providers.fake import FakeProvider
 from zwans.runtime import OpenedSession, open_session
+
+# A 2x3 PNG's signature and IHDR chunk: enough to be recognized and measured.
+PNG_HEADER = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x02\x00\x00\x00\x03"
 
 
 @pytest.fixture
@@ -47,13 +51,26 @@ def test_words_that_arent_workspace_paths_are_left_alone(workspace: Path, tmp_pa
 
 def test_a_huge_or_binary_file_is_named_but_not_sent(workspace: Path) -> None:
     (workspace / "big.txt").write_text("x" * (MAX_FILE_CHARS + 1))
-    (workspace / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\xff\xfe")
+    (workspace / "data.bin").write_bytes(b"\x00\xff\xfe\x01")
 
-    mentions = expand_mentions("Look at @big.txt and @logo.png", workspace)
+    mentions = expand_mentions("Look at @big.txt and @data.bin", workspace)
 
-    assert mentions.files == []
+    assert mentions.files == [] and mentions.images == []
     assert "too long to send" in mentions.problems[0]
     assert "isn't a text file" in mentions.problems[1]
+
+
+def test_a_mentioned_image_is_sent_as_an_image(workspace: Path) -> None:
+    png = PNG_HEADER + b"\x00" * 16
+    (workspace / "shot.png").write_bytes(png)
+
+    mentions = expand_mentions("What's wrong in @shot.png?", workspace)
+
+    assert mentions.files == ["shot.png"] and mentions.problems == []
+    assert len(mentions.images) == 1
+    assert mentions.images[0].source.media_type == "image/png"
+    assert base64.b64decode(mentions.images[0].source.data) == png
+    assert mentions.text == "What's wrong in @shot.png?"  # the image goes as its own block
 
 
 def complete(text: str, workspace: Path) -> list[str]:

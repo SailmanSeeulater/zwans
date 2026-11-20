@@ -54,6 +54,10 @@ Write `@path` to send a file's text along with the message, or a folder's listin
 model doesn't spend a step reading it; Tab completes the path. Files over 100,000 characters
 are left for the model to read in parts.
 
+`@path` to a PNG, JPEG, GIF or WebP image sends the image itself, so you can ask about a
+screenshot or a design. The model can look at images too: its Read tool shows it an image
+file instead of refusing it. Images can be up to 3.75 MB, and each costs about 1,600 tokens.
+
 | Command | Does |
 |---|---|
 | `/help` | Lists the commands |

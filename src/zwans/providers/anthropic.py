@@ -99,7 +99,8 @@ class AnthropicProvider:
             attempt += 1
             try:
                 request = self.request(system, messages, tools)
-                self.last_request = {k: v for k, v in request.items() if v is not anthropic.omit}
+                sent = {k: v for k, v in request.items() if v is not anthropic.omit}
+                self.last_request = without_image_data(sent)
                 async with self._client.beta.messages.stream(**request) as stream:
                     async for event in stream:
                         if event.type == "text":
@@ -198,6 +199,18 @@ def _betas(traits: Traits) -> list[str]:
     if not traits.adaptive_thinking:
         betas.append(INTERLEAVED_BETA)
     return betas
+
+
+def without_image_data(value: Any) -> Any:
+    """A copy of a request with each image's base64 data replaced by a note of its length,
+    so the inspector shows what was sent without carrying megabytes to the browser."""
+    if isinstance(value, dict):
+        if value.get("type") == "base64" and isinstance(value.get("data"), str):
+            return {**value, "data": f"<{len(value['data']):,} characters of base64>"}
+        return {k: without_image_data(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [without_image_data(v) for v in value]
+    return value
 
 
 def describe_api_error(exc: anthropic.APIStatusError, plan_token: bool) -> str:

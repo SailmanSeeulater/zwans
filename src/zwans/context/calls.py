@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from zwans.context.tokens import block_chars
 from zwans.events import ContextSplit, ModelCalled, TextDelta, ThinkingDelta
 from zwans.messages import Message, ToolResultBlock, ToolUseBlock
 from zwans.pricing import cost, price_of
@@ -34,7 +35,7 @@ def context_split(
     for message in messages:
         for block in message.content:
             part = "tool_results" if isinstance(block, ToolResultBlock) else "messages"
-            sizes[part] += len(block.model_dump_json())
+            sizes[part] += block_chars(block)
     total = sum(sizes.values())
     if total == 0:
         return ContextSplit()

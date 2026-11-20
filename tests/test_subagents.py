@@ -156,7 +156,7 @@ def test_a_subagent_gets_only_the_tools_it_was_given(tmp_path: Path) -> None:
     assert provider.tool_names[1] == ["Read"]
     second = [b for m in s.messages for b in m.content if isinstance(b, ToolResultBlock)][1]
     assert second.is_error
-    assert second.content.startswith("Unknown tools: Nope.")
+    assert second.text().startswith("Unknown tools: Nope.")
 
 
 def test_a_subagent_that_runs_out_of_steps_says_so(tmp_path: Path) -> None:

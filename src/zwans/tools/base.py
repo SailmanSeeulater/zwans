@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from pydantic import BaseModel
 
 from zwans.executor.base import Executor
+from zwans.messages import ImageBlock
 
 if TYPE_CHECKING:
     from zwans.executor.background import BackgroundJobs
@@ -29,6 +30,7 @@ class ToolOutput:
     # A unified diff of the file the call changed, for people watching. The model doesn't
     # see it; it already knows what it asked for.
     diff: str | None = None
+    images: tuple[ImageBlock, ...] = ()  # sent to the model after the text, as with Read
 
 
 class Tool[InputT: BaseModel](Protocol):

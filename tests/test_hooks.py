@@ -88,8 +88,8 @@ def test_a_pre_tool_hook_blocks_git_push_and_the_model_sees_why(tmp_path: Path) 
     assert not pushed.exists()
     block = result_block(messages)
     assert block.is_error
-    assert block.content.startswith("A pre_tool hook blocked this call:")
-    assert "Pushing is for the user to do" in block.content
+    assert block.text().startswith("A pre_tool hook blocked this call:")
+    assert "Pushing is for the user to do" in block.text()
     [reported] = [e for e in events if isinstance(e, HookReported)]
     assert (reported.event, reported.call_id) == ("pre_tool", "call_1")
 
@@ -144,7 +144,7 @@ def test_a_broken_or_slow_pre_tool_hook_blocks_rather_than_letting_calls_through
         _, messages, _ = run(tmp_path, [call("echo", text="hi"), done()], hooks(tmp_path, spec))
         block = result_block(messages)
         assert block.is_error
-        assert block.content.startswith("A pre_tool hook blocked this call:")
+        assert block.text().startswith("A pre_tool hook blocked this call:")
 
 
 def test_a_post_tool_hook_adds_its_message_to_the_result(tmp_path: Path) -> None:

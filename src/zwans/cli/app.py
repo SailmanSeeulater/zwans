@@ -295,7 +295,7 @@ def _chat(opened: OpenedSession, runner: asyncio.Runner, draft: str = "") -> int
                 opened.session.permissions.observe("Read", is_error=False)
         checkpoint_problem = opened.checkpoints.problem if opened.checkpoints else None
         try:
-            runner.run(opened.session.send(mentions.text))
+            runner.run(opened.session.send(mentions.text, mentions.images))
         except KeyboardInterrupt:
             typer.secho("Interrupted. The conversation is kept, so carry on.", fg="yellow")
         if opened.checkpoints and opened.checkpoints.problem != checkpoint_problem:

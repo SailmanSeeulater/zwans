@@ -1,7 +1,8 @@
-"""The Read tool: show a text file with line numbers."""
+"""The Read tool: show a text file with line numbers, or an image to the model."""
 
 from pydantic import BaseModel, Field
 
+from zwans.images import ImageError, describe, image_block, media_type
 from zwans.tools.base import ToolContext, ToolError, ToolOutput
 from zwans.tools.text import TextFile
 
@@ -16,13 +17,20 @@ class ReadTool:
     name = "Read"
     description = (
         "Read a text file in the workspace. Each line comes back prefixed with its line "
-        "number. For a large file, use offset and limit to read one part at a time."
+        "number. For a large file, use offset and limit to read one part at a time. A PNG, "
+        "JPEG, GIF or WebP image comes back as the image itself, for you to look at."
     )
     input_model = ReadInput
     read_only = True
 
     async def run(self, args: ReadInput, ctx: ToolContext) -> ToolOutput:
         data = await ctx.executor.read_bytes(args.path)
+        if media_type(data) is not None:
+            try:
+                image = image_block(data, args.path)
+            except ImageError as exc:
+                raise ToolError(str(exc)) from exc
+            return ToolOutput(content=f"{args.path}: {describe(data)}", images=(image,))
         if b"\x00" in data[:8192]:
             raise ToolError(f"{args.path} looks like a binary file, so it isn't shown.")
         text = TextFile.decode(data).text

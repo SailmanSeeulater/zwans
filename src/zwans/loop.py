@@ -22,7 +22,14 @@ from zwans.events import (
     TurnStarted,
 )
 from zwans.ext.hooks import Hooks
-from zwans.messages import ContentBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock
+from zwans.messages import (
+    ContentBlock,
+    ImageBlock,
+    Message,
+    TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+)
 from zwans.policy.engine import Approval, PermissionRequest, Permissions, denial_message
 from zwans.policy.rules import Decision
 from zwans.providers.base import Provider, ProviderError
@@ -157,7 +164,12 @@ async def run_turn(
                         if failures:
                             notes = [f"A post_tool hook says: {f.message}" for f in failures]
                             content = "\n\n".join([output.content, *notes])
-                            output = ToolOutput(content, is_error=output.is_error, diff=output.diff)
+                            output = ToolOutput(
+                                content,
+                                is_error=output.is_error,
+                                diff=output.diff,
+                                images=output.images,
+                            )
                     outputs[call.id] = output
                     untrusted = False
                     if permissions is not None:
@@ -259,8 +271,11 @@ def _results_message(
     content: list[ContentBlock] = []
     for call in calls:
         output = outputs.get(call.id, default)
+        result: str | list[TextBlock | ImageBlock] = output.content
+        if output.images:
+            result = [TextBlock(text=output.content), *output.images]
         content.append(
-            ToolResultBlock(tool_use_id=call.id, content=output.content, is_error=output.is_error)
+            ToolResultBlock(tool_use_id=call.id, content=result, is_error=output.is_error)
         )
     return Message(role="user", content=content)
 
