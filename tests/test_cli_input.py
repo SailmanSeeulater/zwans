@@ -3,6 +3,7 @@ import base64
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from prompt_toolkit.completion import CompleteEvent
@@ -18,7 +19,6 @@ from zwans.cli.input import (
     Composer,
     echoing,
     expand_mentions,
-    typing_ahead,
 )
 from zwans.config import Config
 from zwans.messages import TextBlock
@@ -126,26 +126,58 @@ def test_lines_typed_ahead_are_sent_one_at_a_time(workspace: Path) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="no termios on Windows")
-def test_typing_ahead_is_hidden_and_keeps_enter_and_a_question_shows_it() -> None:
+def test_typing_during_a_turn_waits_unechoed_and_a_question_takes_only_later_typing(
+    workspace: Path,
+) -> None:
     import termios
 
     leader, follower = os.openpty()
-    with os.fdopen(follower, "r") as terminal:
-        before = termios.tcgetattr(follower)
-        with typing_ahead(terminal):
-            during = termios.tcgetattr(follower)
-            os.write(leader, b"y\r")  # typed during the turn
-            with echoing(terminal):
-                asked = termios.tcgetattr(follower)
-                os.write(leader, b"n\r")
-                answer = terminal.readline()
-            assert termios.tcgetattr(follower) == during
-        assert termios.tcgetattr(follower) == before
-    os.close(leader)
+    os.set_blocking(leader, False)
 
-    assert not during[3] & termios.ECHO and not during[0] & termios.ICRNL
-    assert asked[3] & termios.ECHO and asked[0] & termios.ICRNL
-    assert answer == "n\n"  # the "y" typed before the question wasn't taken as its answer
+    async def go() -> tuple[list[list[Any]], str, list[str], bytes]:
+        loop = asyncio.get_running_loop()
+        with (
+            create_pipe_input() as pipe,
+            os.fdopen(follower, "r") as terminal,
+            os.fdopen(os.dup(follower), "w") as screen,
+        ):
+            composer = Composer(COMMANDS, workspace, None, input=pipe, output=DummyOutput())
+            before = termios.tcgetattr(follower)
+            with composer.typing_ahead(loop, terminal, screen):
+                during = termios.tcgetattr(follower)
+                os.write(leader, b"/cost\r\x1b[200~two\rlines\x1b[201~\r")  # a line and a paste
+                await asyncio.sleep(0.1)
+                os.write(leader, b"y\r")  # typed just before an approval question
+                await asyncio.sleep(0.1)
+                with echoing(terminal, screen):
+                    asked = termios.tcgetattr(follower)
+                    os.write(leader, b"n\r")
+                    answer = terminal.readline()
+                assert termios.tcgetattr(follower) == during
+            after = termios.tcgetattr(follower)
+            with pytest.raises(KeyboardInterrupt), composer.typing_ahead(loop, terminal, screen):
+                os.write(leader, b"dropped\r")
+                await asyncio.sleep(0.1)
+                raise KeyboardInterrupt  # Ctrl+C stops the turn
+            pipe.send_text("kept\r")
+            sent = [await composer.read() for _ in range(4)]
+            shown = os.read(leader, 1000)
+        os.close(leader)
+        return [before, during, asked, after], answer, sent, shown
+
+    (before, during, asked, after), answer, sent, shown = asyncio.run(go())
+
+    assert not during[3] & (termios.ECHO | termios.ICANON) and not during[0] & termios.ICRNL
+    assert during[6][termios.VMIN] == 1
+    assert asked[3] & termios.ECHO and asked[3] & termios.ICANON and asked[0] & termios.ICRNL
+    # macOS marks pending input to retype whenever line editing comes back on (PENDIN).
+    after[3] &= ~getattr(termios, "PENDIN", 0)
+    assert after == before
+    assert answer == "n\n"  # the "y" typed before the question didn't answer it
+    assert sent == ["/cost", "two\nlines", "y", "kept"]
+    # Only the answer was echoed; bracketed paste was on while typing was hidden.
+    on, off = b"\x1b[?2004h", b"\x1b[?2004l"
+    assert shown == on + off + b"n\r\n" + on + off + on + off
 
 
 def test_ctrl_c_clears_the_line_and_quits_on_an_empty_one(workspace: Path) -> None:
@@ -225,6 +257,8 @@ def test_resume_lists_this_workspaces_sessions_and_picks_one(
     capsys.readouterr()
     assert asyncio.run(commands.run("/resume nope")) is None  # stays in this session
     assert "No saved session starts with 'nope'." in capsys.readouterr().out
+    assert asyncio.run(commands.run("/resume 2")) is None  # a number, not the start of an id
+    assert "There's no session 2 in the list." in capsys.readouterr().out
     asyncio.run(opened.close())
 
 

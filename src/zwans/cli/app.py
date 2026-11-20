@@ -3,6 +3,7 @@
 import asyncio
 import io
 import sys
+from contextlib import AbstractContextManager, nullcontext
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -14,7 +15,7 @@ from zwans.cli.approval import can_prompt, load_with_trust, terminal_approver
 from zwans.cli.attach import Attached, AttachError, open_remote
 from zwans.cli.commands import COMMANDS, Commands, Quit, Reopen, is_command
 from zwans.cli.evals import eval_app
-from zwans.cli.input import MENTIONED, Composer, echoing, expand_mentions, typing_ahead
+from zwans.cli.input import MENTIONED, Composer, echoing, expand_mentions
 from zwans.cli.render import Renderer
 from zwans.cli.serve import read_server_file, serve
 from zwans.config import ConfigError, load_settings
@@ -293,14 +294,19 @@ def _replay(opened: OpenedSession) -> None:
     if start > 0:
         typer.secho("(Earlier turns aren't shown.)", dim=True)
     renderer = Renderer()  # its own, so these lines aren't mixed up with the live ones
+    prompted: set[int | None] = set()  # turns whose prompt is shown: later texts are notes
     for message in session.messages[start:]:
         for block in message.content:
             if isinstance(block, TextBlock) and message.role == "assistant":
                 renderer.on_event(TextDelta(text=block.text))
             elif isinstance(block, TextBlock) and block.text.startswith(SUMMARY_HEADER):
+                prompted.add(message.turn)  # that turn's prompt is in the summary
                 typer.secho("[Older messages were summarized here]", fg="magenta")
-            elif isinstance(block, TextBlock) and message.turn is not None:  # a prompt
+            elif isinstance(block, TextBlock) and message.turn not in prompted:
+                prompted.add(message.turn)
                 typer.secho(f"\n> {block.text.split(MENTIONED)[0]}", bold=True)
+            elif isinstance(block, TextBlock):  # such as a stop hook's, sent back to the model
+                typer.secho(f"  {block.text.splitlines()[0] if block.text else ''}", dim=True)
             elif isinstance(block, ToolUseBlock):
                 renderer.on_event(
                     ToolCallRequested(call_id=block.id, name=block.name, args=block.input)
@@ -342,7 +348,7 @@ def _chat(
         if not line:
             continue
         if is_command(line):
-            with typing_ahead():  # /compact can take a while
+            with _typing_ahead(composer, runner):  # /compact can take a while
                 outcome = runner.run(commands.run(line))
             if isinstance(outcome, Quit):
                 return 0
@@ -359,13 +365,19 @@ def _chat(
                 opened.session.permissions.observe("Read", is_error=False)
         checkpoint_problem = opened.checkpoints.problem if opened.checkpoints else None
         try:
-            with typing_ahead():
+            with _typing_ahead(composer, runner):
                 runner.run(opened.session.send(mentions.text, mentions.images))
         except KeyboardInterrupt:
             typer.secho("Interrupted. The conversation is kept, so carry on.", fg="yellow")
         if opened.checkpoints and opened.checkpoints.problem != checkpoint_problem:
             typer.secho(str(opened.checkpoints.problem), fg="yellow")
         _print_turn(opened)
+
+
+def _typing_ahead(
+    composer: Composer | None, runner: asyncio.Runner
+) -> AbstractContextManager[None]:
+    return composer.typing_ahead(runner.get_loop()) if composer else nullcontext()
 
 
 def _status(opened: OpenedSession) -> str:

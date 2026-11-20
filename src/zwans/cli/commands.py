@@ -189,6 +189,9 @@ class Commands:
         if argument:
             if argument.isdigit() and 0 < int(argument) <= len(self._listed):
                 return Reopen(resume=self._listed[int(argument) - 1])
+            if argument.isdigit() and int(argument) <= RECENT_SHOWN:  # not the start of an id
+                _say(f"There's no session {argument} in the list. /resume lists them.", fg="yellow")
+                return None
             try:  # check first, since switching closes this session
                 info = self.opened.store.get(argument)
             except SessionError as exc:

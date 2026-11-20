@@ -1,14 +1,17 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from typer.testing import CliRunner, Result
 
 from zwans import __version__
-from zwans.cli.app import app
+from zwans.cli.app import _replay, app
 from zwans.cli.commands import Commands, Reopen
-from zwans.messages import TextBlock, ToolUseBlock
+from zwans.messages import Message, TextBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse
+from zwans.runtime import OpenedSession
 
 
 def test_version() -> None:
@@ -195,3 +198,28 @@ def test_undo_in_the_chat_goes_back_without_the_whole_banner(tmp_path: Path) -> 
     assert result.exit_code == 0, result.output
     assert "Went back to before turn 1." in result.output
     assert result.output.count(f"Zwans {__version__} |") == 1
+
+
+def test_the_replay_shows_the_last_turns_and_a_stop_hooks_note_as_a_note(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    messages = []
+    for turn in range(1, 5):
+        messages += [
+            Message(role="user", content=[TextBlock(text=f"Task {turn}")], turn=turn),
+            Message(role="assistant", content=[TextBlock(text=f"Answer {turn}.")], turn=turn),
+        ]
+    note = "A stop hook says the task isn't finished yet:\ntests fail"
+    messages += [
+        Message(role="user", content=[TextBlock(text=note)], turn=4),
+        Message(role="assistant", content=[TextBlock(text="Fixed.")], turn=4),
+    ]
+    session = SimpleNamespace(turn=4, messages=messages)
+
+    _replay(cast(OpenedSession, SimpleNamespace(session=session)))
+
+    out = capsys.readouterr().out
+    assert "(Earlier turns aren't shown.)" in out and "Task 1" not in out
+    assert "> Task 2\nAnswer 2.\n" in out and "> Task 4\nAnswer 4.\n" in out
+    assert "  A stop hook says the task isn't finished yet:\nFixed.\n" in out
+    assert "> A stop hook" not in out

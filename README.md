@@ -68,9 +68,10 @@ In the chat, Enter sends and Esc then Enter (or Ctrl+J) starts a new line; paste
 its lines. Up and Down go through earlier messages, kept in `~/.zwans/history`. Ctrl+C clears
 what you've typed, and Ctrl+D quits. A line under the prompt shows the model, the mode, the
 context size and the session's cost so far. What you type while a turn runs isn't shown; it
-waits for the prompt, and each line of it is then sent as its own message. When Zwans asks
-you to approve a tool call, anything typed before the question is dropped, so it can't
-answer it by accident. Resuming a session in the chat shows its last three turns again.
+waits for the prompt, and each line of it is then sent as its own message, while a paste goes
+as one. Ctrl+C drops it along with the turn. When Zwans asks you to approve a tool call,
+only what you type after the question answers it. Resuming a session in the chat shows its
+last three turns again.
 
 Write `@path` to send a file's text along with the message, or a folder's listing, so the
 model doesn't spend a step reading it; Tab completes the path. Files over 100,000 characters
