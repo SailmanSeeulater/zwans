@@ -148,31 +148,26 @@ class Permissions:
 
     def _check_action(self, action: Action) -> Verdict:
         shown = f"`{_brief(action.display)}`"
-        # File rules apply to the files a command names, as they do to the file tools. A rule
-        # that asks wins over any allow rule, so "always" couldn't help and isn't offered.
-        for verb, paths in (("writes", action.writes), ("reads", action.reads)):
-            for path in paths:
-                relative = self._rule_path(path)
-                matched = self._match_file(verb, relative)
-                if matched is not None and matched[0] != Decision.ALLOW:
-                    decision, rule = matched
-                    reason = f"{shown} {verb} {relative}, which matches the {decision} rule {rule}"
-                    return Verdict(decision, f"{reason} ({rule.source})")
-
+        # File rules apply to the files a command names, as they do to the file tools.
+        by_file = self._check_files(action, shown)
         texts = {action.command, action.display}
         matched = self._match(
             "Bash",
             lambda rule: any(rule.matches_command(t) for t in {*texts, action.bare or ""} if t),
             allows=lambda rule: _allows(rule, action, texts),
         )
-        if matched is not None:
+        by_rule = None
+        if matched is not None and matched[0] != Decision.ALLOW:
             decision, rule = matched
-            if decision != Decision.ALLOW:
-                reason = f"{shown} matches the {decision} rule {rule} ({rule.source})"
-                return Verdict(decision, reason)
-            verdict = Verdict(Decision.ALLOW)
-        else:
-            verdict = self._by_mode(action, shown)
+            reason = f"{shown} matches the {decision} rule {rule} ({rule.source})"
+            by_rule = Verdict(decision, reason)
+        # Deny wins over ask, whichever kind of rule says it. A file rule that asks wins over
+        # any allow rule, so "always" couldn't help and isn't offered.
+        found = [v for v in (by_file, by_rule) if v is not None]
+        if found:
+            worst = strictest(*(v.decision for v in found))
+            return next(v for v in found if v.decision == worst)
+        verdict = Verdict(Decision.ALLOW) if matched is not None else self._by_mode(action, shown)
         after = self._after_untrusted(action.kind) if self.tainted else None
         if after is not None and strictest(after, verdict.decision) != verdict.decision:
             what = "uses the network" if action.kind == Kind.NETWORK else "changes files"
@@ -191,6 +186,22 @@ class Permissions:
         if kind == Kind.WRITE:
             return self.policy.after_untrusted.write
         return None
+
+    def _check_files(self, action: Action, shown: str) -> Verdict | None:
+        """The strictest file rule, other than allow, for the files a command names."""
+        found: list[Verdict] = []
+        for verb, paths in (("writes", action.writes), ("reads", action.reads)):
+            for path in paths:
+                relative = self._rule_path(path)
+                matched = self._match_file(verb, relative)
+                if matched is not None and matched[0] != Decision.ALLOW:
+                    decision, rule = matched
+                    reason = f"{shown} {verb} {relative}, which matches the {decision} rule {rule}"
+                    found.append(Verdict(decision, f"{reason} ({rule.source})"))
+        if not found:
+            return None
+        worst = strictest(*(v.decision for v in found))
+        return next(v for v in found if v.decision == worst)
 
     def _match_file(self, verb: str, path: str) -> tuple[Decision, Rule] | None:
         # Writing to a folder (rm -rf .git) changes the files in it; reading one doesn't

@@ -5,11 +5,12 @@ The tables cover common development commands. A program that isn't in them, or a
 that can reach outside the workspace, is "unknown", which the policy treats as the riskiest.
 """
 
+import posixpath
 import re
 import shlex
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import NamedTuple
@@ -87,6 +88,7 @@ SHELLS = _words("bash sh zsh dash ksh fish")
 PATTERN_FIRST = frozenset(
     ["grep", "egrep", "fgrep", "rg", "ag", "sed", "gsed", "awk", "gawk", "mawk", "nawk", "jq"]
 )
+AWKS = _words("awk gawk mawk nawk")
 # Options that take a value, for programs whose second file name is where they write.
 UNIQ_VALUES = frozenset({"-f", "-s", "-w", "--skip-fields", "--skip-chars", "--check-chars"})
 XXD_VALUES = _words("-c -cols -g -groupsize -l -len -o -offset -s -seek -n -name")
@@ -109,6 +111,7 @@ RISKY_VARIABLES = re.compile(
     r"^(PATH|IFS|BASH_ENV|ENV|PROMPT_COMMAND|PYTHONSTARTUP|(LD|DYLD|GIT)_\w*)$"
 )
 PRINTS_ENVIRONMENT = "it prints environment variables, which may hold secrets"
+UNKNOWN_FOLDER = "it moves to a folder Zwans can't tell, so what runs after it can't be checked"
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=")
 VERSIONED = re.compile(r"^(python|pip|pypy)[0-9.]*$")
 SED_RUNS_OR_WRITES = re.compile(r"(^|[;{}\n/0-9$])\s*[ewWrR](\s|$|;)")
@@ -127,6 +130,9 @@ GIT_NETWORK = frozenset(
     ["clone", "fetch", "pull", "push", "ls-remote", "submodule", "archive", "request-pull"]
 )
 GIT_VALUE_OPTIONS = frozenset({"-C", "--git-dir", "--work-tree", "--namespace"})
+# Sub-commands that change the files they name. Others that change files (switch, merge,
+# reset) don't name them, so file rules can't see what they touch.
+GIT_FILE_CHANGES = _words("mv rm checkout restore")
 PACKAGE_NETWORK = _words(
     "install i ci add update upgrade publish download wheel fetch get sync lock exec dlx "
     "create init remove uninstall audit outdated view info search"
@@ -154,9 +160,48 @@ def analyze(command: str, inside: Inside) -> list[Action]:
     except ShellParseError as exc:
         return [Action(command.strip(), Kind.UNKNOWN, f"Zwans can't check it in parts: {exc}")]
     actions: list[Action] = []
+    folder = ""  # where the next command runs after a `cd`, relative to the workspace root
+    stack: list[str] = []  # pushd's folders
     for simple in commands:
-        actions.extend(_classify(simple, inside))
+        found = _classify(simple, inside)
+        if folder:  # `cd .git/hooks && cp x pre-commit` writes .git/hooks/pre-commit
+            found = [_in_folder(action, folder) for action in found]
+        actions.extend(found)
+        folder = _next_folder(simple, folder, stack)
     return actions
+
+
+def _next_folder(simple: SimpleCommand, folder: str, stack: list[str]) -> str:
+    """The folder later commands run in, after this one. Taken as run in order, whatever the
+    operators between them, so a `cd` in a subshell or after a failed command counts too."""
+    plain = list(simple.words)
+    while plain and ASSIGNMENT.match(plain[0].text):
+        plain.pop(0)
+    inner = _unwrap(plain)  # `builtin cd x` too
+    if isinstance(inner, str):
+        return folder
+    words = [word.text for word in inner[0]]
+    if not words or words[0] not in ("cd", "pushd", "popd"):
+        return folder
+    if words[0] == "popd":
+        return stack.pop() if stack else folder
+    target = next((w for w in words[1:] if not w.startswith("-")), None)
+    if target is None:
+        return folder  # `cd` alone is unknown already; see _program_kind
+    if words[0] == "pushd":
+        stack.append(folder)
+    joined = posixpath.normpath(posixpath.join(folder, target))
+    return "" if joined == "." else joined
+
+
+def _in_folder(action: Action, folder: str) -> Action:
+    def moved(paths: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(
+            p if p.startswith(("/", "~")) else posixpath.normpath(posixpath.join(folder, p))
+            for p in paths
+        )
+
+    return replace(action, reads=moved(action.reads), writes=moved(action.writes))
 
 
 def _classify(simple: SimpleCommand, inside: Inside) -> list[Action]:
@@ -183,7 +228,8 @@ def _classify(simple: SimpleCommand, inside: Inside) -> list[Action]:
         kind = max(redirect_kind, Kind.READ, key=_rank)
         return [_action(whole, kind, reads=reads, writes=writes)]
 
-    nested = _shell(words, inside)
+    texts = _texts(simple, _rule_words(words), words)
+    nested = _shell(words, inside, texts)
     if nested is None:
         nested = _find_exec(words, inside)
     if nested is not None:
@@ -191,7 +237,6 @@ def _classify(simple: SimpleCommand, inside: Inside) -> list[Action]:
             nested.append(_action(_texts(simple, words), redirect_kind, reads=reads, writes=writes))
         return nested
 
-    texts = _texts(simple, _rule_words(words), words)
     kind, reason = _program_kind(words, inside)
     if kind in (Kind.READ, Kind.WRITE, Kind.EXECUTE):
         problem = _outside_argument(words, inside, args_unknown)
@@ -206,17 +251,21 @@ def _texts(
     simple: SimpleCommand, words: list[Word], shown_words: list[Word] | None = None
 ) -> _Texts:
     """How rules see a command and how the user sees it. Redirections to files are part of
-    both, so a prompt for `cat > notes.txt` says so, and "always" allows only that."""
+    both, so a prompt for `cat > notes.txt` says so, and "always" allows only that. What the
+    user sees ends with any here-document's lines, so "always" for `bash <<EOF` covers only
+    that script."""
     files = [(op, target) for op, target in simple.redirects if _names_file(op, target)]
     bare = " ".join(word.text for word in words)
     command = " ".join([bare, *(f"{op} {target.text}" for op, target in files)])
+    heredocs = [heredoc.partition("\n") for heredoc in simple.heredocs]
     shown = " ".join(
         [
             *(_quote(word) for word in (shown_words or words)),
             *(f"{op} {_quote(target)}" for op, target in files),
-            *simple.heredocs,
+            *(marker for marker, _, _ in heredocs),
         ]
     )
+    shown += "".join(f"\n{body}" for _, _, body in heredocs if body)
     return _Texts(command.strip(), shown, bare)
 
 
@@ -229,7 +278,32 @@ def _action(
     writes: tuple[str, ...] = (),
     outside: bool = False,
 ) -> Action:
+    writes, reads = _with_braces(writes), _with_braces(reads)
     return Action(texts.command, kind, reason, writes, reads, texts.shown, texts.bare, outside)
+
+
+BRACES = re.compile(r"\{([^{}]*,[^{}]*)\}")
+MAX_BRACE_NAMES = 64
+
+
+def _with_braces(paths: tuple[str, ...]) -> tuple[str, ...]:
+    """Each name a path stands for after brace expansion: `.git{,}` and `{.git,x}` name .git.
+    Expansion stops once there are many names, leaving the rest of the braces as written."""
+    found: list[str] = []
+    for path in paths:
+        names = [path]
+        while len(names) <= MAX_BRACE_NAMES and any(BRACES.search(name) for name in names):
+            expanded: list[str] = []
+            for name in names:
+                match = BRACES.search(name)
+                if match is None:
+                    expanded.append(name)
+                    continue
+                before, after = name[: match.start()], name[match.end() :]
+                expanded.extend(before + choice + after for choice in match.group(1).split(","))
+            names = expanded
+        found.extend(names)
+    return tuple(dict.fromkeys(found))
 
 
 def _names_file(op: str, target: Word) -> bool:
@@ -265,7 +339,7 @@ def _program_kind(words: list[Word], inside: Inside) -> tuple[Kind, str]:
     first = words[0]
     if first.dynamic:
         return Kind.UNKNOWN, "the program's name comes from a variable"
-    program = PurePosixPath(first.text).name  # a system program may be named by its full path
+    program = _program_name(first.text)  # a system program may be named by its full path
     # The project's own program runs code. A package manager in it, like .venv/bin/pip, is
     # judged like the one on PATH, so an install still counts as using the network.
     managed = VERSIONED.match(program) or program in PACKAGE_MANAGERS
@@ -296,17 +370,27 @@ def _program_kind(words: list[Word], inside: Inside) -> tuple[Kind, str]:
     if program in ("sed", "gsed"):
         if _sed_in_place(args):
             return Kind.WRITE, ""
-        scripts = [a for a in args if not a.startswith("-")][:1] + _option_values(args, "-e")
+        scripts = _sed_scripts(args)
+        if scripts is None:
+            return Kind.UNKNOWN, "its script comes from a file, which Zwans doesn't read"
         if any(SED_RUNS_OR_WRITES.search(script) for script in scripts):
             return Kind.UNKNOWN, "its script may run commands or write files"
         return Kind.READ, ""
-    if program in ("awk", "gawk", "mawk", "nawk"):
-        script = next((a for a in args if not a.startswith("-")), "")
-        if any(token in script for token in ("system", "|", ">")):
+    if program in AWKS:
+        awk = _awk_program(args)
+        if awk is None:
+            return Kind.UNKNOWN, "its program comes from a file, which Zwans doesn't read"
+        if any(token in script for script in awk.scripts for token in ("system", "|", ">")):
             return Kind.UNKNOWN, "its program may run commands or write files"
-        return Kind.READ, ""
+        return (Kind.WRITE if awk.in_place else Kind.READ), ""
     if program == "sort":
+        if any(a.startswith("--compress-program") for a in args):
+            return Kind.UNKNOWN, "--compress-program makes sort run another program"
         return (Kind.WRITE if _sort_output(args) else Kind.READ), ""
+    if program == "rg" and any(a == "--pre" or a.startswith("--pre=") for a in args):
+        return Kind.UNKNOWN, "--pre makes rg run another program on each file"
+    if program in ("cd", "pushd") and _unknown_folder(args):
+        return Kind.UNKNOWN, UNKNOWN_FOLDER
     # `uniq IN OUT` and `xxd IN OUT` write OUT, and `tree -o FILE` writes FILE.
     if program == "uniq":
         return (Kind.WRITE if len(_positional(args, UNIQ_VALUES)) > 1 else Kind.READ), ""
@@ -345,6 +429,97 @@ def _environment_kind(program: str, args: list[str]) -> tuple[Kind, str] | None:
         if "=" in arg and RISKY_VARIABLES.match(name):
             return Kind.UNKNOWN, f"it sets {name}, which changes what programs run"
     return None
+
+
+def _unknown_folder(args: list[str]) -> bool:
+    """Whether `cd` or `pushd` goes somewhere the arguments don't name: home for a bare `cd`,
+    the last folder for `cd -`, a folder on the stack for `pushd` alone or `pushd +1`."""
+    named = [a for a in args if a == "-" or not a.startswith("-") or a[1:].isdigit()]
+    if not named or named[0] == "-":
+        return True
+    return named[0][0] in "+-" and named[0][1:].isdigit()
+
+
+def _sed_scripts(args: list[str]) -> list[str] | None:
+    """The scripts sed runs: each -e value (also written -eSCRIPT or --expression=SCRIPT), or
+    else its first argument. None when one comes from a file (-f), which this doesn't read."""
+    scripts: list[str] = []
+    positional: list[str] = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        following = args[i + 1] if i + 1 < len(args) else ""
+        i += 1
+        if arg in ("-f", "--file") or arg.startswith("--file="):
+            return None
+        if arg in ("-e", "--expression"):
+            scripts.append(following)
+            i += 1
+        elif arg.startswith("--expression="):
+            scripts.append(arg.partition("=")[2])
+        elif _short(arg):
+            for j, flag in enumerate(arg[1:], start=1):
+                if flag == "f":
+                    return None
+                if flag in "el":  # -e SCRIPT, -l N
+                    value = arg[j + 1 :]
+                    if not value:
+                        value = following
+                        i += 1
+                    if flag == "e":
+                        scripts.append(value)
+                    break
+                if flag == "i":
+                    break  # what follows is the backup suffix
+        elif not arg.startswith("-"):
+            positional.append(arg)
+    return scripts or positional[:1]
+
+
+class _Awk(NamedTuple):
+    scripts: list[str]
+    in_place: bool  # gawk -i inplace rewrites the files it reads
+
+
+AWK_VALUES = frozenset({"-F", "-v", "--field-separator", "--assign"})
+AWK_SOURCES = frozenset({"-e", "--source"})
+AWK_FILES = frozenset({"-f", "--file", "-E", "--exec", "-l", "--load", "-i", "--include"})
+
+
+def _awk_program(args: list[str]) -> _Awk | None:
+    """The program awk runs, from -e or its first argument. None when it comes from a file
+    (-f prog.awk) or loads one (-i lib, -l ext), which this doesn't read; `-i inplace` is the
+    one library it knows."""
+    scripts: list[str] = []
+    positional: list[str] = []
+    in_place = False
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        i += 1
+        if arg == "--":
+            positional.extend(args[i:])
+            break
+        if not arg.startswith("-") or arg == "-":
+            positional.append(arg)
+            continue
+        if arg.startswith("--"):
+            option, has_value, value = arg.partition("=")
+        else:
+            option, value = arg[:2], arg[2:]
+            has_value = "=" if value else ""
+        if option not in AWK_VALUES | AWK_SOURCES | AWK_FILES:
+            continue
+        if not has_value:
+            value = args[i] if i < len(args) else ""
+            i += 1
+        if option in AWK_SOURCES:
+            scripts.append(value)
+        elif option in ("-i", "--include") and value in ("inplace", "inplace.awk"):
+            in_place = True
+        elif option in AWK_FILES:
+            return None
+    return _Awk(scripts or positional[:1], in_place)
 
 
 def _python_module(args: list[str]) -> tuple[str, list[str]] | None:
@@ -425,7 +600,7 @@ def _package_kind(sub: str, read: frozenset[str] | set[str] = frozenset()) -> tu
 def _file_arguments(words: list[Word]) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """The files a command reads and writes, as far as its arguments tell, so file rules such
     as Read(.env) and Edit(.git/**) apply to `cat .env` and `cp x .git/hooks/` too."""
-    program = PurePosixPath(words[0].text).name
+    program = _program_name(words[0].text)
     args = [word.text for word in words[1:]]
     if program == "git":
         return _git_files(args)
@@ -435,10 +610,17 @@ def _file_arguments(words: list[Word]) -> tuple[tuple[str, ...], tuple[str, ...]
         return (), ()
     rest = _without_pattern(words[1:]) if program in PATTERN_FIRST else words[1:]
     named = tuple(word.text for word in rest if not word.text.startswith("-"))
+    if program in ("source", "."):
+        return named[:1], ()
     if program in ("sed", "gsed") and _sed_in_place(args):
         return named, named
-    if program in ("cp", "ln"):
-        return named, _destination(args, named)
+    if program in AWKS:
+        awk = _awk_program(args)
+        return named, (named if awk is not None and awk.in_place else ())
+    if program in ("cp", "mv", "ln"):
+        return named, _copy_writes(program, args, named)
+    if program == "tar":  # -C DIR is among the names already
+        return named, named + tuple(_values(args, "--directory"))
     if program in WRITE_PROGRAMS:
         return (named if program in COPY_PROGRAMS else ()), named
     if program == "sort":
@@ -451,12 +633,36 @@ def _file_arguments(words: list[Word]) -> tuple[tuple[str, ...], tuple[str, ...]
     return (), ()
 
 
-def _destination(args: list[str], named: tuple[str, ...]) -> tuple[str, ...]:
-    """Where cp and ln write: the -t folder, or else the last file name."""
-    targets = _option_values(args, "-t") + [
-        a.partition("=")[2] for a in args if a.startswith("--target-directory=")
+def _copy_writes(program: str, args: list[str], named: tuple[str, ...]) -> tuple[str, ...]:
+    """What cp, mv and ln change: where they write (the -t folder, or else the last name), and
+    each source's name inside it, since `cp -r t/.git .` writes .git. mv also removes its
+    sources. A link lets whoever writes to it change what it points to, so for ln (and cp -l
+    or -s) the sources count as changed too."""
+    targets = _option_values(args, "-t") + _values(args, "--target-directory")
+    sources = [a for a in named if a not in targets] if targets else list(named[:-1])
+    folders = targets or list(named[-1:])
+    landed: list[str] = []
+    for folder in folders:
+        for source in sources:
+            # `cp -r t/. .` copies what's in t, dotfiles too, so any name may land there.
+            contents = source == "." or source.endswith(("/", "/."))
+            landed.append(posixpath.join(folder, ".*" if contents else posixpath.basename(source)))
+    links = program == "ln" or (
+        program == "cp"
+        and any(
+            a in ("--link", "--symbolic-link") or (_short(a) and ("l" in a or "s" in a))
+            for a in args
+        )
+    )
+    changed = list(named) if program == "mv" or links else []
+    return tuple(dict.fromkeys([*folders, *landed, *changed]))
+
+
+def _values(args: list[str], option: str) -> list[str]:
+    """A long option's values, written `--option VALUE` or `--option=VALUE`."""
+    return _option_values(args, option) + [
+        a.partition("=")[2] for a in args if a.startswith(option + "=")
     ]
-    return tuple(targets) or named[-1:]
 
 
 def _git_files(args: list[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -469,6 +675,8 @@ def _git_files(args: list[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
         return (), ()
     sub, rest = args[i], args[i + 1 :]
     writes = tuple(_git_output(rest))
+    if sub in GIT_FILE_CHANGES:  # `git checkout HEAD~3 -- .zwans/policy.toml`
+        return (), writes + tuple(a for a in rest if not a.startswith("-"))
     if sub not in GIT_READ:
         return (), writes
     named = [a for a in rest if not a.startswith("-") and a not in writes]
@@ -478,9 +686,7 @@ def _git_files(args: list[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
 
 
 def _git_output(args: list[str]) -> list[str]:
-    return _option_values(args, "--output") + [
-        a.partition("=")[2] for a in args if a.startswith("--output=")
-    ]
+    return _values(args, "--output")
 
 
 def _sort_output(args: list[str]) -> list[str]:
@@ -509,7 +715,23 @@ def _tree_output(args: list[str]) -> list[str]:
 
 
 def _sed_in_place(args: list[str]) -> bool:
-    return any(a.startswith("--in-place") or (_short(a) and "i" in a[1:]) for a in args)
+    """Whether sed has -i, which isn't the i in a script such as `-e'1i text'`."""
+    value_next = False
+    for arg in args:
+        if value_next:
+            value_next = False
+        elif arg.startswith("--in-place"):
+            return True
+        elif arg in ("--expression", "--file", "--line-length"):
+            value_next = True
+        elif _short(arg):
+            for j, flag in enumerate(arg[1:], start=1):
+                if flag == "i":
+                    return True
+                if flag in "efl":  # the rest, or the next argument, is its value
+                    value_next = j + 1 == len(arg)
+                    break
+    return False
 
 
 def _positional(args: list[str], takes_value: frozenset[str]) -> list[str]:
@@ -540,6 +762,8 @@ def _unwrap(words: list[Word]) -> tuple[list[Word], bool] | str:
                 return [], False  # looks a command up without running it
             if program == "env" and option in ("-S", "--split-string"):
                 return "env -S splits a string into a command Zwans can't see"
+            if program == "env" and (option in ("-C", "--chdir") or option.startswith("--chdir=")):
+                return "env -C runs it in another folder, so Zwans can't tell which files it uses"
             if option in takes_value and rest:
                 rest.pop(0)
         if program == "timeout" and rest:
@@ -557,7 +781,7 @@ def _unwrap(words: list[Word]) -> tuple[list[Word], bool] | str:
     return words, args_unknown
 
 
-def _shell(words: list[Word], inside: Inside) -> list[Action] | None:
+def _shell(words: list[Word], inside: Inside, texts: _Texts) -> list[Action] | None:
     """`bash -c "..."` runs the commands in its string, so judge those instead."""
     if words[0].text not in SHELLS:
         return None
@@ -568,21 +792,23 @@ def _shell(words: list[Word], inside: Inside) -> list[Action] | None:
                 break
             script = args[i + 1]
             if script.dynamic:
-                return [_unknown(words[0].text, "the commands it runs come from a variable")]
+                reason = "the commands it runs come from a variable"
+                return [_action(texts, Kind.UNKNOWN, reason, outside=True)]
             return analyze(script.text, inside)
         if not word.text.startswith("-"):
             if not inside(word.text):
                 reason = f"{word.text} is outside the workspace"
-                return [Action(word.text, Kind.UNKNOWN, reason, outside=True)]
-            return [Action(" ".join(w.text for w in words), Kind.EXECUTE)]
-    return [_unknown(words[0].text, "it runs commands from its input, which Zwans can't see")]
+                return [_action(texts, Kind.UNKNOWN, reason, outside=True)]
+            return [_action(texts, Kind.EXECUTE)]
+    # What it runs is on its input, such as a here-document, which `texts` shows in full.
+    return [_action(texts, Kind.UNKNOWN, "it runs commands from its input, which Zwans can't see")]
 
 
 def _find_exec(words: list[Word], inside: Inside) -> list[Action] | None:
     """find's -exec runs a command per file; -delete and -fprint write."""
     if words[0].text != "find":
         return None
-    actions: list[Action] = []
+    actions: list[tuple[Action, bool]] = []  # each with whether it runs in the file's folder
     expression_kind = Kind.READ
     writes: list[str] = []
     deletes = False
@@ -595,7 +821,8 @@ def _find_exec(words: list[Word], inside: Inside) -> list[Action] | None:
                 end += 1
             inner = SimpleCommand(words=words[i + 1 : end])
             if inner.words:
-                actions.extend(_classify(inner, inside))
+                in_dir = option.endswith("dir")
+                actions.extend((action, in_dir) for action in _classify(inner, inside))
             i = end + 1
             continue
         if option in ("-delete", "-fprint", "-fprint0", "-fprintf", "-fls"):
@@ -607,15 +834,46 @@ def _find_exec(words: list[Word], inside: Inside) -> list[Action] | None:
         i += 1
     plain = [w for w in words if w.text not in ("-exec", "-execdir", "-ok", "-okdir")]
     starts = plain[: _first_option(plain)]
+    # The files it acts on: under where it starts, and named by -name or -path when given.
+    folders = [w.text for w in words[1 : _first_option(words)]] or ["."]
+    names = _find_values(words, ("-name", "-iname"))
+    found = [
+        *folders,
+        *(posixpath.join(folder, name) for folder in folders for name in names),
+        *_find_values(words, ("-path", "-ipath", "-wholename", "-iwholename")),
+    ]
     if deletes:
-        # What it deletes is under where it starts. Not the workspace root, though: that
-        # holds everything, and `find . -name '*.pyc' -delete` is everyday cleanup.
-        writes.extend(w.text for w in starts[1:] if PurePosixPath(w.text).parts)
+        # Not the workspace root itself, though: it holds everything, and
+        # `find . -name '*.pyc' -delete` is everyday cleanup.
+        writes.extend(path for path in found if PurePosixPath(path).parts)
     texts = _texts(SimpleCommand(words=words), words)
     problem = _outside_argument(starts, inside, False)
     if problem:
         return [_action(texts, Kind.UNKNOWN, problem, outside=True)]
-    return [_action(texts, expression_kind, writes=tuple(writes)), *actions]
+    per_file = [_per_file(action, found, folders, in_dir) for action, in_dir in actions]
+    return [_action(texts, expression_kind, writes=tuple(writes)), *per_file]
+
+
+def _find_values(words: list[Word], options: tuple[str, ...]) -> list[str]:
+    return [words[i + 1].text for i in range(len(words) - 1) if words[i].text in options]
+
+
+def _per_file(action: Action, found: list[str], folders: list[str], in_dir: bool) -> Action:
+    """A command find runs per file, with {} as the files it may stand for. -execdir runs it
+    in each file's folder, so its other paths are taken from there too."""
+
+    def expand(paths: tuple[str, ...]) -> tuple[str, ...]:
+        out: list[str] = []
+        for path in paths:
+            if "{}" in path:
+                out.extend(path.replace("{}", file) for file in found)
+            elif in_dir and not path.startswith(("/", "~")):
+                out.extend(posixpath.normpath(posixpath.join(f, path)) for f in folders)
+            else:
+                out.append(path)
+        return tuple(dict.fromkeys(out))
+
+    return replace(action, reads=expand(action.reads), writes=expand(action.writes))
 
 
 def _first_option(words: list[Word]) -> int:
@@ -649,7 +907,7 @@ def _redirects(
 
 
 def _outside_argument(words: list[Word], inside: Inside, args_unknown: bool) -> str:
-    program = PurePosixPath(words[0].text).name
+    program = _program_name(words[0].text)
     if program in NO_FILE_PROGRAMS:
         return ""
     if args_unknown:
@@ -705,12 +963,13 @@ def _option_values(args: list[str], option: str) -> list[str]:
     return [args[i + 1] for i, a in enumerate(args[:-1]) if a == option]
 
 
+def _program_name(text: str) -> str:
+    """/usr/bin/git is git. `.` (as in `. venv/bin/activate`) stays itself."""
+    return PurePosixPath(text).name or text
+
+
 def _short(arg: str) -> bool:
     return arg.startswith("-") and not arg.startswith("--") and len(arg) > 1
-
-
-def _unknown(command: str, reason: str) -> Action:
-    return Action(command, Kind.UNKNOWN, reason)
 
 
 _RANKS = {Kind.READ: 0, Kind.WRITE: 1, Kind.EXECUTE: 2, Kind.NETWORK: 3, Kind.UNKNOWN: 4}

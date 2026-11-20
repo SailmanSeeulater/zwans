@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from helpers import collect, needs_bash, user
 
+import zwans.policy.rules
 import zwans.tools
 from zwans.cli import approval
 from zwans.events import PermissionDenied, PermissionRequested, PermissionResolved, ToolResult
@@ -322,6 +323,15 @@ def test_results_from_files_and_commands_are_marked_untrusted(tmp_path: Path) ->
         "sed -i 's/a/b/' .zwans/policy.toml",
         "find .git -delete",
         "bash -c 'echo x' > .git/hooks/pre-commit",
+        "cd .git/hooks && cp evil.sh pre-commit",
+        "cp --target-directory .git/hooks evil.sh",
+        "cp -r t/.git .",
+        "cp -r t/. .",
+        "ln -s .git g",
+        "cp evil.sh .git{,}",
+        "find .git/hooks -name pre-commit -exec cp evil.sh {} \\;",
+        "awk -i inplace 1 .zwans/policy.toml",
+        "git checkout HEAD~1 -- .zwans/policy.toml",
     ],
 )
 def test_file_commands_into_git_or_zwans_ask_even_in_auto_mode(
@@ -335,7 +345,20 @@ def test_file_commands_into_git_or_zwans_ask_even_in_auto_mode(
 
 
 @pytest.mark.parametrize(
-    "command", ["rm -rf build", "cp a b", "cp x .", "rm -rf *", "find . -name '*.pyc' -delete"]
+    "command",
+    [
+        "rm -rf build",
+        "cp a b",
+        "cp x .",
+        "rm -rf *",
+        "find . -name '*.pyc' -delete",
+        "cd src && rm -rf build",
+        "pushd src && make && popd",
+        "find src -name '*.tmp' -exec rm {} +",
+        "cp -r src/ backup/",
+        "git checkout main",
+        "mkdir -p {src,tests}/pkg",
+    ],
 )
 def test_other_file_commands_still_run_in_auto_mode(tmp_path: Path, command: str) -> None:
     assert decide(permissions(tmp_path, "auto"), BashTool(), command=command) == Decision.ALLOW
@@ -360,6 +383,9 @@ def test_edit_rules_cover_the_files_commands_write(tmp_path: Path) -> None:
         "cat .en*",
         "git show HEAD:.env",
         "cp .env notes.txt",
+        "source .env",
+        "cat .{env,x}",
+        "find . -name .env -exec cat {} +",
     ],
 )
 def test_read_rules_cover_the_files_commands_read(tmp_path: Path, command: str) -> None:
@@ -367,6 +393,12 @@ def test_read_rules_cover_the_files_commands_read(tmp_path: Path, command: str) 
     verdict = perms.check(BashTool(), {"command": command})
     assert verdict.decision == Decision.DENY
     assert "Read(.env)" in verdict.reason
+
+
+def test_a_deny_rule_wins_over_a_file_rule_that_asks(tmp_path: Path) -> None:
+    perms = permissions(tmp_path, "auto", deny=["Bash(rm -rf *)", "Read(.env)"])
+    assert decide(perms, BashTool(), command="rm -rf .git") == Decision.DENY
+    assert decide(perms, BashTool(), command="cp .env .git/hooks/x") == Decision.DENY
 
 
 def test_read_rules_dont_cover_names_or_other_files(tmp_path: Path) -> None:
@@ -396,15 +428,39 @@ def test_may_cover(pattern: str, path: str, folder: bool, covers: bool) -> None:
     assert Rule("Edit", pattern).may_cover(path, folder=folder) == covers
 
 
+@pytest.mark.parametrize("ignore_case", [True, False])
+def test_path_rules_ignore_case_where_the_file_system_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ignore_case: bool
+) -> None:
+    # macOS and Windows: .GIT/config is .git/config.
+    monkeypatch.setattr(zwans.policy.rules, "IGNORE_CASE", ignore_case)
+    expected = Decision.ASK if ignore_case else Decision.ALLOW
+    perms = permissions(tmp_path, "auto")
+    assert decide(perms, BashTool(), command="cp evil.sh .GIT/hooks/pre-commit") == expected
+    assert decide(perms, WriteTool(), path=".Zwans/policy.toml") == expected
+    assert Rule("Read", ".env").may_cover(".EN*", folder=False) == ignore_case
+
+
 def test_always_for_a_command_doesnt_cover_its_redirections(tmp_path: Path) -> None:
     perms = permissions(tmp_path)
     perms.session_rules.append(Rule.parse("Bash(cat)", "this session"))
     assert decide(perms, BashTool(), command="cat") == Decision.ALLOW
     verdict = perms.check(BashTool(), {"command": "cat > calc.py <<EOF\nimport os\nEOF"})
     assert verdict.decision == Decision.ASK
-    assert verdict.reason == "`cat > calc.py <<EOF` changes files"
-    assert verdict.rules == ("Bash(cat > calc.py <<EOF)",)
+    assert verdict.reason == "`cat > calc.py <<EOF ...` changes files"
+    assert verdict.rules == ("Bash(cat > calc.py <<EOF\nimport os\nEOF)",)
     assert decide(perms, BashTool(), command="cat < /etc/passwd > out.txt") == Decision.ASK
+
+
+def test_always_for_a_here_document_covers_only_that_text(tmp_path: Path) -> None:
+    perms = permissions(tmp_path)
+    script = "bash <<'EOF'\necho hi\nEOF"
+    verdict = perms.check(BashTool(), {"command": script})
+    assert verdict.rules == (f"Bash({script})",)
+    perms.session_rules.extend(Rule.parse(rule, "this session") for rule in verdict.rules)
+    assert decide(perms, BashTool(), command=script) == Decision.ALLOW
+    other = "bash <<'EOF'\nrm -rf ~\nEOF"
+    assert decide(perms, BashTool(), command=other) == Decision.ASK
 
 
 def test_a_wildcard_allow_rule_doesnt_reach_outside_the_workspace(tmp_path: Path) -> None:

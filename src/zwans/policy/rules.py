@@ -29,6 +29,7 @@ import hashlib
 import json
 import re
 import shlex
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -68,6 +69,9 @@ TOOL_NAMES = frozenset(
     }
 )
 MCP_PREFIX = "mcp__"
+# macOS and Windows file systems ignore case by default, so .GIT/config is .git/config there
+# and path rules must match it too.
+IGNORE_CASE = sys.platform in ("darwin", "win32")
 
 
 class PolicyError(Exception):
@@ -153,6 +157,8 @@ def _has_glob(text: str) -> bool:
 def _could_expand(word: str, name: str) -> bool:
     """Whether a shell word could stand for this file name. A glob doesn't match a leading dot,
     so `*` doesn't stand for `.git`."""
+    if IGNORE_CASE:
+        word, name = word.lower(), name.lower()
     if word == name:
         return True
     if not _has_glob(word) or (name.startswith(".") and not word.startswith(".")):
@@ -186,7 +192,7 @@ def path_glob(pattern: str) -> re.Pattern[str]:
         else:
             regex += re.escape(pattern[i])
             i += 1
-    return re.compile(regex + r"\Z")
+    return re.compile(regex + r"\Z", re.IGNORECASE if IGNORE_CASE else 0)
 
 
 class AfterUntrusted(BaseModel):

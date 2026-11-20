@@ -48,8 +48,9 @@ The classifier reads the command line, not what programs do. These are deliberat
   hooks run (such as `.zwans/hooks/check.py`), so trusting a policy file and then letting the
   agent edit it or one of those scripts requires trusting it again. The agent's own changes
   to `.zwans/` and `.git/` always ask, whether made with the file tools or with commands such
-  as `cp` and `rm`. A script that writes there from its own code isn't seen this way, which
-  is one more reason to pair `auto` mode with a sandbox.
+  as `cp` and `rm`. A script that writes there from its own code, or an archive or patch
+  that holds such paths (`tar xf`, `git apply`), isn't seen this way, which is one more
+  reason to pair `auto` mode with a sandbox.
 
 ## Extensions
 
