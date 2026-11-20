@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import os
 import sys
 from enum import StrEnum
 from pathlib import Path
@@ -28,6 +29,7 @@ app.add_typer(eval_app, name="eval")
 app.command()(serve)
 
 EXIT_INTERRUPTED = 130  # the usual exit code after Ctrl+C
+WORKSPACE_WIDTH = 24  # characters of a session's folder that `zwans sessions` shows
 
 Workspace = Annotated[
     Path,
@@ -41,7 +43,12 @@ Resume = Annotated[
     typer.Option(help="Continue a saved session: its id from `zwans sessions`, or its start."),
 ]
 Rewind = Annotated[
-    int | None, typer.Option(min=1, help="With --resume, first drop every turn after this one.")
+    int | None,
+    typer.Option(
+        min=1,
+        help="With --resume, first drop every turn after this one from the conversation. "
+        "The files stay as they are; /rewind in a chat puts them back too.",
+    ),
 ]
 
 
@@ -109,7 +116,11 @@ def run(
 @app.command()
 def sessions(limit: Annotated[int, typer.Option(min=1, help="How many to list.")] = 20) -> None:
     """List saved sessions, most recent first."""
-    config, _ = load_settings()
+    try:
+        config, _ = load_settings()
+    except ConfigError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(2) from exc
     store = SessionStore(config.home / "sessions.db")
     found = store.recent(limit)
     store.close()
@@ -118,8 +129,18 @@ def sessions(limit: Annotated[int, typer.Option(min=1, help="How many to list.")
     for info in found:
         when = info.updated_at.replace("T", " ")[:16]
         dollars = float(info.usage.get("dollars", 0.0))
-        turns = _count(info.turns, "turn")
-        typer.echo(f"{info.id}  {when}  {turns:>9}  ${dollars:7.4f}  {info.title}")
+        turns = f"{info.turns:>4} {'turn' if info.turns == 1 else 'turns':<5}"
+        folder = _short_path(info.workspace, WORKSPACE_WIDTH)
+        line = f"{info.id}  {when}  {turns}  ${dollars:7.4f}  {folder:<{WORKSPACE_WIDTH}}"
+        typer.echo(f"{line}  {info.title}".rstrip())
+
+
+def _short_path(path: str, width: int) -> str:
+    """`path` with the home folder as ~, and its start left out if it's still too long."""
+    home = str(Path.home())
+    if path == home or path.startswith(home + os.sep):
+        path = "~" + path[len(home) :]
+    return path if len(path) <= width else "…" + path[-(width - 1) :]
 
 
 @app.command()
@@ -183,6 +204,7 @@ def _start(
         return 2
     # /clear, /resume and /undo close the session and open another, so this can go round again.
     draft = ""
+    files_kept = rewind is not None  # --rewind leaves the files; /rewind and /undo don't
     while True:
         try:
             opened = open_session(
@@ -201,17 +223,26 @@ def _start(
         except (ConfigError, SessionError, PolicyError) as exc:
             typer.secho(str(exc), fg="red", err=True)
             return 2
-        outcome = _run_session(opened, task, scripted=fake_script is not None, draft=draft)
+        scripted = fake_script is not None
+        outcome = _run_session(opened, task, scripted, draft, files_kept)
         if not isinstance(outcome, Reopen):
             return outcome
         workspace = Path(opened.info.workspace)
-        resume, rewind, model, draft = outcome.resume, outcome.rewind, opened.model, outcome.draft
+        resume, rewind, draft = outcome.resume, outcome.rewind, outcome.draft
+        # A new session, or this one again, keeps the current model; another saved session
+        # opens with its own.
+        model = opened.model if resume in (None, opened.id) else None
+        files_kept = False
 
 
 def _run_session(
-    opened: OpenedSession, task: str | None, scripted: bool, draft: str = ""
+    opened: OpenedSession,
+    task: str | None,
+    scripted: bool,
+    draft: str = "",
+    files_kept: bool = False,
 ) -> int | Reopen:
-    _banner(opened, scripted)
+    _banner(opened, scripted, files_kept)
     # One event loop for the whole session, so the API client's connections stay usable.
     with asyncio.Runner() as runner:
         try:
@@ -238,10 +269,11 @@ def _run_session(
             runner.run(opened.close())
             if not isinstance(outcome, Reopen):  # only when leaving Zwans, not switching
                 typer.secho(f"\nSession cost: {opened.meter.summary()}", dim=True)
-                typer.secho(f"To continue it: zwans --resume {opened.id}", dim=True)
+                if not opened.empty:  # an empty session isn't kept
+                    typer.secho(f"To continue it: zwans --resume {opened.id}", dim=True)
 
 
-def _banner(opened: OpenedSession, scripted: bool) -> None:
+def _banner(opened: OpenedSession, scripted: bool, files_kept: bool = False) -> None:
     for path in opened.instructions:
         typer.secho(f"Following {path}", dim=True)
     config, info = opened.config, opened.info
@@ -251,6 +283,12 @@ def _banner(opened: OpenedSession, scripted: bool) -> None:
     typer.secho(f"Zwans {__version__} | {label} | mode {mode} | {info.workspace}", dim=True)
     if opened.resumed:
         typer.secho(f"Resumed {info.id} after {_count(info.turns, 'turn')}: {info.title}", dim=True)
+        if files_kept:
+            typer.secho(
+                f"Turns after turn {info.turns} were dropped from the conversation. The files "
+                "were left as they are.",
+                dim=True,
+            )
     if opened.repaired:
         typer.secho("Its last turn was cut off mid-tool; those calls are marked unfinished.")
 
@@ -294,10 +332,14 @@ def _chat(opened: OpenedSession, runner: asyncio.Runner, draft: str = "") -> int
                 # File contents may carry instructions, just as when the model reads them.
                 opened.session.permissions.observe("Read", is_error=False)
         checkpoint_problem = opened.checkpoints.problem if opened.checkpoints else None
+        turns = opened.session.turn
         try:
             runner.run(opened.session.send(mentions.text, mentions.images))
         except KeyboardInterrupt:
             typer.secho("Interrupted. The conversation is kept, so carry on.", fg="yellow")
+        if opened.session.turn == turns and composer is not None:
+            draft = line  # it failed before the model answered, so it wasn't kept
+            typer.secho("Your message is back in the input, to send again.", dim=True)
         if opened.checkpoints and opened.checkpoints.problem != checkpoint_problem:
             typer.secho(str(opened.checkpoints.problem), fg="yellow")
         _print_turn(opened)

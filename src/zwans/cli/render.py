@@ -45,7 +45,7 @@ class Renderer:
                 self._line(f"  ! {_first_line(content)}", fg="red")
             case ToolResult(content=content):
                 self._line(f"  {_result_summary(content)}", dim=True)
-            case TurnEnded(stop_reason="end_turn"):
+            case TurnEnded(stop_reason="end_turn" | "error"):  # an error has said why already
                 self._finish_line()
             case TurnEnded(stop_reason=reason, detail=detail):
                 self._line(f"[stopped: {reason}{f', {detail}' if detail else ''}]", fg="yellow")

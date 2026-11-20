@@ -16,6 +16,7 @@ from zwans.events import (
     PermissionDenied,
     PermissionRequested,
     PermissionResolved,
+    TextDelta,
     ToolCallRequested,
     ToolResult,
     TurnEnded,
@@ -38,6 +39,7 @@ from zwans.web import web_calls, web_results
 
 INTERRUPTED = "Interrupted by the user before this finished."
 STOPPED = "Zwans stopped before this finished, so it may or may not have run."
+CUT_OFF = "[The user interrupted this reply here.]"
 
 
 async def run_turn(
@@ -67,16 +69,22 @@ async def run_turn(
 
     for _ in range(max_steps):
         model_call = TimedCall()
+        streamed: list[str] = []  # the reply's text so far, kept if Ctrl+C cuts it off
         try:
             if compactor is not None:
                 for event in await compactor.maybe_compact(messages):
                     yield event
                 model_call = TimedCall()  # a summary call isn't part of this one's time
             async for item in model_call.stream(provider, system, messages, tools):
+                if isinstance(item, TextDelta):
+                    streamed.append(item.text)
                 yield item
         except ProviderError as exc:
             yield Error(message=str(exc))
             return
+        except asyncio.CancelledError:
+            _keep_cut_off_reply(messages, "".join(streamed))
+            raise
         response = model_call.response
         if response is None:
             yield Error(message="The model's stream ended without a response.")
@@ -248,6 +256,15 @@ def answer_pending_calls(messages: list[Message]) -> bool:
         return False
     messages.append(_results_message(calls, {}, default=ToolOutput(STOPPED, is_error=True)))
     return True
+
+
+def _keep_cut_off_reply(messages: list[Message], text: str) -> None:
+    """Keep the text the model had written when Ctrl+C stopped it, so it knows what it said
+    and that it was cut off. Its thinking and half-written tool calls can't be sent back."""
+    text = text.rstrip()
+    if text:
+        note = f"{text}\n\n{CUT_OFF}"
+        messages.append(Message(role="assistant", content=[TextBlock(text=note)]))
 
 
 def _batches(calls: list[ToolUseBlock], tools: dict[str, Tool[Any]]) -> list[list[ToolUseBlock]]:

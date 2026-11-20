@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic_core import ErrorDetails
 
 type AuthMode = Literal["api_key", "subscription"]
 type Effort = Literal["low", "medium", "high", "xhigh", "max"]
@@ -91,15 +92,35 @@ class Credential:
 
 
 def load_config(path: Path = DEFAULT_CONFIG_PATH, env: Mapping[str, str] = os.environ) -> Config:
+    """Raises ConfigError, naming the file or variable, when a setting isn't valid."""
     data: dict[str, Any] = {}
     if path.exists():
         with path.open("rb") as f:
-            data = tomllib.load(f)
+            try:
+                data = tomllib.load(f)
+            except tomllib.TOMLDecodeError as exc:
+                raise ConfigError(f"{path} isn't valid TOML: {exc}") from exc
+    from_env: set[str] = set()
     for name in Config.model_fields:
         value = env.get(f"ZWANS_{name.upper()}")
         if value is not None:
             data[name] = value
-    return Config.model_validate(data)
+            from_env.add(name)
+    try:
+        return Config.model_validate(data)
+    except ValidationError as exc:
+        problems = [_describe_problem(error, path, from_env) for error in exc.errors()]
+        raise ConfigError("\n".join(["Some settings aren't valid:", *problems])) from exc
+
+
+def _describe_problem(error: ErrorDetails, path: Path, from_env: set[str]) -> str:
+    loc = [str(part) for part in error["loc"]]
+    if loc and loc[0] in from_env:
+        where = f"ZWANS_{loc[0].upper()}"
+    else:
+        where = f"{'.'.join(loc)} in {path}"
+    message = "isn't a setting" if error["type"] == "extra_forbidden" else error["msg"]
+    return f"  {where}: {message}"
 
 
 def read_dotenv(path: Path) -> dict[str, str]:
@@ -141,6 +162,8 @@ def load_settings() -> tuple[Config, dict[str, str]]:
     """
     local = {**read_dotenv(Path(".env")), **os.environ}
     path = Path(local["ZWANS_CONFIG"]).expanduser() if local.get("ZWANS_CONFIG") else None
+    if path is not None and not path.is_file():
+        raise ConfigError(f"ZWANS_CONFIG names {path}, which doesn't exist.")
     config = load_config(path or DEFAULT_CONFIG_PATH, env=local)
     env = {**read_dotenv(config.home / ".env"), **local}
     if env != local:  # the home .env may set ZWANS_* settings too

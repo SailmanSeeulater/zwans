@@ -61,8 +61,16 @@ python examples/run_demo.py --scripted       # demo with a scripted model: free,
 python examples/run_demo.py                  # the same demo with the real model
 ```
 
-Ctrl+C stops the running turn and keeps the conversation. After each turn Zwans prints its
-cost, the context size, and how much input came from the prompt cache.
+Ctrl+C stops the running turn and keeps the conversation, including what the model had
+written so far, marked as cut off. After each turn Zwans prints its cost, the context size,
+and how much input came from the prompt cache.
+
+A session is saved as soon as you send something, and one you close without sending anything
+isn't kept. `zwans sessions` shows each one's turns, cost, folder and first message. A session
+keeps its model, whether chosen with `--model` or `/model`. A turn that fails before the model
+answers, such as on an API error, is taken back, and in the chat your message goes back into
+the input to send again. `--rewind` only drops turns from the conversation and leaves the
+files as they are; `/rewind` and `/undo` in the chat put the files back too.
 
 In the chat, Enter sends and Esc then Enter (or Ctrl+J) starts a new line; pasted text keeps
 its lines. Up and Down go through earlier messages, kept in `~/.zwans/history`. Ctrl+C clears
@@ -419,6 +427,9 @@ environment variables:
 | `executor` | `local` | Where commands run: `local`, `docker`, or `jail` (Linux) |
 | `home` | `~/.zwans` | Where transcripts, saved sessions, saved tool output, and the policy file go |
 | `mcp_servers` | none | MCP servers, by name; see above |
+
+A setting that isn't valid, or a file `ZWANS_CONFIG` names that doesn't exist, stops Zwans
+with a message naming the file or variable to fix.
 
 ## Development
 

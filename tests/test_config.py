@@ -49,8 +49,9 @@ def test_the_home_dotenv_works_everywhere_and_the_local_one_wins(
     project.mkdir()
     (home / ".env").write_text("ANTHROPIC_API_KEY=sk-home\nZWANS_MODEL=from-home\n")
     (project / ".env").write_text("ANTHROPIC_API_KEY=sk-project\n")
+    (tmp_path / "empty.toml").write_text("")  # not the real config file
     monkeypatch.setenv("ZWANS_HOME", str(home))
-    monkeypatch.setenv("ZWANS_CONFIG", str(tmp_path / "missing.toml"))
+    monkeypatch.setenv("ZWANS_CONFIG", str(tmp_path / "empty.toml"))
     for name in ("ANTHROPIC_API_KEY", "ZWANS_MODEL"):
         monkeypatch.delenv(name, raising=False)
 
@@ -61,6 +62,37 @@ def test_the_home_dotenv_works_everywhere_and_the_local_one_wins(
     monkeypatch.chdir(project)
     _, env = load_settings()
     assert env["ANTHROPIC_API_KEY"] == "sk-project"
+
+
+def test_a_bad_setting_names_where_it_came_from(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('max_stpes = 5\neffort = "extreme"\n', encoding="utf-8")
+
+    with pytest.raises(ConfigError) as caught:
+        load_config(path, env={"ZWANS_AUTH": "oauth"})
+
+    message = str(caught.value)
+    assert "ZWANS_AUTH: Input should be 'api_key' or 'subscription'" in message
+    assert f"max_stpes in {path}: isn't a setting" in message
+    assert f"effort in {path}: Input should be" in message
+
+
+def test_a_config_file_that_isnt_toml_is_a_config_error(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('model = "x\n', encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="isn't valid TOML"):
+        load_config(path, env={})
+
+
+def test_zwans_config_naming_a_missing_file_is_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ZWANS_CONFIG", str(tmp_path / "missing.toml"))
+
+    with pytest.raises(ConfigError, match="doesn't exist"):
+        load_settings()
 
 
 def test_credential_follows_the_auth_mode() -> None:

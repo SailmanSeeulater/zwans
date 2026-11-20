@@ -142,3 +142,59 @@ def test_sessions_are_saved_listed_and_resumed(tmp_path: Path) -> None:
     assert resumed.exit_code == 0, resumed.output
     assert f"Resumed {session_id} after 1 turn: Say hi" in resumed.output
     assert "2 turns" in relisted.output
+
+
+def test_sessions_lists_only_used_sessions_in_aligned_columns(tmp_path: Path) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    env = {"ZWANS_HOME": str(tmp_path / "home")}
+    runner = CliRunner()
+    script = _script(tmp_path / "script.json", "One.", "Two.")
+    args = ["-w", str(workspace), "--fake-script", str(script)]
+
+    started = runner.invoke(app, ["run", "First line\n\nand more", *args], env=env)
+    session_id = runner.invoke(app, ["sessions"], env=env).output.split()[0]
+    runner.invoke(app, ["run", "Again", "--resume", session_id, *args], env=env)
+    unused = runner.invoke(app, args, env=env, input="")  # a chat closed without a word
+    listing = runner.invoke(app, ["sessions"], env=env)
+
+    assert started.exit_code == 0, started.output
+    assert unused.exit_code == 0, unused.output
+    assert "To continue it" not in unused.output
+    [row] = listing.output.splitlines()
+    assert "   2 turns  $ 0.0000" in row
+    assert str(workspace)[-10:] in row
+    assert row.endswith("  First line")
+
+
+def test_rewind_from_the_command_line_says_the_files_were_kept(tmp_path: Path) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    env = {"ZWANS_HOME": str(tmp_path / "home")}
+    runner = CliRunner()
+    script = _script(tmp_path / "script.json", "One.", "Two.", "Three.")
+    args = ["-w", str(workspace), "--fake-script", str(script)]
+    runner.invoke(app, ["run", "First", *args], env=env)
+    session_id = runner.invoke(app, ["sessions"], env=env).output.split()[0]
+    runner.invoke(app, ["run", "Second", "--resume", session_id, *args], env=env)
+
+    resume = ["--resume", session_id]
+    too_far = runner.invoke(app, ["run", "Hi", *resume, "--rewind", "2", *args], env=env)
+    rewound = runner.invoke(app, ["run", "Third", *resume, "--rewind", "1", *args], env=env)
+
+    assert too_far.exit_code == 2
+    assert "has 2 turns, so there are no turns after turn 2 to drop" in too_far.output
+    assert rewound.exit_code == 0, rewound.output
+    assert "Turns after turn 1 were dropped from the conversation" in rewound.output
+    assert "The files were left as they are." in rewound.output
+
+
+def test_a_bad_setting_is_reported_without_a_traceback(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        app,
+        ["run", "Hi", "-w", str(tmp_path)],
+        env={"ZWANS_HOME": str(tmp_path), "ZWANS_AUTH": "oauth"},
+    )
+
+    assert result.exit_code == 2
+    assert "ZWANS_AUTH: Input should be 'api_key' or 'subscription'" in result.output

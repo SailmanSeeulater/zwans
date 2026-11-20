@@ -5,7 +5,8 @@ from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from zwans.context.compaction import Compactor
-from zwans.events import Event, TurnEnded
+from zwans.context.tokens import CHARS_PER_TOKEN
+from zwans.events import Event, TextDelta, ThinkingDelta, TurnEnded, UsageUpdated
 from zwans.ext.hooks import Hooks
 from zwans.loop import run_turn
 from zwans.messages import ContentBlock, ImageBlock, Message, TextBlock
@@ -53,13 +54,17 @@ class Session:
 
     async def send(self, prompt: str, images: Sequence[ImageBlock] = ()) -> str:
         """Run one turn and return why it ended: "end_turn", "interrupted", "error", ...
-        `images` go before the prompt, as the API recommends."""
+        `images` go before the prompt, as the API recommends. A turn that fails before the
+        model answers is taken back: its prompt leaves the conversation and `turn` goes back."""
         self.turn += 1
         if self.before_turn is not None:
             await self.before_turn(self.turn)
         content: list[ContentBlock] = [*images, TextBlock(text=prompt)]
-        self.messages.append(Message(role="user", content=content, turn=self.turn))
-        stop_reason = "error"
+        asked = Message(role="user", content=content, turn=self.turn)
+        self.messages.append(asked)
+        stop_reason: str | None = None
+        streamed = 0  # characters streamed since the last model call's usage came in
+        model = str(getattr(self.provider, "model", "") or "")
         turn = run_turn(
             self.provider,
             self.tools,
@@ -74,11 +79,29 @@ class Session:
         try:
             async for event in turn:
                 self.emit(event)
-                if isinstance(event, TurnEnded):
+                if isinstance(event, TextDelta | ThinkingDelta):
+                    streamed += len(event.text)
+                elif isinstance(event, UsageUpdated):
+                    streamed, model = 0, event.model or model
+                elif isinstance(event, TurnEnded):
                     stop_reason = event.stop_reason
         except asyncio.CancelledError:  # Ctrl+C
+            if streamed and model:  # without a model, its price is unknown anyway
+                # The API reports usage only once a reply is complete, so count what the
+                # cut-off reply streamed. Its input isn't counted: how much of it came from
+                # the cache is unknown, and guessing could overstate the cost many times over.
+                tokens = max(1, streamed // CHARS_PER_TOKEN)
+                self.emit(UsageUpdated(input_tokens=0, output_tokens=tokens, model=model))
             self.emit(TurnEnded(stop_reason="interrupted"))
             raise
+        if stop_reason is None:  # the loop stopped on an error, which it has reported
+            if self.messages and self.messages[-1] is asked:
+                # The model never answered, so the prompt isn't kept: sending it again with
+                # the next one would ask for both at once.
+                self.messages.pop()
+                self.turn -= 1
+            stop_reason = "error"
+            self.emit(TurnEnded(stop_reason=stop_reason))
         return stop_reason
 
     def emit(self, event: Event) -> None:
