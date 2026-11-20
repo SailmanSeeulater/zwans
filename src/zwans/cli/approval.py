@@ -8,6 +8,7 @@ import typer
 
 from zwans.cli.diffs import show_change
 from zwans.cli.terminal_text import printable
+from zwans.executor.shutdown import reading_input
 from zwans.policy.engine import Approval, PermissionRequest
 from zwans.policy.rules import (
     Decision,
@@ -87,12 +88,14 @@ def _prompt(text: str) -> str:
     """Read a line. Ctrl+C or end of input counts as no.
 
     The event loop's own Ctrl+C handler would only cancel the turn after the next Enter, so
-    the default one is put back while waiting for an answer.
+    the default one is put back while waiting for an answer. SIGTERM and SIGHUP likewise stop
+    the wait at once rather than after an answer.
     """
     _discard_typeahead()
     previous = signal.signal(signal.SIGINT, signal.default_int_handler)
     try:
-        return input(text)
+        with reading_input():
+            return input(text)
     except (EOFError, KeyboardInterrupt):
         typer.echo()
         return ""

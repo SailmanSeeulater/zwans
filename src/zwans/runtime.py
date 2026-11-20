@@ -63,6 +63,7 @@ class OpenedSession:
     instructions: list[Path] = field(default_factory=list)  # instruction files, for a new one
     resumed: bool = False
     repaired: bool = False  # its last turn was cut off mid-tool
+    had_turns: bool = False  # it had turns before, even if a rewind has dropped them all
 
     @property
     def id(self) -> str:
@@ -70,8 +71,9 @@ class OpenedSession:
 
     @property
     def empty(self) -> bool:
-        """Nothing was said in it, so closing it deletes it rather than keep a blank row."""
-        return not self.session.messages
+        """Nothing was ever said in it, so closing it deletes it rather than keep a blank row.
+        One rewound to before its first turn is kept, as its row records what those turns cost."""
+        return not self.session.messages and not self.had_turns
 
     async def start(self) -> tuple[list[McpTool], list[str]]:
         """Start the container, if commands run in one, and the MCP servers. Returns the MCP
@@ -120,6 +122,7 @@ def open_session(
     repaired = False
     followed: list[Path] = []
     unsaved_model: str | None = None
+    had_turns = False
     if resume is not None:
         try:
             found = store.get(resume)
@@ -128,6 +131,9 @@ def open_session(
                     f"Session {found.id} worked in {found.workspace}, which no longer exists. "
                     "Move the folder back to resume it."
                 )
+            # Counted before the rewind. A session rewound to before turn 1 keeps the title
+            # its first prompt gave it, so it still counts when resumed again later.
+            had_turns = found.turns > 0 or bool(found.title)
             info, messages, repaired = load_session(store, found.id, rewind)
         except SessionError:
             store.close()  # the server carries on after a failed resume
@@ -248,6 +254,7 @@ def open_session(
         instructions=followed,
         resumed=resume is not None,
         repaired=repaired,
+        had_turns=had_turns,
     )
 
 

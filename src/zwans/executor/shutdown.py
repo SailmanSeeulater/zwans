@@ -8,7 +8,7 @@ import contextlib
 import os
 import signal
 import sys
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterator
 from contextvars import Context
 from types import FrameType
 from typing import Any, Self
@@ -17,6 +17,21 @@ from typing import Any, Self
 STOP_SIGNALS = () if sys.platform == "win32" else (signal.SIGTERM, signal.SIGHUP)
 
 _Handler = Callable[[int, FrameType | None], Any] | int | None
+
+_reading = 0  # blocking reads on the event loop's thread, such as an approval question's
+
+
+@contextlib.contextmanager
+def reading_input() -> Iterator[None]:
+    """Mark a blocking read, such as input(), done on the event loop's thread. The loop can't
+    run a cancel until the read returns, and Python retries a read a signal interrupted, so a
+    stop signal arriving meanwhile cancels from within the read instead."""
+    global _reading
+    _reading += 1
+    try:
+        yield
+    finally:
+        _reading -= 1
 
 
 # typeshed marks Runner final, but Python doesn't, and this only adds to `run`.
@@ -85,6 +100,11 @@ class SessionRunner(asyncio.Runner):  # type: ignore[misc]
         main = self._main
         if main is not None and not main.done():
             self._cancelled = True
+            if _reading:
+                # The read blocks the loop, so cancel right here: the task stops as if the
+                # read had been an `await` that got cancelled.
+                main.cancel()
+                raise asyncio.CancelledError
             self.get_loop().call_soon_threadsafe(main.cancel)
         else:  # between runs, such as waiting for a line typed without the composer
             raise self._exit()

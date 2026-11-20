@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from prompt_toolkit.input import Input, create_input
+from prompt_toolkit.input.typeahead import get_typeahead
 
 from zwans import __version__
 from zwans.cli.approval import can_prompt, load_with_trust, terminal_approver
@@ -239,7 +241,7 @@ def _start(
                 rewind=rewind,
                 model=model,
                 mode=mode.value if mode else None,
-                approver=_approve_with_echo if can_prompt() else None,
+                approver=EchoingApprover() if can_prompt() else None,
                 listeners=[Renderer(spinner=True).on_event],
                 policy_loader=load_with_trust,
                 fake_script=fake_script,
@@ -271,10 +273,17 @@ def _start(
         files_kept, ignored = False, None
 
 
-async def _approve_with_echo(request: PermissionRequest) -> Approval:
-    """Ask in the terminal, with typing shown again: the chat hides it while a turn runs."""
-    with echoing():
-        return await terminal_approver(request)
+class EchoingApprover:
+    """Asks in the terminal, with typing shown again: the chat hides it while a turn runs.
+    It counts its questions, so the chat can tell whether a turn asked one."""
+
+    def __init__(self) -> None:
+        self.asked = 0
+
+    async def __call__(self, request: PermissionRequest) -> Approval:
+        self.asked += 1
+        with echoing():
+            return await terminal_approver(request)
 
 
 def _run_session(
@@ -330,7 +339,8 @@ def _report_leaving(opened: OpenedSession, outcome: int | Reopen) -> None:
         typer.secho(f"\nSession cost: {opened.meter.summary()}", dim=True)
         if not opened.empty:  # an empty session isn't kept
             typer.secho(f"To continue it: zwans --resume {opened.id}", dim=True)
-    elif outcome.resume != opened.id:  # switching to another, so say what this one cost
+    elif outcome.resume != opened.id and not opened.empty:
+        # Switching to another, so say what this one cost. An empty one is gone, and cost nothing.
         typer.secho(f"Left {opened.id}, which cost {opened.meter.summary()}.", dim=True)
 
 
@@ -396,9 +406,15 @@ def _chat(
     workspace = Path(opened.info.workspace)
     commands = Commands(opened)
     composer: Composer | None = None
+    keys: Input | None = None  # the composer's, whose typed-ahead keys may need dropping
     if can_prompt():
+        keys = create_input()
         composer = Composer(
-            COMMANDS, workspace, opened.config.home / "history", status=lambda: _status(opened)
+            COMMANDS,
+            workspace,
+            opened.config.home / "history",
+            status=lambda: _status(opened),
+            input=keys,
         )
         if hint:
             typer.secho(
@@ -436,17 +452,32 @@ def _chat(
                 opened.session.permissions.observe("Read", is_error=False)
         checkpoint_problem = opened.checkpoints.problem if opened.checkpoints else None
         turns = opened.session.turn
+        asked = _questions_asked(opened)
         try:
             with _typing_ahead(composer, runner):
                 runner.run(opened.session.send(mentions.text, mentions.images))
         except KeyboardInterrupt:
             typer.secho("Interrupted. The conversation is kept, so carry on.", fg="yellow")
-        if opened.session.turn == turns and composer is not None:
+        failed = opened.session.turn == turns
+        if failed and composer is not None:
             draft = line  # it failed before the model answered, so it wasn't kept
             typer.secho("Your message is back in the input, to send again.", dim=True)
+        # Lines typed ahead were meant to follow this message, so they'd go without it, or
+        # merge with it back in the input. And text typed before an approval question may have
+        # been meant as its answer, which it mustn't become for the model instead.
+        dropping = failed or _questions_asked(opened) != asked
+        if keys is not None and dropping and get_typeahead(keys):  # which takes them out
+            why = "the message failed" if failed else "you were asked a question meanwhile"
+            typer.secho(f"What you typed during the turn was dropped, as {why}.", dim=True)
         if opened.checkpoints and opened.checkpoints.problem != checkpoint_problem:
             typer.secho(str(opened.checkpoints.problem), fg="yellow")
         _print_turn(opened)
+
+
+def _questions_asked(opened: OpenedSession) -> int:
+    permissions = opened.session.permissions
+    approver = permissions.approver if permissions is not None else None
+    return approver.asked if isinstance(approver, EchoingApprover) else 0
 
 
 def _typing_ahead(
