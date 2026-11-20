@@ -19,6 +19,9 @@ def item(item_id: str, kind: str, **fields: object) -> dict[str, object]:
 
 def main() -> None:
     args = sys.argv[1:]
+    if args == ["--version"]:
+        print("codex-cli 0.171.0")
+        return
     assert args[:2] == ["exec", "--json"], args
     assert "--dangerously-bypass-approvals-and-sandbox" in args
     assert os.environ["CODEX_API_KEY"] == "test-key"

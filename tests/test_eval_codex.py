@@ -1,11 +1,15 @@
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
 import pytest
 from helpers import needs_bash
+from typer.testing import CliRunner, Result
 
+from zwans import pricing
+from zwans.cli.app import app
 from zwans.config import Config
 from zwans.eval.codex import CodexAgent, parse_stream
 from zwans.eval.runner import EvalConfig, Report, run_suite
@@ -89,6 +93,74 @@ def test_a_codex_attempt_that_runs_too_long_times_out(
 
     assert attempt.stop_reason == "timeout"
     assert attempt.seconds < 10
+
+
+def codex_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    shim = bin_dir / "codex"
+    shim.write_text(f'#!/bin/sh\nexec "{FAKE_CODEX[0]}" "{FAKE_CODEX[1]}" "$@"\n', "utf-8")
+    shim.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    # register_prices() fills a module-level table; start each test without earlier prices.
+    monkeypatch.setattr(pricing, "EXTRA_PRICES", {})
+
+
+def eval_codex(tmp_path: Path, prices: str, *extra: str) -> Result:
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    (home / "config.toml").write_text(
+        f'model = "openai/gpt-test"\n\n[providers.openai]\n{prices}', "utf-8"
+    )
+    args = ["eval", "run", "--agent", "codex", "--tasks", str(ROOT / "evals" / "tasks")]
+    args += ["--only", "buggy-calc", "--out", str(tmp_path / "report"), *extra]
+    env = {
+        "ZWANS_HOME": str(home),
+        "ZWANS_CONFIG": str(home / "config.toml"),
+        "OPENAI_API_KEY": "test-key",
+        "FAKE_CODEX_MODE": "fix",
+    }
+    return CliRunner().invoke(app, args, env=env)
+
+
+@needs_bash
+@pytest.mark.usefixtures("python_on_path")
+def test_eval_run_with_codex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    codex_on_path(tmp_path, monkeypatch)
+
+    result = eval_codex(tmp_path, 'prices = { "gpt-test" = [2.0, 10.0] }\n')
+
+    assert result.exit_code == 0, result.output
+    assert "codex 0.171.0" in result.output
+    assert "PASS buggy-calc #1" in result.output
+    report = Report.model_validate_json((tmp_path / "report" / "report.json").read_text("utf-8"))
+    assert report.agent == "codex 0.171.0"
+    assert report.attempts[0].dollars > 0
+
+
+@needs_bash
+def test_eval_run_with_codex_refuses_a_model_without_a_price(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    codex_on_path(tmp_path, monkeypatch)
+
+    result = eval_codex(tmp_path, "")
+
+    assert result.exit_code == 2
+    assert "no price for openai/gpt-test" in result.output
+
+
+@needs_bash
+def test_eval_run_with_codex_refuses_zwans_only_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    codex_on_path(tmp_path, monkeypatch)
+    config = str(ROOT / "evals" / "configs" / "stop-check.toml")
+
+    result = eval_codex(tmp_path, 'prices = { "gpt-test" = [2.0, 10.0] }\n', "--config", config)
+
+    assert result.exit_code == 2
+    assert "Hooks only apply to Zwans, not to Codex." in result.output
 
 
 def test_the_parser_skips_what_it_doesnt_know() -> None:

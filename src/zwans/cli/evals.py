@@ -12,6 +12,7 @@ import typer
 
 from zwans.config import Config, ConfigError, load_credential, load_settings
 from zwans.eval.claude_code import ClaudeCodeAgent
+from zwans.eval.codex import CodexAgent
 from zwans.eval.compare import MIN_TASKS, Difference, compare
 from zwans.eval.html import render_html
 from zwans.eval.runner import (
@@ -29,8 +30,9 @@ from zwans.eval.runner import (
 from zwans.eval.task import Task, TaskError, load_suite
 from zwans.executor.docker import DockerError, ensure_sandbox_network
 from zwans.executor.jail import find_jail
+from zwans.pricing import price_of
 from zwans.providers.base import Provider
-from zwans.providers.catalog import resolve
+from zwans.providers.catalog import register_prices, resolve
 from zwans.providers.fake import FakeProvider
 from zwans.providers.router import ModelRouter
 
@@ -48,6 +50,7 @@ class ExecutorName(StrEnum):
 class AgentName(StrEnum):
     zwans = "zwans"
     claude_code = "claude-code"
+    codex = "codex"
 
 
 @eval_app.command("run")
@@ -57,7 +60,12 @@ def run_command(
         typer.Option("--config", "-c", exists=True, dir_okay=False, help="An evals/configs file."),
     ] = None,
     agent_name: Annotated[
-        AgentName, typer.Option("--agent", help="Who does the tasks: claude-code for the baseline.")
+        AgentName,
+        typer.Option(
+            "--agent",
+            help="Who does the tasks: claude-code or codex (with an openai/<model>) "
+            "for a baseline.",
+        ),
     ] = AgentName.zwans,
     tasks_dir: Annotated[
         Path, typer.Option("--tasks", exists=True, file_okay=False, help="Folder of tasks.")
@@ -227,8 +235,13 @@ def _agent(
 ) -> Agent:
     if name is AgentName.zwans:
         return ZwansAgent(config, eval_config, _provider_factory(config, env, fake_scripts))
+    other = "Claude Code" if name is AgentName.claude_code else "Codex"
     if eval_config.tool_descriptions:
-        raise EvalConfigError("Tool descriptions only apply to Zwans, not to Claude Code.")
+        raise EvalConfigError(f"Tool descriptions only apply to Zwans, not to {other}.")
+    if eval_config.hooks:
+        raise EvalConfigError(f"Hooks only apply to Zwans, not to {other}.")
+    if name is AgentName.codex:
+        return _codex_agent(config, env)
     claude = shutil.which("claude")
     if claude is None:
         raise ConfigError("Claude Code isn't installed: there's no `claude` on PATH.")
@@ -238,6 +251,29 @@ def _agent(
         [claude, "--version"], capture_output=True, text=True, timeout=60, check=False
     ).stdout.split()
     return ClaudeCodeAgent(config, credential.token, [claude], version[0] if version else "")
+
+
+def _codex_agent(config: Config, env: dict[str, str]) -> CodexAgent:
+    codex = shutil.which("codex")
+    if codex is None:
+        raise ConfigError("Codex isn't installed: there's no `codex` on PATH.")
+    resolved = resolve(config.model, config, env)  # also says when OPENAI_API_KEY is missing
+    if resolved.provider != "openai" or resolved.info is None:
+        raise ConfigError(f"Codex runs OpenAI models, not {config.model}: use openai/<model>.")
+    register_prices(config)
+    version = subprocess.run(
+        [codex, "--version"], capture_output=True, text=True, timeout=60, check=False
+    ).stdout.split()
+    try:
+        return CodexAgent(
+            config,
+            resolved.info.key(env) or "",
+            price_of(resolved.name),
+            [codex],
+            version[-1] if version else "",  # "codex-cli 0.171.0"
+        )
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
 
 
 def _provider_factory(
