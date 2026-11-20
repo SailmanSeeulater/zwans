@@ -52,7 +52,8 @@ CLOSE_NOT_FOUND = 4404
 NO_UI = """<!doctype html><meta charset="utf-8"><title>Zwans</title>
 <p>The Zwans server is running, but the web UI isn't built. Build it with
 <code>npm ci &amp;&amp; npm run build</code> in <code>web/</code>, then restart
-<code>zwans serve</code>.</p>"""
+<code>zwans serve</code>. If Zwans is installed with <code>uv tool install</code>, reinstall
+it after the build: <code>uv tool install --reinstall .</code></p>"""
 
 
 @dataclass

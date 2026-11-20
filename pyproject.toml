@@ -31,6 +31,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/zwans"]
 
+[tool.hatch.build.targets.wheel.hooks.custom]  # hatch_build.py: adds the built web UI
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

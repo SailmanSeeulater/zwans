@@ -22,8 +22,27 @@ pip install -e ".[dev]"
 
 On Windows, the Bash tool uses Git Bash, so Git for Windows must be installed.
 
-Set one credential, either as an environment variable or in a `.env` file in the folder you
-run `zwans` from (copy `.env.example`). Commands the agent runs never see these variables.
+### Install as a command
+
+To use Zwans in any project, as you would Claude Code, install it as a tool with
+[uv](https://docs.astral.sh/uv/). It gets its own environment, and `zwans` goes on your PATH:
+
+```bash
+cd web && npm ci && npm run build && cd ..   # the web UI, which goes into the install
+uv tool install .                            # from this checkout
+brew install ripgrep                         # Grep and Glob need rg: apt, winget or scoop elsewhere
+```
+
+After pulling changes, run `uv tool install --reinstall .` (and rebuild the UI first if it
+changed). Skipping the UI build still installs everything else; `zwans serve` then shows a
+note instead of the UI.
+
+### Credentials
+
+Set one credential, either as an environment variable, in a `.env` file in the folder you
+run `zwans` from (copy `.env.example`), or in `~/.zwans/.env`, which works in every project.
+A variable you set wins over both files, and the folder's `.env` over the one in `~/.zwans`.
+Commands the agent runs never see these variables.
 
 | `auth` setting | Variable | Billed to |
 |---|---|---|

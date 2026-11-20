@@ -33,11 +33,34 @@ def test_zwans_config_names_another_config_file(
     path.write_text('model = "from-zwans-config"\n', encoding="utf-8")
     monkeypatch.chdir(tmp_path)  # no .env here
     monkeypatch.setenv("ZWANS_CONFIG", str(path))
+    monkeypatch.setenv("ZWANS_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("ZWANS_MODEL", raising=False)
 
     config, _ = load_settings()
 
     assert config.model == "from-zwans-config"
+
+
+def test_the_home_dotenv_works_everywhere_and_the_local_one_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    project.mkdir()
+    (home / ".env").write_text("ANTHROPIC_API_KEY=sk-home\nZWANS_MODEL=from-home\n")
+    (project / ".env").write_text("ANTHROPIC_API_KEY=sk-project\n")
+    monkeypatch.setenv("ZWANS_HOME", str(home))
+    monkeypatch.setenv("ZWANS_CONFIG", str(tmp_path / "missing.toml"))
+    for name in ("ANTHROPIC_API_KEY", "ZWANS_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+
+    monkeypatch.chdir(tmp_path)
+    config, env = load_settings()
+    assert env["ANTHROPIC_API_KEY"] == "sk-home" and config.model == "from-home"
+
+    monkeypatch.chdir(project)
+    _, env = load_settings()
+    assert env["ANTHROPIC_API_KEY"] == "sk-project"
 
 
 def test_credential_follows_the_auth_mode() -> None:

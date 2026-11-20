@@ -1,8 +1,8 @@
 """Settings from ~/.zwans/config.toml, overridden by ZWANS_* environment variables.
 ZWANS_CONFIG names a different config file.
 
-Credentials come only from environment variables, or a .env file in the folder you run
-zwans from, never from the config file. They use the same variables as NexTix:
+Credentials come only from environment variables, a .env file in the folder you run zwans
+from, or ~/.zwans/.env, never from the config file. They use the same variables as NexTix:
 ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN.
 """
 
@@ -30,8 +30,10 @@ CREDENTIAL_VARS: dict[AuthMode, str] = {
 }
 
 CREDENTIAL_HINTS: dict[AuthMode, str] = {
-    "api_key": "Create a key in the Claude Console.",
-    "subscription": "Create one with `claude setup-token`.",
+    "api_key": "Create a key in the Claude Console, then set it in the environment, a .env "
+    "file in this folder, or ~/.zwans/.env.",
+    "subscription": "Create one with `claude setup-token`, then set it in the environment, a "
+    ".env file in this folder, or ~/.zwans/.env.",
 }
 
 
@@ -130,11 +132,17 @@ def load_credential(config: Config, env: Mapping[str, str] = os.environ) -> Cred
 
 
 def load_settings() -> tuple[Config, dict[str, str]]:
-    """The config, and the environment with a .env file from the current folder merged in.
+    """The config, and the environment with .env files merged in: the current folder's, then
+    the one in Zwans's home (~/.zwans/.env), which works in every project.
 
-    Real environment variables win over the .env file. The merged values stay in the returned
-    dictionary rather than os.environ, so commands the agent runs never inherit them.
+    Real environment variables win over both, and the current folder's .env over the home
+    one. The merged values stay in the returned dictionary rather than os.environ, so
+    commands the agent runs never inherit them.
     """
-    env = {**read_dotenv(Path(".env")), **os.environ}
-    path = Path(env["ZWANS_CONFIG"]).expanduser() if env.get("ZWANS_CONFIG") else None
-    return load_config(path or DEFAULT_CONFIG_PATH, env=env), env
+    local = {**read_dotenv(Path(".env")), **os.environ}
+    path = Path(local["ZWANS_CONFIG"]).expanduser() if local.get("ZWANS_CONFIG") else None
+    config = load_config(path or DEFAULT_CONFIG_PATH, env=local)
+    env = {**read_dotenv(config.home / ".env"), **local}
+    if env != local:  # the home .env may set ZWANS_* settings too
+        config = load_config(path or DEFAULT_CONFIG_PATH, env=env)
+    return config, env

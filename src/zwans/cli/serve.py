@@ -16,7 +16,13 @@ from zwans.server.app import ServerSettings, create_app
 DEFAULT_PORT = 8765
 # The UI built in this checkout (web/out), when Zwans is installed from it with pip -e.
 CHECKOUT_UI = Path(__file__).resolve().parents[3] / "web" / "out"
+# The UI inside the package, when Zwans is installed from a wheel (see hatch_build.py).
+PACKAGED_UI = Path(__file__).resolve().parents[1] / "web"
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+
+def default_ui() -> Path:
+    return PACKAGED_UI if (PACKAGED_UI / "index.html").is_file() else CHECKOUT_UI
 
 
 def server_file(home: Path) -> Path:
@@ -41,7 +47,8 @@ def serve(
         "evals/reports"
     ),
     web: Annotated[
-        Path | None, typer.Option(help="The built web UI. Default: web/out in this checkout.")
+        Path | None,
+        typer.Option(help="The built web UI. Default: the one installed with Zwans, or web/out."),
     ] = None,
     dev_origin: Annotated[
         str | None,
@@ -62,7 +69,7 @@ def serve(
         env=env,
         token=token,
         reports=reports.resolve(),
-        web_dir=(web or CHECKOUT_UI).resolve(),
+        web_dir=(web or default_ui()).resolve(),
         dev_origin=dev_origin,
     )
     app = create_app(settings)
