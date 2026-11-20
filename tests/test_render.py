@@ -159,6 +159,28 @@ def test_an_edit_shows_its_diff(capsys: pytest.CaptureFixture[str]) -> None:
     ]
 
 
+def test_an_approved_edit_doesnt_show_the_same_diff_twice(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    diff = "--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n def sub(a, b):\n-    return a + b\n"
+    diff += "+    return a - b\n"
+    preview = diff.replace("@@ -1,2 +1,2 @@", "@@ -7,2 +7,2 @@")  # same change, own numbers
+    other = diff.replace("a - b", "b - a")  # the file changed between question and edit
+
+    out = shown(
+        capsys,
+        call("1", "Edit", path="calc.py"),
+        PermissionRequested(call_id="1", reason="Edit calc.py changes files", preview=preview),
+        ToolResult(call_id="1", content="Replaced 1 occurrence in calc.py.", diff=diff),
+        call("2", "Edit", path="calc.py"),
+        PermissionRequested(call_id="2", reason="Edit calc.py changes files", preview=preview),
+        ToolResult(call_id="2", content="Replaced 1 occurrence in calc.py.", diff=other),
+    )
+
+    assert out.count("-    return a + b") == 1  # only the second, whose change differed
+    assert "+    return b - a" in out
+
+
 def test_a_long_diff_is_cut(capsys: pytest.CaptureFixture[str]) -> None:
     diff = "--- /dev/null\n+++ b/big.txt\n" + "".join(f"+{n}\n" for n in range(100))
     out = shown(capsys, ToolResult(call_id="1", content="Wrote big.txt.", diff=diff))

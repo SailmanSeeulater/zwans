@@ -69,6 +69,7 @@ class Renderer:
         self._since = time.monotonic()
         self._status_task: asyncio.Task[None] | None = None
         self._status_shown = False
+        self._previews: dict[str, str] = {}  # the change each permission question showed
 
     def on_event(self, event: Event) -> None:
         self._hide_status()
@@ -93,8 +94,10 @@ class Renderer:
                 pass
             case ToolResult():
                 self._result(event)
-            case PermissionRequested():
+            case PermissionRequested(call_id=call_id, preview=preview):
                 self._finish_line()  # the question comes next, on a line of its own
+                if preview:
+                    self._previews[call_id] = preview
             case TurnEnded(stop_reason="end_turn" | "error"):  # an error has said why already
                 self._finish_line()
             case TurnEnded(stop_reason=reason, detail=detail):
@@ -125,7 +128,9 @@ class Renderer:
         rows = _result_rows(name, result.content)
         for index, (text, style) in enumerate(rows):
             self._line(f"  {prefix if index == 0 else ''}{text}", **style)
-        if result.diff:
+        approved = self._previews.pop(result.call_id, None)
+        # The question has just shown this change; show the result's diff only if it differs.
+        if result.diff and (approved is None or _changes(approved) != _changes(result.diff)):
             show_diff(result.diff)
 
     def _todos(self, args: dict[str, Any]) -> None:
@@ -329,6 +334,15 @@ def _summarize(name: str, args: dict[str, Any]) -> str:
     if name == "Read" and isinstance(offset, int) and offset > 1:
         notes.append(f"from line {offset}")
     return f"{text} ({', '.join(notes)})" if notes else text
+
+
+def _changes(diff: str) -> list[str]:
+    """A diff's added and removed lines, without its headers and line numbers."""
+    return [
+        line
+        for line in diff.splitlines()
+        if line[:1] in ("+", "-") and not line.startswith(("+++", "---"))
+    ]
 
 
 def _result_rows(name: str, content: str) -> list[tuple[str, dict[str, Any]]]:
