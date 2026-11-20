@@ -14,6 +14,7 @@ from zwans.config import load_settings
 from zwans.server.app import ServerSettings, create_app
 
 DEFAULT_PORT = 8765
+WS_MAX_BYTES = 32 * 1024 * 1024  # five images of 3.75 MB, base64-encoded, and some room
 # The UI built in this checkout (web/out), when Zwans is installed from it with pip -e.
 CHECKOUT_UI = Path(__file__).resolve().parents[3] / "web" / "out"
 # The UI inside the package, when Zwans is installed from a wheel (see hatch_build.py).
@@ -81,7 +82,13 @@ def serve(
     typer.echo(f"Zwans server: {url}/#token={token}")
     typer.secho("Ctrl+C stops it, and every session it's running.", dim=True)
     try:
-        uvicorn.run(app, host=host, port=port, log_level="warning")
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            log_level="warning",
+            ws_max_size=WS_MAX_BYTES,  # a prompt can carry several images
+        )
     finally:
         current = read_server_file(config.home)
         if current is not None and current.get("pid") == os.getpid():

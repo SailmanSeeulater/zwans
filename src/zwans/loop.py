@@ -66,7 +66,12 @@ async def run_turn(
     """
     tools_by_name = {tool.name: tool for tool in tools}
     web = _WebShown()
-    yield TurnStarted(prompt=_last_user_text(messages))
+    asked = messages[-1] if messages else None
+    yield TurnStarted(
+        prompt=_last_user_text(messages),
+        turn=(asked.turn or 0) if asked else 0,
+        images=sum(isinstance(block, ImageBlock) for block in asked.content) if asked else 0,
+    )
 
     for _ in range(max_steps):
         model_call = TimedCall()

@@ -16,8 +16,10 @@ from pathlib import Path
 from typing import Any
 
 from zwans import demo as zwans_demo
+from zwans.checkpoints import Change, CheckpointError
 from zwans.config import Config
 from zwans.events import Error, Event
+from zwans.messages import ImageBlock
 from zwans.policy.engine import Approval, PermissionRequest
 from zwans.runtime import OpenedSession, ProviderFactory, open_session
 from zwans.store import SessionStore
@@ -31,6 +33,17 @@ ANSWERS = {"once": Approval.ONCE, "always": Approval.ALWAYS, "no": Approval.NO}
 
 class Busy(Exception):
     """The session is already running a turn."""
+
+
+class RewindError(Exception):
+    """Going back to before a turn isn't possible; the message says why."""
+
+
+@dataclass(frozen=True)
+class Rewound:
+    live: "LiveSession"  # the session reopened before the turn
+    undone: list[Change]  # what putting the files back changed
+    draft: str  # the undone turn's prompt, to edit and send again
 
 
 class LiveSession:
@@ -90,11 +103,40 @@ class LiveSession:
     def unsubscribe(self, queue: asyncio.Queue[Message]) -> None:
         self.clients.discard(queue)
 
-    def prompt(self, text: str) -> None:
+    def prompt(self, text: str, images: list[ImageBlock] | None = None) -> None:
         if self.running:
             raise Busy("A turn is already running. Wait for it, or interrupt it.")
-        self.turn = asyncio.create_task(self._run(text))
+        self.turn = asyncio.create_task(self._run(text, images or []))
         self._broadcast(self.status())
+
+    async def undoable_turns(self) -> list[dict[str, Any]]:
+        """The turns that can be gone back to, newest first, each with what it changed."""
+        checkpoints, session = self.opened.checkpoints, self.opened.session
+        if self.demo or checkpoints is None or not checkpoints.available:
+            return []
+        earliest = session.earliest_turn()
+        turns = []
+        for turn in sorted(await checkpoints.turns(), reverse=True):
+            if turn > session.turn or 0 < turn - 1 < earliest:
+                continue
+            changes = await checkpoints.changes(turn)
+            turns.append(
+                {
+                    "turn": turn,
+                    "prompt": session.prompt_of(turn),
+                    "changes": [{"status": c.status, "path": c.path} for c in changes],
+                }
+            )
+        return turns
+
+    def undo_problem(self) -> str | None:
+        """Why turns can't be undone in this session at all, if they can't."""
+        checkpoints = self.opened.checkpoints
+        if self.demo:
+            return "The demo's turns can't be undone; start it again instead."
+        if checkpoints is None:
+            return "Checkpoints are off (checkpoints = false), so turns can't be undone."
+        return checkpoints.problem
 
     def interrupt(self) -> None:
         if self.turn is not None:
@@ -124,9 +166,9 @@ class LiveSession:
             await asyncio.gather(self.turn, return_exceptions=True)
         await self.opened.close()
 
-    async def _run(self, text: str) -> None:
+    async def _run(self, text: str, images: list[ImageBlock]) -> None:
         try:
-            await self.opened.session.send(text)
+            await self.opened.session.send(text, images)
         except asyncio.CancelledError:
             pass  # interrupted; the session has already said so
         except Exception as exc:  # a bug, not a model error: those arrive as events
@@ -227,6 +269,39 @@ class SessionHub:
         self.live[live.id] = live
         return live
 
+    async def rewind(self, session_id: str, turn: int) -> Rewound:
+        """Put the workspace's files back as they were before `turn`, and reopen the session
+        with its conversation ending just before it, as /undo and /rewind do in the chat.
+        Raises KeyError when the session isn't open, Busy, or RewindError."""
+        async with self._opening:
+            live = self.live[session_id]
+            if live.running:
+                raise Busy("Stop the running turn before going back.")
+            problem = live.undo_problem()
+            if problem:
+                raise RewindError(problem)
+            session, checkpoints = live.opened.session, live.opened.checkpoints
+            assert checkpoints is not None
+            if turn > session.turn or turn not in await checkpoints.turns():
+                raise RewindError(f"There's no checkpoint from before turn {turn}.")
+            earliest = session.earliest_turn()
+            if 0 < turn - 1 < earliest:
+                raise RewindError(
+                    f"Turns before {earliest} were summarized, so the earliest to go back to is "
+                    f"{earliest}."
+                )
+            draft = session.prompt_of(turn)
+            try:
+                undone = await checkpoints.restore(turn)
+            except (CheckpointError, OSError) as exc:
+                raise RewindError(f"Couldn't put the files back: {exc}") from exc
+            mode, model = live.opened.policy.policy.mode, live.opened.model
+            await self.close(session_id)
+            reopened = await self._open(
+                workspace=Path("."), resume=session_id, rewind=turn - 1, mode=mode, model=model
+            )
+            return Rewound(reopened, undone, draft)
+
     async def close(self, session_id: str) -> None:
         live = self.live.pop(session_id, None)
         if live is not None:
@@ -238,7 +313,8 @@ class SessionHub:
 
 
 def _earlier_events(path: Path) -> list[Message]:
-    """What a resumed session did before, from its transcript."""
+    """What a resumed session did before, from its transcript, without the turns a rewind
+    dropped."""
     events: list[Message] = []
     if not path.exists():
         return events
@@ -247,6 +323,23 @@ def _earlier_events(path: Path) -> list[Message]:
             record = json.loads(line)
         except ValueError:
             continue  # a line cut short when Zwans was killed
-        if isinstance(record, dict):
+        if not isinstance(record, dict):
+            continue
+        if record.get("type") == "rewound":
+            cut = _first_turn_after(events, int(record.get("turn") or 0))
+            del events[cut:]
+        else:
             events.append(record)
     return events
+
+
+def _first_turn_after(events: list[Message], turn: int) -> int:
+    """Where the first turn after `turn` starts in `events`, or the end when there's none.
+    Transcripts from before turns were numbered count them instead."""
+    count = 0
+    for index, event in enumerate(events):
+        if event.get("type") == "turn_started":
+            count += 1
+            if (event.get("turn") or count) > turn:
+                return index
+    return len(events)

@@ -1,5 +1,6 @@
 "use client";
 
+import { ImageIcon, RotateCcw } from "lucide-react";
 import {
   canAlwaysAllow,
   diffOf,
@@ -20,15 +21,41 @@ interface Props {
   turns: Turn[];
   /** Set for a live session: lets the user answer permission questions. */
   onAnswer?: (callId: string, answer: Answer) => void;
+  /** Turns that can be undone, by number, and what to do when one is chosen. */
+  undoable?: Set<number>;
+  onUndo?: (turn: number) => void;
 }
 
-export function Conversation({ turns, onAnswer }: Props) {
+export function Conversation({ turns, onAnswer, undoable, onUndo }: Props) {
   if (turns.length === 0) return <p className="muted">Nothing yet.</p>;
   return (
     <div>
       {turns.map((turn, i) => (
         <section key={i} className="turn">
-          {turn.prompt && <div className="prompt">{turn.prompt}</div>}
+          {(turn.prompt || turn.images > 0) && (
+            <div className="prompt-row">
+              {onUndo && undoable?.has(turn.number) && (
+                <button
+                  className="button button-quiet undo-button"
+                  onClick={() => onUndo(turn.number)}
+                  aria-label={`Undo turn ${turn.number}`}
+                  title="Put the files back as they were before this turn, and drop it and later turns"
+                >
+                  <RotateCcw size={13} aria-hidden="true" />
+                  Undo
+                </button>
+              )}
+              <div className="prompt">
+                {turn.prompt}
+                {turn.images > 0 && (
+                  <span className="prompt-images">
+                    <ImageIcon size={13} aria-hidden="true" />
+                    {turn.images === 1 ? "1 image" : `${turn.images} images`}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
           {turn.items.map((item, j) => (
             <ItemView key={j} item={item} onAnswer={onAnswer} />
           ))}

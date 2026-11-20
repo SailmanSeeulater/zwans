@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import json
+import shutil
 from collections.abc import AsyncIterator, Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -10,7 +12,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from zwans.config import Config
 from zwans.eval.runner import AttemptResult, EvalConfig, Report, Summary
-from zwans.messages import Message, TextBlock, ToolUseBlock
+from zwans.messages import ImageBlock, Message, TextBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse, StreamItem
 from zwans.providers.fake import FakeProvider
 from zwans.server.app import ServerSettings, create_app
@@ -227,6 +229,76 @@ def test_a_saved_session_reopens_with_its_history(server: Server) -> None:
     assert [e["prompt"] for e in backlog if e["type"] == "turn_started"] == ["Earlier."]
     missing = server.client.post("/api/sessions/nope/open", headers=AUTH)
     assert missing.status_code == 404
+
+
+# A 2x3 PNG's signature and IHDR chunk: enough to be recognized as an image.
+PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x02\x00\x00\x00\x03" + b"\x00" * 16
+
+
+def test_a_prompt_can_carry_images(server: Server) -> None:
+    provider = FakeProvider([say("A tiny image."), say("Just text.")])
+    session_id = server.new_session(provider)
+    image = {"name": "shot.png", "data": base64.b64encode(PNG).decode()}
+
+    with connect(server, session_id) as ws:
+        handshake(ws)
+        ws.send_json({"type": "prompt", "text": "What is this?", "images": [image]})
+        started = until(ws, "turn_ended")
+        ws.send_json({"type": "prompt", "text": "", "images": [{"name": "a.txt", "data": "aGk="}]})
+        refused = until(ws, "server_error")
+        ws.send_json({"type": "prompt", "text": "Hi", "images": [{"data": "not base64!"}]})
+        garbled = until(ws, "server_error")
+
+    turn = next(m for m in started if m["type"] == "turn_started")
+    assert turn["images"] == 1 and turn["turn"] == 1 and turn["prompt"] == "What is this?"
+    sent = provider.requests[0][-1].content
+    assert isinstance(sent[0], ImageBlock) and sent[0].source.media_type == "image/png"
+    assert "a.txt isn't a PNG, JPEG, GIF or WebP image." in refused[-1]["message"]
+    assert "image 1 isn't base64." in garbled[-1]["message"]
+
+
+def _run(server: Server, session_id: str, *prompts: str) -> None:
+    with connect(server, session_id) as ws:
+        handshake(ws)
+        for prompt in prompts:
+            ws.send_json({"type": "prompt", "text": prompt})
+            until(ws, "turn_ended")
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_undoing_a_turn_puts_the_files_back_and_drops_it(server: Server) -> None:
+    script = [write("a.txt", "1"), say("Wrote a."), write("b.txt", "2"), say("Wrote b.")]
+    session_id = server.new_session(FakeProvider(script))
+    _run(server, session_id, "Write a", "Write b")
+    base = f"/api/sessions/{session_id}"
+
+    listed = server.client.get(f"{base}/turns", headers=AUTH).json()
+    server.scripts.append(FakeProvider([]))  # for the reopened session
+    undone = server.client.post(f"{base}/rewind", json={"turn": 2}, headers=AUTH)
+    with connect(server, session_id) as ws:
+        _, backlog = handshake(ws)
+
+    assert listed["problem"] is None
+    assert [(t["turn"], t["prompt"], t["changes"]) for t in listed["turns"]] == [
+        (2, "Write b", [{"status": "added", "path": "b.txt"}]),
+        (1, "Write a", [{"status": "added", "path": "a.txt"}]),
+    ]
+    assert undone.status_code == 200, undone.text
+    body = undone.json()
+    assert body["draft"] == "Write b" and body["status"]["turns"] == 1
+    assert body["undone"] == [{"status": "deleted", "path": "b.txt"}]
+    assert (server.workspace / "a.txt").exists() and not (server.workspace / "b.txt").exists()
+    assert [e["prompt"] for e in backlog if e["type"] == "turn_started"] == ["Write a"]
+
+    server.scripts.append(FakeProvider([]))
+    again = server.client.post(f"{base}/rewind", json={"turn": 1}, headers=AUTH)
+    with connect(server, session_id) as ws:
+        _, backlog = handshake(ws)
+    assert again.status_code == 200, again.text
+    assert not (server.workspace / "a.txt").exists() and backlog == []
+    missing = server.client.post(f"{base}/rewind", json={"turn": 5}, headers=AUTH)
+    assert missing.status_code == 400
+    assert "no checkpoint from before turn 5" in missing.json()["detail"]
 
 
 def test_a_new_session_needs_a_real_folder(server: Server, tmp_path: Path) -> None:

@@ -61,6 +61,23 @@ python examples/run_demo.py --scripted       # demo with a scripted model: free,
 python examples/run_demo.py                  # the same demo with the real model
 ```
 
+### Choosing a model
+
+Zwans uses Claude Opus 5.5 at medium effort unless told otherwise. Pick another for one
+session with `--model`, switch in the chat with `/model <name>` (`/model` alone lists them),
+or set `model` (and `effort`) in `~/.zwans/config.toml` to change the default:
+
+| Model | Input / output, per million tokens | Good for |
+|---|---|---|
+| `claude-opus-5-5` (default) | $4 / $20 | Everyday coding: strong and fast |
+| `claude-fable-5-2` | $8 / $40 | The hardest, longest tasks, when Opus falls short |
+| `claude-sonnet-5-5` | $2 / $10 | Most tasks at half Opus's price |
+| `claude-haiku-5-5` | $0.10 / $0.50 | Quick, simple tasks for almost nothing |
+
+Older models (`claude-fable-5-1`, `claude-opus-5`, `claude-opus-4-8`, `claude-haiku-4-5`)
+work too. Cache reads cost far less than fresh input, so a long session costs less per turn
+than these prices suggest. `effort` (`low` to `max`) trades thinking for speed and cost.
+
 Ctrl+C stops the running turn and keeps the conversation, including what the model had
 written so far, marked as cut off. After each turn Zwans prints its cost, the context size,
 and how much input came from the prompt cache.
@@ -419,6 +436,12 @@ token in `~/.zwans/server.json`, readable only by you, for `zwans attach`.
   diff. When the policy asks, the question appears above the input box with Allow once,
   Always allow (only when it would take effect, as in the terminal) and Deny, and an Edit or
   Write shows the diff it would make. A Task call lists what its subagent did.
+- **Images:** paste, drop or attach (the image button) up to 5 PNG, JPEG, GIF or WebP
+  images, 3.75 MB each, to send with a message. The server checks each one's bytes.
+- **Undo:** hover over one of your messages and choose Undo to put the files back as they
+  were before that turn, using the checkpoints, and drop it and every later turn. Before
+  undoing, it lists the files it would remove or restore. Afterwards the prompt is back in
+  the box, to edit and send again. Its images aren't kept, so attach them again to resend it.
 - **One session, many clients:** every browser tab and `zwans attach` on the same session
   sees the whole conversation and every new event, and any of them can send the next task
   or answer a question. `zwans attach` asks the same way the chat does, with the same preview. Ctrl+C in `zwans attach` interrupts the turn; with nothing running,

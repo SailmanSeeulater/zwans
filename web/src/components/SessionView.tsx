@@ -1,9 +1,26 @@
 "use client";
 
-import { ArrowUp, Maximize2, Square } from "lucide-react";
+import { ArrowUp, ImagePlus, Maximize2, RotateCcw, Square, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { api, sessionSocket, takeFirstPrompt, type DemoInfo, type SessionStatus } from "@/lib/api";
+import {
+  api,
+  sessionSocket,
+  takeFirstPrompt,
+  type DemoInfo,
+  type FileChange,
+  type RewindResult,
+  type SessionStatus,
+  type UndoableTurns,
+} from "@/lib/api";
+import {
+  attachProblem,
+  changesFrom,
+  describeUndo,
+  IMAGE_TYPES,
+  readAttachment,
+  type Attachment,
+} from "@/lib/attachments";
 import { buildCalls } from "@/lib/calls";
 import { buildTurns, waitingCalls, type RawEvent } from "@/lib/events";
 import { currentTodos } from "@/lib/todos";
@@ -32,6 +49,12 @@ export function SessionView() {
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [demo, setDemo] = useState<DemoInfo | null>(null);
+  const [images, setImages] = useState<Attachment[]>([]);
+  const [undoable, setUndoable] = useState<UndoableTurns | null>(null);
+  const [undoing, setUndoing] = useState<number | null>(null); // the turn whose undo is being confirmed
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [generation, setGeneration] = useState(0); // bumped when the session is reopened, to reconnect
+  const picker = useRef<HTMLInputElement | null>(null);
   const socket = useRef<WebSocket | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
   const pinned = useRef(true); // whether to follow new output to the bottom
@@ -79,7 +102,7 @@ export function SessionView() {
       clearTimeout(retry);
       ws.close();
     };
-  }, [id, hasToken]);
+  }, [id, hasToken, generation]);
 
   useEffect(() => {
     if (!status?.demo || demo) return;
@@ -89,6 +112,20 @@ export function SessionView() {
   }, [status?.demo, demo]);
 
   const turns = useMemo(() => buildTurns(events), [events]);
+  const turnCount = turns.length;
+  const idle = status !== null && !status.running;
+
+  // What can be undone changes as turns finish, so ask again whenever the session settles.
+  useEffect(() => {
+    if (!id || !hasToken || !idle) return;
+    let current = true;
+    api<UndoableTurns>(`/api/sessions/${encodeURIComponent(id)}/turns`)
+      .then((found) => current && setUndoable(found))
+      .catch(() => current && setUndoable(null));
+    return () => {
+      current = false;
+    };
+  }, [id, hasToken, idle, turnCount, generation]);
   const hood = useMemo(() => buildCalls(events), [events]);
   const waiting = waitingCalls(turns);
   const todos = currentTodos(turns);
@@ -108,11 +145,56 @@ export function SessionView() {
   );
 
   const prompt = (text: string) => {
-    if (!text.trim()) return;
+    if (!text.trim() && images.length === 0) return;
     setNotice(null);
     pinned.current = true;
-    send({ type: "prompt", text: text.trim() });
+    const message: Record<string, unknown> = { type: "prompt", text: text.trim() };
+    if (images.length) message.images = images.map(({ name, data }) => ({ name, data }));
+    send(message);
     setDraft("");
+    setImages([]);
+  };
+
+  const attach = async (files: Iterable<File>) => {
+    let count = images.length;
+    const added: Attachment[] = [];
+    for (const file of files) {
+      const problem = attachProblem(file, count);
+      if (problem) {
+        setNotice(problem);
+        continue;
+      }
+      try {
+        added.push(await readAttachment(file));
+        count += 1;
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : String(error));
+      }
+    }
+    if (added.length) setImages((previous) => [...previous, ...added]);
+  };
+
+  const undo = async (turn: number) => {
+    setUndoBusy(true);
+    try {
+      const result = await api<RewindResult>(`/api/sessions/${encodeURIComponent(id)}/rewind`, {
+        method: "POST",
+        body: JSON.stringify({ turn }),
+      });
+      setUndoing(null);
+      setStatus(result.status);
+      setEvents([]);
+      setUndoable(null);
+      setDraft(result.draft);
+      const hadImages = turns.find((t) => t.number === turn)?.images ?? 0;
+      const reattach = hadImages ? " Its images weren't kept: attach them again to resend it." : "";
+      setNotice(`Went back to before turn ${turn}. ${describeUndo(result.undone)}${reattach}`);
+      setGeneration((g) => g + 1);
+    } catch (error) {
+      setNotice(`Couldn't undo: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setUndoBusy(false);
+    }
   };
 
   const openTab = useCallback(
@@ -192,7 +274,12 @@ export function SessionView() {
               </div>
             ))}
             {connection === "closed" && <div className="notice notice-bad">{closedWhy}</div>}
-            <Conversation turns={turns} onAnswer={connection === "open" ? answer : undefined} />
+            <Conversation
+              turns={turns}
+              onAnswer={connection === "open" ? answer : undefined}
+              undoable={running ? undefined : new Set(undoable?.turns.map((t) => t.turn) ?? [])}
+              onUndo={connection === "open" ? setUndoing : undefined}
+            />
             {running && waiting.length === 0 && (
               <p className="muted small pulse" aria-live="polite">
                 Working…
@@ -201,8 +288,27 @@ export function SessionView() {
           </div>
         </div>
 
-        <div className="composer glass">
+        <div
+          className="composer glass"
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+          }}
+          onDrop={(e) => {
+            if (!e.dataTransfer.files.length) return;
+            e.preventDefault();
+            void attach(Array.from(e.dataTransfer.files));
+          }}
+        >
           {notice && <div className="notice notice-warn">{notice}</div>}
+          {undoing !== null && !running && (
+            <UndoConfirm
+              turn={undoing}
+              files={changesFrom(undoable?.turns ?? [], undoing)}
+              busy={undoBusy}
+              onUndo={() => void undo(undoing)}
+              onCancel={() => setUndoing(null)}
+            />
+          )}
           {/* The plan stays in view while it's being worked through, but gives way to a
               question, so the buttons to answer it always fit. */}
           {running && waiting.length === 0 && todos && todos.length > 0 && <TodoList todos={todos} />}
@@ -221,6 +327,12 @@ export function SessionView() {
             aria-label="Message Zwans"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
+              if (!files.length) return;
+              e.preventDefault();
+              void attach(files);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
@@ -229,7 +341,45 @@ export function SessionView() {
             }}
             disabled={connection !== "open"}
           />
+          {images.length > 0 && (
+            <div className="attachments">
+              {images.map((image, i) => (
+                <div key={i} className="attachment" title={image.name}>
+                  {/* A data: URL thumbnail; next/image has nothing to optimize here. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={image.url} alt={image.name} />
+                  <button
+                    className="attachment-remove"
+                    onClick={() => setImages((previous) => previous.filter((_, j) => j !== i))}
+                    aria-label={`Remove ${image.name}`}
+                  >
+                    <X size={12} aria-hidden="true" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <input
+            ref={picker}
+            type="file"
+            accept={IMAGE_TYPES.join(",")}
+            multiple
+            hidden
+            onChange={(e) => {
+              if (e.target.files) void attach(Array.from(e.target.files));
+              e.target.value = "";
+            }}
+          />
           <div className="composer-foot">
+            <button
+              className="button button-quiet icon-button"
+              onClick={() => picker.current?.click()}
+              disabled={connection !== "open"}
+              aria-label="Attach images"
+              title="Attach images (or paste or drop them here)"
+            >
+              <ImagePlus size={15} aria-hidden="true" />
+            </button>
             <span className="muted small">
               {connection === "connecting"
                 ? "Connecting…"
@@ -256,7 +406,7 @@ export function SessionView() {
               <button
                 className="button button-primary icon-button"
                 onClick={() => prompt(draft)}
-                disabled={connection !== "open" || !draft.trim()}
+                disabled={connection !== "open" || (!draft.trim() && images.length === 0)}
                 aria-label="Send"
               >
                 <ArrowUp size={16} aria-hidden="true" />
@@ -266,6 +416,48 @@ export function SessionView() {
         </div>
       </div>
       <UnderTheHood data={hood} status={status} onOpen={openTab} />
+    </div>
+  );
+}
+
+function UndoConfirm(props: {
+  turn: number;
+  files: FileChange[];
+  busy: boolean;
+  onUndo: () => void;
+  onCancel: () => void;
+}) {
+  const { turn, files, busy, onUndo, onCancel } = props;
+  const shown = files.slice(0, 6);
+  return (
+    <div className="ask" role="group" aria-label="Undo">
+      <div className="ask-reason">
+        Undo turn {turn} and everything after it? The conversation goes back to before it, and its prompt comes
+        back to edit.
+      </div>
+      {files.length > 0 ? (
+        <ul className="small mono">
+          {shown.map((f) => (
+            <li key={f.path}>
+              {f.status === "added" ? "remove " : "restore "}
+              {f.path}
+            </li>
+          ))}
+          {files.length > shown.length && <li>and {files.length - shown.length} more</li>}
+        </ul>
+      ) : (
+        <p className="muted small">No files in the workspace changed since then.</p>
+      )}
+      <p className="muted small">Changes outside the workspace, such as commands&apos; side effects, stay.</p>
+      <div className="row">
+        <button className="button button-danger" onClick={onUndo} disabled={busy}>
+          <RotateCcw size={13} aria-hidden="true" />
+          {busy ? "Undoing…" : "Undo"}
+        </button>
+        <button className="button" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

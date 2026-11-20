@@ -9,7 +9,6 @@ from zwans.checkpoints import Change, CheckpointError
 from zwans.cli.input import MENTIONED, Command
 from zwans.cli.terminal_text import printable
 from zwans.events import ContextCompacted
-from zwans.messages import TextBlock
 from zwans.pricing import PRICES, price_of
 from zwans.providers.base import ProviderError
 from zwans.runtime import OpenedSession
@@ -114,7 +113,7 @@ class Commands:
             _say(what, fg="yellow")
             return None
         turn = int(argument)
-        first = min((m.turn for m in session.messages if m.turn is not None), default=1)
+        first = session.earliest_turn()
         if 0 < turn - 1 < first:
             _say(f"Turns before {first} were summarized, so the earliest to go back to is {first}.")
             return None
@@ -242,11 +241,7 @@ class Commands:
 
 def _prompt_of(session: Session, turn: int) -> str:
     """What the user wrote to start `turn`, without the files @mentions added."""
-    for message in session.messages:
-        if message.role == "user" and message.turn == turn:
-            text = "".join(b.text for b in message.content if isinstance(b, TextBlock))
-            return text.split(MENTIONED)[0]
-    return ""
+    return session.prompt_of(turn).split(MENTIONED)[0]
 
 
 def _describe(changes: list[Change]) -> str:

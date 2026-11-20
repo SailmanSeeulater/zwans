@@ -18,6 +18,8 @@ that client only.
 """
 
 import asyncio
+import base64
+import binascii
 import contextlib
 import json
 import secrets
@@ -40,14 +42,17 @@ from zwans import __version__
 from zwans import demo as zwans_demo
 from zwans.config import ConfigError, load_credential
 from zwans.executor.docker import DockerError
+from zwans.images import ImageError, image_block
+from zwans.messages import ImageBlock
 from zwans.policy.rules import Mode, PolicyError
 from zwans.server import evals
-from zwans.server.live import Busy, HubSettings, LiveSession, Message, SessionHub
+from zwans.server.live import Busy, HubSettings, LiveSession, Message, RewindError, SessionHub
 from zwans.store import SessionError, SessionStore
 
 AUTH_TIMEOUT = 10.0  # seconds a WebSocket has to send the token
 CLOSE_UNAUTHORIZED = 4401
 CLOSE_NOT_FOUND = 4404
+MAX_PROMPT_IMAGES = 5  # per message; each is up to 3.75 MB, so about 25 MB of base64
 
 NO_UI = """<!doctype html><meta charset="utf-8"><title>Zwans</title>
 <p>The Zwans server is running, but the web UI isn't built. Build it with
@@ -69,6 +74,10 @@ class NewSession(BaseModel):
     mode: Mode | None = None
     model: str | None = None
     demo: bool = False  # the scripted replay in a copy of the demo project; ignores the rest
+
+
+class RewindTo(BaseModel):
+    turn: int  # the turn to undo, with every turn after it
 
 
 class OpenSession(BaseModel):
@@ -167,6 +176,32 @@ def create_app(settings: ServerSettings) -> FastAPI:
         provider = _live(hub, session_id).opened.session.provider
         request = getattr(provider, "last_request", None)
         return {"request": json.loads(json.dumps(request, default=str)) if request else None}
+
+    @api.get("/sessions/{session_id}/turns")
+    async def undoable_turns(session_id: str) -> dict[str, Any]:
+        """The turns that can be undone, newest first, each with the files it changed."""
+        live = _live(hub, session_id)
+        return {"turns": await live.undoable_turns(), "problem": live.undo_problem()}
+
+    @api.post("/sessions/{session_id}/rewind")
+    async def rewind(session_id: str, body: RewindTo) -> dict[str, Any]:
+        """Undo a turn and every turn after it: the files go back to how they were before
+        it, and the conversation ends just before it. Clients then reconnect to the session."""
+        _live(hub, session_id)
+        try:
+            rewound = await hub.rewind(session_id, body.turn)
+        except Busy as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        except RewindError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        except (SessionError, ConfigError, PolicyError, DockerError) as exc:
+            # The files went back, but the session couldn't be reopened.
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)) from exc
+        return {
+            "status": rewound.live.status(),
+            "undone": [{"status": c.status, "path": c.path} for c in rewound.undone],
+            "draft": rewound.draft,
+        }
 
     @api.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
     async def close_session(session_id: str) -> None:
@@ -307,10 +342,14 @@ def _act(live: LiveSession, message: dict[str, Any]) -> str | None:
     kind = message.get("type")
     if kind == "prompt":
         text = str(message.get("text", "")).strip()
-        if not text:
+        try:
+            images = _images(message.get("images"))
+        except ImageError as exc:
+            return str(exc)
+        if not text and not images:
             return "The prompt is empty."
         try:
-            live.prompt(text)
+            live.prompt(text or "What do you see in this image?", images)
         except Busy as exc:
             return str(exc)
     elif kind == "approve":
@@ -321,3 +360,24 @@ def _act(live: LiveSession, message: dict[str, Any]) -> str | None:
     else:
         return f"Unknown message type: {kind!r}"
     return None
+
+
+def _images(value: object) -> list[ImageBlock]:
+    """The images sent with a prompt, as [{"name", "data"}] with base64 data, checked as
+    the terminal checks an @image: by their bytes, not their names. Raises ImageError."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ImageError("images must be a list.")
+    if len(value) > MAX_PROMPT_IMAGES:
+        raise ImageError(f"A message can carry at most {MAX_PROMPT_IMAGES} images.")
+    blocks = []
+    for number, item in enumerate(value, start=1):
+        item = item if isinstance(item, dict) else {}
+        name = str(item.get("name") or f"image {number}")
+        try:
+            data = base64.b64decode(str(item.get("data", "")), validate=True)
+        except binascii.Error as exc:
+            raise ImageError(f"{name} isn't base64.") from exc
+        blocks.append(image_block(data, name))
+    return blocks

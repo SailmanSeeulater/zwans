@@ -61,6 +61,19 @@ class Session:
             split = context_split(self.system, self.tools, [])
             self.compactor.overhead = split.system + split.tools
 
+    def prompt_of(self, turn: int) -> str:
+        """The text the user sent to start `turn`, or "" when it's no longer in the
+        conversation (a compaction may have summarized it)."""
+        for message in self.messages:
+            if message.role == "user" and message.turn == turn:
+                return "".join(b.text for b in message.content if isinstance(b, TextBlock))
+        return ""
+
+    def earliest_turn(self) -> int:
+        """The first turn still in the conversation as it was; those before it were
+        summarized, so going back to before them isn't possible."""
+        return min((m.turn for m in self.messages if m.turn is not None), default=1)
+
     async def send(self, prompt: str, images: Sequence[ImageBlock] = ()) -> str:
         """Run one turn and return why it ended: "end_turn", "interrupted", "error", ...
         `images` go before the prompt, as the API recommends. A turn that fails before the

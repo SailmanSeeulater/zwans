@@ -25,6 +25,7 @@ PRICES: dict[str, Price] = {
     # For prompts up to 100K tokens; longer ones cost 5x, which this doesn't model.
     "claude-haiku-5-5": Price(input=0.10, output=0.50, cache_write=0.125, cache_read=0.01),
     "claude-haiku-4-5": Price(input=1, output=5, cache_write=1.25, cache_read=0.10),
+    "claude-fable-5-2": Price(input=8, output=40, cache_write=10, cache_read=0.20),
     "claude-fable-5-1": Price(input=10, output=50, cache_write=12.5, cache_read=0.25),
     # Models a refused request can fall back to.
     "claude-opus-5": Price(input=5, output=25, cache_write=6.25, cache_read=0.50),

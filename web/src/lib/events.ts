@@ -36,6 +36,10 @@ export type Item =
 
 export interface Turn {
   prompt: string;
+  /** The session's number for this turn; 0 in transcripts from before it was recorded. */
+  number: number;
+  /** How many images were sent with the prompt. */
+  images: number;
   items: Item[];
   stop?: { reason: string; detail: string };
   modelCalls: number;
@@ -57,7 +61,7 @@ export function buildTurns(events: RawEvent[]): Turn[] {
   const current = (): Turn => {
     let turn = turns.at(-1);
     if (!turn) {
-      turn = { prompt: "", items: [], modelCalls: 0, inputTokens: 0, outputTokens: 0 };
+      turn = { prompt: "", number: 0, images: 0, items: [], modelCalls: 0, inputTokens: 0, outputTokens: 0 };
       turns.push(turn);
     }
     return turn;
@@ -75,6 +79,8 @@ export function buildTurns(events: RawEvent[]): Turn[] {
         if (!parent) {
           turns.push({
             prompt: str(event.prompt),
+            number: num(event.turn),
+            images: num(event.images),
             items: [],
             modelCalls: 0,
             inputTokens: 0,

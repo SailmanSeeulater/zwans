@@ -17,6 +17,16 @@ class _Event(BaseModel):
 class TurnStarted(_Event):
     type: Literal["turn_started"] = "turn_started"
     prompt: str = ""
+    turn: int = 0  # the session's turn number; 0 in transcripts from before it was recorded
+    images: int = 0  # images sent with the prompt
+
+
+class Rewound(_Event):
+    """Written to a session's transcript when it's reopened rewound: the conversation now
+    ends after `turn`, and the turns after it are gone (0 means all of them)."""
+
+    type: Literal["rewound"] = "rewound"
+    turn: int
 
 
 class TextDelta(_Event):
@@ -170,6 +180,7 @@ type Event = (
     | UsageUpdated
     | ModelCalled
     | TurnEnded
+    | Rewound
     | Error
 )
 

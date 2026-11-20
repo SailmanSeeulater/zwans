@@ -138,6 +138,41 @@ export function takeFirstPrompt(id: string): string | null {
   }
 }
 
+/** A file a turn changed, as checkpoints see it. */
+export interface FileChange {
+  status: "added" | "changed" | "deleted";
+  path: string;
+}
+
+/** A turn that can be undone, with the files it changed. */
+export interface UndoableTurn {
+  turn: number;
+  prompt: string;
+  changes: FileChange[];
+}
+
+export interface UndoableTurns {
+  /** Newest first. */
+  turns: UndoableTurn[];
+  /** Why turns can't be undone in this session at all, when they can't. */
+  problem: string | null;
+}
+
+/** What undoing a turn did. The session is reopened, so its socket has to reconnect. */
+export interface RewindResult {
+  status: SessionStatus;
+  /** The undoing's changes: a "deleted" file was new in the undone turns. */
+  undone: FileChange[];
+  /** The undone turn's prompt, to edit and send again. */
+  draft: string;
+}
+
+/** An image to send with a prompt: base64 data, checked again by the server. */
+export interface PromptImage {
+  name: string;
+  data: string;
+}
+
 export interface SavedSession {
   id: string;
   title: string;

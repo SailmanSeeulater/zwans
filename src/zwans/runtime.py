@@ -12,7 +12,7 @@ from zwans.checkpoints import Checkpoints
 from zwans.config import Config, load_credential
 from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
-from zwans.events import Event, ModelCalled
+from zwans.events import Event, ModelCalled, Rewound
 from zwans.executor.background import BackgroundJobs
 from zwans.executor.docker import SANDBOX_OS, DockerExecutor
 from zwans.executor.jail import JAIL_OS, JailExecutor
@@ -183,6 +183,10 @@ def open_session(
     loaded = policy_loader(root, config.home, mode)
     policy = loaded.policy
     transcript = TranscriptWriter(config.home / "transcripts" / f"{info.id}.jsonl")
+    if resume is not None and rewind is not None:
+        # The transcript only grows, so it says where the conversation now ends; the web UI
+        # leaves out the turns after it when it shows the session.
+        transcript.on_event(Rewound(turn=rewind))
     spill_dir = config.home / "tool-output" / info.id
     executor: LocalExecutor
     if config.executor == "docker":
