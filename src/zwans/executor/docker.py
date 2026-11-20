@@ -35,11 +35,16 @@ BUILD_HINTS = {
 
 # Starts the command as the leader of a new process group and notes its id, so a timeout or
 # Ctrl+C can stop it with everything it started. Killing `docker exec` alone would leave the
-# command running inside the container.
-WRAPPER = (
+# command running inside the container. Once the command exits, anything it left running in
+# the background is stopped too.
+_START = (
     'pidfile=/tmp/.zwans-run-$ZWANS_RUN; setsid "$@" & pid=$!; echo $pid > $pidfile; '
-    "wait $pid; code=$?; rm -f $pidfile; exit $code"
+    "wait $pid; code=$?; "
 )
+WRAPPER = _START + 'kill -KILL -- -"$pid" 2>/dev/null; rm -f $pidfile; exit $code'
+# A background job keeps its group and its pidfile after the command exits: what it started,
+# such as `server &`, runs on until KillBash or the end of the session stops it.
+JOB_WRAPPER = _START + "exit $code"
 KILL = (
     "pidfile=/tmp/.zwans-run-{token}; for i in 1 2 3 4 5 6 7 8 9 10; do "
     '[ -s $pidfile ] && break; sleep 0.1; done; kill -KILL -- -"$(cat $pidfile)"; rm -f $pidfile'
@@ -119,6 +124,7 @@ class DockerExecutor(LocalExecutor):
         self.image = image
         self.container = f"zwans-{secrets.token_hex(4)}"
         self._tokens: dict[int, str] = {}  # pid of each `docker exec` -> its run token
+        self._jobs: set[int] = set()  # pids of the `docker exec`s running background jobs
 
     async def start(self) -> None:
         await ensure_sandbox_network()
@@ -177,7 +183,9 @@ class DockerExecutor(LocalExecutor):
     def shell_argv(self, command: str) -> list[str]:
         return ["bash", "-c", command]
 
-    async def _spawn(self, argv: Sequence[str]) -> asyncio.subprocess.Process:
+    async def _spawn(
+        self, argv: Sequence[str], background: bool = False
+    ) -> asyncio.subprocess.Process:
         token = secrets.token_hex(6)
         process = await asyncio.create_subprocess_exec(
             "docker",
@@ -187,7 +195,7 @@ class DockerExecutor(LocalExecutor):
             self.container,
             "bash",
             "-c",
-            WRAPPER,
+            JOB_WRAPPER if background else WRAPPER,
             "zwans",  # $0 for the wrapper; the command follows as "$@"
             *argv,
             stdin=asyncio.subprocess.DEVNULL,
@@ -196,11 +204,17 @@ class DockerExecutor(LocalExecutor):
             **own_process_group(),
         )
         self._tokens[process.pid] = token
+        if background:
+            self._jobs.add(process.pid)
         return process
 
     async def _stop(self, process: asyncio.subprocess.Process) -> None:
         token = self._tokens.pop(process.pid, None)
-        if process.returncode is None and token is not None:
+        job = process.pid in self._jobs
+        self._jobs.discard(process.pid)
+        # A finished job may have left processes running in its group; a finished command
+        # has already had its group stopped by the wrapper.
+        if token is not None and (process.returncode is None or job):
             await _docker(
                 "exec", self.container, "bash", "-c", KILL.format(token=token), check=False
             )

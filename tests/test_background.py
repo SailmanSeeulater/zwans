@@ -1,8 +1,10 @@
 import asyncio
+import sys
+import time
 from pathlib import Path
 
 import pytest
-from helpers import needs_bash
+from helpers import needs_bash, process_gone
 
 from zwans.executor import background
 from zwans.executor.background import BackgroundJobs
@@ -68,6 +70,44 @@ def test_kill_stops_a_job_and_closing_stops_the_rest(tmp_path: Path) -> None:
 
     assert asyncio.run(go()) == "Stopped bg1."
     assert not any(job.running for job in jobs.jobs.values())
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="process groups are a POSIX idea")
+def test_killing_a_finished_job_stops_what_it_left_running(tmp_path: Path) -> None:
+    ctx = context(tmp_path)
+
+    async def go() -> tuple[str, float, str]:
+        await bash(ctx, "sleep 302 & echo $!")
+        started = time.monotonic()
+        read = await output(ctx, "bg1", wait=10)
+        waited = time.monotonic() - started
+        killed = await KillBashTool().run(KillBashInput(job_id="bg1"), ctx)
+        return read, waited, killed.content
+
+    read, waited, killed = asyncio.run(go())
+
+    assert waited < 3  # the shell's exit, not the sleep holding its output open
+    pid, status = read.splitlines()
+    assert status == "(bg1 exited with code 0, but something it started is still running)"
+    assert killed == "bg1 had exited with code 0; stopped anything it left running."
+    assert process_gone(int(pid))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="process groups are a POSIX idea")
+def test_closing_stops_what_finished_jobs_left_running(tmp_path: Path) -> None:
+    ctx = context(tmp_path)
+    assert ctx.jobs is not None
+    jobs = ctx.jobs
+
+    async def go() -> str:
+        await bash(ctx, "sleep 303 & echo $!")
+        read = await output(ctx, "bg1", wait=10)
+        await jobs.close()
+        again = await KillBashTool().run(KillBashInput(job_id="bg1"), ctx)
+        assert again.content == "bg1 was already stopped."
+        return read
+
+    assert process_gone(int(asyncio.run(go()).splitlines()[0]))
 
 
 def test_old_output_is_dropped_and_said_so(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

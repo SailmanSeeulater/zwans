@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from zwans.executor.base import CommandResult
+from zwans.executor.base import DROPPED_NOTE, CommandResult
 
 # A memory guard for runaway commands. The loop decides how much output reaches the model.
 MAX_OUTPUT_BYTES = 2_000_000
@@ -56,6 +56,14 @@ class LocalExecutor:
     def relative(self, path: str) -> str:
         return self.resolve(path).relative_to(self.root).as_posix()
 
+    def search_path(self, path: str) -> str:
+        """Where a read-only search may look: like `relative` in the workspace, and the
+        absolute path in the folder of saved tool output, which Read can open too."""
+        resolved = self.resolve(path, reading=True)
+        if resolved.is_relative_to(self.root):
+            return resolved.relative_to(self.root).as_posix()
+        return str(resolved)
+
     def contains(self, path: str) -> bool:
         """Whether a path (relative to the root, or absolute) is inside the workspace."""
         try:
@@ -77,20 +85,26 @@ class LocalExecutor:
         pump = asyncio.create_task(_pump(process.stdout, output))
         timed_out = False
         try:
-            await asyncio.wait_for(process.wait(), timeout)
-        except TimeoutError:
-            timed_out = True
+            # Wait for the command to exit, not for its output to close: a process it left
+            # running in the background can hold the output open long after.
+            timed_out = not await wait_exit(process, timeout)
         finally:
-            # Runs after a timeout and after a cancel (Ctrl+C): stop the command and its children.
+            # Runs after a timeout, after a cancel (Ctrl+C) and after a normal exit, since a
+            # command can leave processes behind: stop the command and everything it started.
             await self._stop(process)
-            # A leftover background process can hold the pipe open, so don't wait on it forever.
-            await asyncio.wait([pump], timeout=2)
-            pump.cancel()
+            # A process that left the group can still hold the pipe open; don't wait forever.
+            done, _ = await asyncio.wait([pump], timeout=2)
+            if not done:
+                pump.cancel()
+                _close_pipes(process)
         exit_code = None if timed_out else process.returncode
         return CommandResult(output=output.text(), exit_code=exit_code, timed_out=timed_out)
 
-    async def _spawn(self, argv: Sequence[str]) -> asyncio.subprocess.Process:
-        """Start a program with its output piped, in its own process group."""
+    async def _spawn(
+        self, argv: Sequence[str], background: bool = False
+    ) -> asyncio.subprocess.Process:
+        """Start a program with its output piped, in its own process group. `background` says
+        it's a background job, whose leftover processes may keep running after it exits."""
         return await asyncio.create_subprocess_exec(
             find_program(argv[0]),
             *argv[1:],
@@ -115,7 +129,7 @@ class LocalExecutor:
     async def start_process(self, argv: Sequence[str]) -> asyncio.subprocess.Process:
         """Start a program and leave it running, its output piped, for background jobs.
         Stop it with `stop_process`."""
-        return await self._spawn(argv)
+        return await self._spawn(argv, background=True)
 
     async def stop_process(self, process: asyncio.subprocess.Process) -> None:
         """Stop a program `start_process` started, and everything it started."""
@@ -174,26 +188,53 @@ def own_process_group() -> dict[str, Any]:
 
 
 async def kill_tree(process: asyncio.subprocess.Process) -> None:
-    if process.returncode is not None:
-        return
+    """Stop a program started with `own_process_group`, and everything it started."""
     if sys.platform == "win32":
-        # /T also stops child programs, such as the test runner a shell command started.
-        killer = await asyncio.create_subprocess_exec(
-            "taskkill",
-            "/F",
-            "/T",
-            "/PID",
-            str(process.pid),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await killer.wait()
+        if process.returncode is None:
+            # /T also stops child programs, such as the test runner a shell command started.
+            killer = await asyncio.create_subprocess_exec(
+                "taskkill",
+                "/F",
+                "/T",
+                "/PID",
+                str(process.pid),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await killer.wait()
     else:
-        # Already gone. macOS says EPERM rather than ESRCH when the group's only member is a
-        # zombie, as `docker exec` is once the command in the container has been killed.
+        # The whole group, even when the program itself has exited: what it left running in
+        # the background, such as `server &`, is still in the group. Already gone: macOS says
+        # EPERM rather than ESRCH when the group's only member is a zombie, as `docker exec`
+        # is once the command in the container has been killed.
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(process.pid, signal.SIGKILL)
-    await process.wait()
+    await wait_exit(process)
+
+
+async def wait_exit(process: asyncio.subprocess.Process, timeout: float | None = None) -> bool:
+    """Wait until a program exits, or `timeout` seconds pass, and say whether it exited.
+    Unlike `process.wait()`, this doesn't also wait for its output to close."""
+    loop = asyncio.get_running_loop()
+    deadline = None if timeout is None else loop.time() + timeout
+    delay = 0.001  # short at first, so quick commands return quickly
+    while process.returncode is None:
+        if deadline is not None:
+            left = deadline - loop.time()
+            if left <= 0:
+                return False
+            delay = min(delay, left)
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, 0.05)
+    return True
+
+
+def _close_pipes(process: asyncio.subprocess.Process) -> None:
+    """Close a finished program's pipes that something else still holds open, so they aren't
+    left for the garbage collector after the event loop has closed."""
+    transport = getattr(process, "_transport", None)  # asyncio has no public way to do this
+    if transport is not None:
+        transport.close()
 
 
 class _Output:
@@ -218,7 +259,7 @@ class _Output:
         data = bytes(self.head)
         dropped = self.total - len(self.head) - len(self.tail)
         if dropped:
-            data += f"\n[... {dropped} bytes not shown ...]\n".encode()
+            data += f"\n{DROPPED_NOTE.format(dropped)}\n".encode()
         data += bytes(self.tail)
         return data.decode("utf-8", errors="replace").replace("\r\n", "\n")
 

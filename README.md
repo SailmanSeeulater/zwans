@@ -91,7 +91,11 @@ file instead of refusing it. Images can be up to 3.75 MB, and each costs about 1
 
 Everything is kept in `~/.zwans/`: sessions in `sessions.db`, an event log per session in
 `transcripts/`, and the full text of tool output too long for the conversation in
-`tool-output/`.
+`tool-output/`, where the model can `Read` and `Grep` it. A command's output over 2 MB is
+already cut in the middle as it runs, and the model is told so.
+
+`Grep` and `Glob` skip what `.gitignore` leaves out, and also `node_modules`, `.venv` and
+the other folders checkpoints leave out, unless the path searched is inside one of them.
 
 ### Permissions
 
@@ -277,7 +281,11 @@ For a command that keeps running, such as a dev server or a watcher, the model s
 `run_in_background` on `Bash`. It gets a job id (`bg1`, ...) back at once, reads what the job
 has printed since it last looked with `BashOutput` (which can wait for it to finish), and
 stops it with `KillBash`. Jobs run through the same executor and policy as other commands,
-keep the last megabyte of their output, and are stopped when the session closes.
+and keep the last megabyte of their output. A job is stopped with everything it started,
+including what's still running after its shell has exited (`server & echo started`), by
+`KillBash` or when the session closes: on Ctrl+D, `exit`, the end of `zwans run`, SIGTERM,
+or the terminal closing (SIGHUP; Zwans then exits with 128 plus the signal's number). A
+command run without `run_in_background` has whatever it left running stopped when it exits.
 
 ### Checkpoints
 

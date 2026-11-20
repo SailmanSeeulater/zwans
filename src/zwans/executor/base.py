@@ -1,8 +1,16 @@
 """How tools touch files and run commands. Swapping the executor swaps the sandbox."""
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
+
+# Marks where an executor dropped the middle of a runaway command's output. It isn't kept
+# anywhere, so the note on a shortened result must not promise it.
+DROPPED_NOTE = "[... {:,} bytes dropped while the command ran ...]"
+DROPPED_PATTERN = re.compile(
+    r"^\[\.\.\. ([\d,]+) bytes dropped while the command ran \.\.\.\]$", re.M
+)
 
 
 @dataclass(frozen=True)
@@ -17,6 +25,11 @@ class Executor(Protocol):
 
     def relative(self, path: str) -> str:
         """Check that a path is inside the workspace and return it relative to the root."""
+        ...
+
+    def search_path(self, path: str) -> str:
+        """Like `relative`, but also allows saved tool output (as an absolute path), for
+        read-only searches such as Grep."""
         ...
 
     async def read_bytes(self, path: str) -> bytes: ...
