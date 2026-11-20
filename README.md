@@ -45,6 +45,25 @@ python examples/run_demo.py                  # the same demo with the real model
 Ctrl+C stops the running turn and keeps the conversation. After each turn Zwans prints its
 cost, the context size, and how much input came from the prompt cache.
 
+In the chat, Enter sends and Esc then Enter (or Ctrl+J) starts a new line; pasted text keeps
+its lines. Up and Down go through earlier messages, kept in `~/.zwans/history`. Ctrl+C clears
+what you've typed, and Ctrl+D quits. A line under the prompt shows the model, the mode, the
+context size and the session's cost so far.
+
+Write `@path` to send a file's text along with the message, or a folder's listing, so the
+model doesn't spend a step reading it; Tab completes the path. Files over 100,000 characters
+are left for the model to read in parts.
+
+| Command | Does |
+|---|---|
+| `/help` | Lists the commands |
+| `/clear` | Starts a new session in the same workspace |
+| `/compact` | Summarizes the older messages now, to free up context |
+| `/model [name]` | Shows the model, or switches to another for the rest of the session |
+| `/cost` | What the session has cost, and how full its context is |
+| `/resume [n]` | Lists recent sessions in this workspace, or switches to one |
+| `/exit` | Quits |
+
 Everything is kept in `~/.zwans/`: sessions in `sessions.db`, an event log per session in
 `transcripts/`, and the full text of tool output too long for the conversation in
 `tool-output/`.

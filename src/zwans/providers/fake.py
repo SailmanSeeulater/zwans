@@ -27,6 +27,9 @@ class FakeProvider:
         self.requests: list[list[Message]] = []  # what the loop sent on each call
         self.last_request: dict[str, Any] | None = None  # shaped like the real API's
 
+    def set_model(self, model: str) -> None:
+        self.model = model  # the script's replies name their own models; this is for tests
+
     @classmethod
     def from_file(cls, path: Path, pace: float = 0.0) -> Self:
         """Load a script: a JSON list of responses, each shaped like ModelResponse."""

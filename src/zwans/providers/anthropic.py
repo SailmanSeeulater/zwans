@@ -68,13 +68,12 @@ class AnthropicProvider:
         prompt_cache: PromptCache = "conversation",
         web: bool = False,
     ) -> None:
-        self.model = model
         self.effort = effort
         self.max_tokens = max_tokens
         self.prompt_cache = prompt_cache
         self.web = web  # offer web search and fetch, which the API runs (see zwans/web.py)
-        self.traits = TRAITS.get(model, Traits())
-        self.betas = _betas(self.traits)
+        self.plan_token = credential.mode == "subscription"
+        self.set_model(model)
         # The last request body, as sent, for the web UI's inspector. The credential is on
         # the client, never in here.
         self.last_request: dict[str, Any] | None = None
@@ -83,6 +82,12 @@ class AnthropicProvider:
             self._client = anthropic.AsyncAnthropic(api_key=credential.token, max_retries=4)
         else:
             self._client = anthropic.AsyncAnthropic(auth_token=credential.token, max_retries=4)
+
+    def set_model(self, model: str) -> None:
+        self.model = model
+        self.traits = TRAITS.get(model, Traits())
+        self.betas = _betas(self.traits)
+        if self.plan_token:
             self.betas.append(OAUTH_BETA)
 
     async def stream(

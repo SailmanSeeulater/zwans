@@ -55,9 +55,14 @@ class Compactor:
 
     async def maybe_compact(self, messages: list[Message]) -> list[Event]:
         """Compact `messages` in place if they're over the threshold. Returns events to emit."""
-        before = self.estimate(messages)
-        if before < self.threshold:
+        if self.estimate(messages) < self.threshold:
             return []
+        return await self.compact(messages)
+
+    async def compact(self, messages: list[Message]) -> list[Event]:
+        """Compact `messages` in place now, whatever their size, as /compact asks. Returns
+        events to emit: none when there's too little to summarize."""
+        before = self.estimate(messages)
         cut = self._cut_point(messages)
         if cut is None:
             return []

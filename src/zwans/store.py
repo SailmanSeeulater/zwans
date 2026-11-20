@@ -117,6 +117,11 @@ class SessionStore:
                 (title, turns, json.dumps(usage), _now(), session_id),
             )
 
+    def set_model(self, session_id: str, model: str) -> None:
+        """Record a /model switch, so resuming the session uses the new model."""
+        with self._db:
+            self._db.execute("UPDATE sessions SET model = ? WHERE id = ?", (model, session_id))
+
     def rewind(self, session_id: str, turn: int) -> None:
         """Delete every turn after `turn`. Turns already summarized away can't be returned to."""
         (first,) = self._db.execute(

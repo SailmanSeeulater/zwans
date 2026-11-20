@@ -12,7 +12,9 @@ import typer
 from zwans import __version__
 from zwans.cli.approval import can_prompt, load_with_trust, terminal_approver
 from zwans.cli.attach import Attached, AttachError, open_remote
+from zwans.cli.commands import COMMANDS, Commands, Quit, Reopen, is_command
 from zwans.cli.evals import eval_app
+from zwans.cli.input import Composer, expand_mentions
 from zwans.cli.render import Renderer
 from zwans.cli.serve import read_server_file, serve
 from zwans.config import ConfigError, load_settings
@@ -176,23 +178,37 @@ def _start(
         return 2
     try:
         config, env = load_settings()
-        opened = open_session(
-            config,
-            env,
-            workspace=workspace,
-            resume=resume,
-            rewind=rewind,
-            model=model,
-            mode=mode.value if mode else None,
-            approver=terminal_approver if can_prompt() else None,
-            listeners=[Renderer().on_event],
-            policy_loader=load_with_trust,
-            fake_script=fake_script,
-        )
-    except (ConfigError, SessionError, PolicyError) as exc:
+    except ConfigError as exc:
         typer.secho(str(exc), fg="red", err=True)
         return 2
-    _banner(opened, scripted=fake_script is not None)
+    # /clear and /resume close the session and open another, so this can go round again.
+    while True:
+        try:
+            opened = open_session(
+                config,
+                env,
+                workspace=workspace,
+                resume=resume,
+                rewind=rewind,
+                model=model,
+                mode=mode.value if mode else None,
+                approver=terminal_approver if can_prompt() else None,
+                listeners=[Renderer().on_event],
+                policy_loader=load_with_trust,
+                fake_script=fake_script,
+            )
+        except (ConfigError, SessionError, PolicyError) as exc:
+            typer.secho(str(exc), fg="red", err=True)
+            return 2
+        outcome = _run_session(opened, task, scripted=fake_script is not None)
+        if not isinstance(outcome, Reopen):
+            return outcome
+        workspace = Path(opened.info.workspace)
+        resume, rewind, model = outcome.resume, None, opened.model
+
+
+def _run_session(opened: OpenedSession, task: str | None, scripted: bool) -> int | Reopen:
+    _banner(opened, scripted)
     # One event loop for the whole session, so the API client's connections stay usable.
     with asyncio.Runner() as runner:
         try:
@@ -232,22 +248,55 @@ def _banner(opened: OpenedSession, scripted: bool) -> None:
         typer.secho("Its last turn was cut off mid-tool; those calls are marked unfinished.")
 
 
-def _chat(opened: OpenedSession, runner: asyncio.Runner) -> int:
-    typer.secho("Type a task. Ctrl+C stops a running turn; 'exit' or Ctrl+C here quits.", dim=True)
+def _chat(opened: OpenedSession, runner: asyncio.Runner) -> int | Reopen:
+    workspace = Path(opened.info.workspace)
+    commands = Commands(opened)
+    composer: Composer | None = None
+    if can_prompt():
+        composer = Composer(
+            COMMANDS, workspace, opened.config.home / "history", status=lambda: _status(opened)
+        )
+        typer.secho("Type a task, or /help. Ctrl+C stops a running turn; Ctrl+D quits.", dim=True)
     while True:
         try:
-            task = input("\n> ").strip()
+            if composer is not None:
+                typer.echo()
+                line = runner.run(composer.read()).strip()
+            else:
+                line = input("\n> ").strip()
         except (EOFError, KeyboardInterrupt):
             return 0
-        if task in ("exit", "quit"):
+        if line in ("exit", "quit"):
             return 0
-        if not task:
+        if not line:
             continue
+        if is_command(line):
+            outcome = runner.run(commands.run(line))
+            if isinstance(outcome, Quit):
+                return 0
+            if isinstance(outcome, Reopen):
+                return outcome
+            continue
+        mentions = expand_mentions(line, workspace)
+        for problem in mentions.problems:
+            typer.secho(problem, fg="yellow")
+        if mentions.files:
+            typer.secho(f"Sending {', '.join(mentions.files)} with it.", dim=True)
+            if opened.session.permissions is not None:
+                # File contents may carry instructions, just as when the model reads them.
+                opened.session.permissions.observe("Read", is_error=False)
         try:
-            runner.run(opened.session.send(task))
+            runner.run(opened.session.send(mentions.text))
         except KeyboardInterrupt:
             typer.secho("Interrupted. The conversation is kept, so carry on.", fg="yellow")
         _print_turn(opened)
+
+
+def _status(opened: OpenedSession) -> str:
+    mode = opened.policy.policy.mode
+    context = opened.session.context_tokens()
+    dollars = opened.meter.session_dollars
+    return f"{opened.model} · {mode} · context {context / 1000:.0f}k · ${dollars:.2f}"
 
 
 def _run_once(opened: OpenedSession, runner: asyncio.Runner, task: str) -> int:
