@@ -1,6 +1,9 @@
 import asyncio
 import base64
+import os
+import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from prompt_toolkit.completion import CompleteEvent
@@ -8,8 +11,15 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
-from zwans.cli.commands import COMMANDS, Commands, Quit, Reopen, is_command
-from zwans.cli.input import MAX_FILE_CHARS, ChatCompleter, Composer, expand_mentions
+from zwans.checkpoints import Change
+from zwans.cli.commands import COMMANDS, Commands, Quit, Reopen, _describe_undo, is_command
+from zwans.cli.input import (
+    MAX_FILE_CHARS,
+    ChatCompleter,
+    Composer,
+    echoing,
+    expand_mentions,
+)
 from zwans.config import Config
 from zwans.messages import TextBlock
 from zwans.providers.base import ModelResponse
@@ -86,6 +96,8 @@ def test_commands_and_paths_complete(workspace: Path) -> None:
     assert complete("fix @.e", workspace) == ["@.env"]
     assert complete("fix @../", workspace) == []
     assert complete("/model x", workspace) == []
+    assert complete("/model claude-so", workspace) == ["claude-sonnet-5-5"]
+    assert complete("/etc/hosts @src/m", workspace) == ["@src/main.py"]
 
 
 def read_typed(keys: str, workspace: Path) -> str:
@@ -101,6 +113,71 @@ def read_typed(keys: str, workspace: Path) -> str:
 def test_enter_sends_and_escape_enter_adds_a_line(workspace: Path) -> None:
     assert read_typed("first line\x1b\rsecond\r", workspace) == "first line\nsecond"
     assert read_typed("one\ntwo\r", workspace) == "one\ntwo"  # Ctrl+J
+
+
+def test_lines_typed_ahead_are_sent_one_at_a_time(workspace: Path) -> None:
+    async def read_twice() -> list[str]:
+        with create_pipe_input() as pipe:
+            pipe.send_text("/cost\rsay banana\r")  # typed while a turn ran
+            composer = Composer(COMMANDS, workspace, None, input=pipe, output=DummyOutput())
+            return [await composer.read(), await composer.read()]
+
+    assert asyncio.run(read_twice()) == ["/cost", "say banana"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no termios on Windows")
+def test_typing_during_a_turn_waits_unechoed_and_a_question_takes_only_later_typing(
+    workspace: Path,
+) -> None:
+    import termios
+
+    leader, follower = os.openpty()
+    os.set_blocking(leader, False)
+
+    async def go() -> tuple[list[list[Any]], str, list[str], bytes]:
+        loop = asyncio.get_running_loop()
+        with (
+            create_pipe_input() as pipe,
+            os.fdopen(follower, "r") as terminal,
+            os.fdopen(os.dup(follower), "w") as screen,
+        ):
+            composer = Composer(COMMANDS, workspace, None, input=pipe, output=DummyOutput())
+            before = termios.tcgetattr(follower)
+            with composer.typing_ahead(loop, terminal, screen):
+                during = termios.tcgetattr(follower)
+                os.write(leader, b"/cost\r\x1b[200~two\rlines\x1b[201~\r")  # a line and a paste
+                await asyncio.sleep(0.1)
+                os.write(leader, b"y\r")  # typed just before an approval question
+                await asyncio.sleep(0.1)
+                with echoing(terminal, screen):
+                    asked = termios.tcgetattr(follower)
+                    os.write(leader, b"n\r")
+                    answer = terminal.readline()
+                assert termios.tcgetattr(follower) == during
+            after = termios.tcgetattr(follower)
+            with pytest.raises(KeyboardInterrupt), composer.typing_ahead(loop, terminal, screen):
+                os.write(leader, b"dropped\r")
+                await asyncio.sleep(0.1)
+                raise KeyboardInterrupt  # Ctrl+C stops the turn
+            pipe.send_text("kept\r")
+            sent = [await composer.read() for _ in range(4)]
+            shown = os.read(leader, 1000)
+        os.close(leader)
+        return [before, during, asked, after], answer, sent, shown
+
+    (before, during, asked, after), answer, sent, shown = asyncio.run(go())
+
+    assert not during[3] & (termios.ECHO | termios.ICANON) and not during[0] & termios.ICRNL
+    assert during[6][termios.VMIN] == 1
+    assert asked[3] & termios.ECHO and asked[3] & termios.ICANON and asked[0] & termios.ICRNL
+    # macOS marks pending input to retype whenever line editing comes back on (PENDIN).
+    after[3] &= ~getattr(termios, "PENDIN", 0)
+    assert after == before
+    assert answer == "n\n"  # the "y" typed before the question didn't answer it
+    assert sent == ["/cost", "two\nlines", "y", "kept"]
+    # Only the answer was echoed; bracketed paste was on while typing was hidden.
+    on, off = b"\x1b[?2004h", b"\x1b[?2004l"
+    assert shown == on + off + b"n\r\n" + on + off + on + off
 
 
 def test_ctrl_c_clears_the_line_and_quits_on_an_empty_one(workspace: Path) -> None:
@@ -142,12 +219,18 @@ def test_compact_model_and_cost_commands(
         await opened.session.send("Second")
         await commands.run("/compact")
         await commands.run("/model claude-sonnet-5-5")
+        await commands.run("/model claude-nonexistent-9")
+        await commands.run("/model")
         await commands.run("/cost")
         assert await commands.run("/nope") is None
+        assert await commands.run("/rewind\n/undo") is None  # lines typed ahead, run together
         assert await commands.run("/exit") == Quit()
 
     asyncio.run(go())
     out = capsys.readouterr().out
+    assert "Zwans doesn't know claude-nonexistent-9." in out  # and stays on the one before
+    assert "  claude-sonnet-5-5  (current)" in out and "  claude-opus-5-5\n" in out
+    assert "/rewind goes on a line of its own, so nothing was done." in out
     assert "Nothing to compact yet" in out
     assert "Summary of it all." in opened.session.messages[0].content[0].model_dump_json()
     assert opened.model == "claude-sonnet-5-5"
@@ -169,5 +252,23 @@ def test_resume_lists_this_workspaces_sessions_and_picks_one(
     assert asyncio.run(commands.run("/resume")) is None
     assert "1. " in capsys.readouterr().out
     assert asyncio.run(commands.run("/resume 1")) == Reopen(resume=earlier.id)
+    assert asyncio.run(commands.run(f"/resume {earlier.id[:-2]}")) == Reopen(resume=earlier.id)
     assert asyncio.run(commands.run("/clear")) == Reopen(resume=None)
+    capsys.readouterr()
+    assert asyncio.run(commands.run("/resume nope")) is None  # stays in this session
+    assert "No saved session starts with 'nope'." in capsys.readouterr().out
+    assert asyncio.run(commands.run("/resume 2")) is None  # a number, not the start of an id
+    assert "There's no session 2 in the list." in capsys.readouterr().out
     asyncio.run(opened.close())
+
+
+def test_undoing_says_which_files_were_removed_and_which_restored() -> None:
+    # The undoing's own changes: deleting a file the turn added, adding back one it deleted.
+    undone = [Change("deleted", "docs/usage.md"), Change("added", "notes.txt")]
+
+    assert _describe_undo(undone) == (
+        "Removed docs/usage.md, which was new; restored notes.txt to how it was."
+    )
+    assert _describe_undo([Change("changed", "a.py"), Change("added", "b.py")]) == (
+        "Restored a.py, b.py to how they were."
+    )

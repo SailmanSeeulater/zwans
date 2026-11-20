@@ -140,7 +140,7 @@ def test_undo_reverts_the_files_and_the_turn(
 
     out = capsys.readouterr().out
     assert "1. Write @keep.txt's notes" in out and "notes.md (added)" in out
-    assert "Put back notes.md (added)" in out
+    assert "Removed notes.md, which was new." in out
     assert outcome == Reopen(resume=opened.id, rewind=0, draft="Write @keep.txt's notes")
     assert not (workspace / "notes.md").exists()
     reopened = open_session(

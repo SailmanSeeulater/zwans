@@ -73,7 +73,11 @@ shows what it found. Piped to a file, the output is plain text.
 In the chat, Enter sends and Esc then Enter (or Ctrl+J) starts a new line; pasted text keeps
 its lines. Up and Down go through earlier messages, kept in `~/.zwans/history`. Ctrl+C clears
 what you've typed, and Ctrl+D quits. A line under the prompt shows the model, the mode, the
-context size and the session's cost so far.
+context size and the session's cost so far. What you type while a turn runs isn't shown; it
+waits for the prompt, and each line of it is then sent as its own message, while a paste goes
+as one. Ctrl+C drops it along with the turn. When Zwans asks you to approve a tool call,
+only what you type after the question answers it. Resuming a session in the chat shows its
+last three turns again.
 
 Write `@path` to send a file's text along with the message, or a folder's listing, so the
 model doesn't spend a step reading it; Tab completes the path. Files over 100,000 characters
@@ -86,11 +90,11 @@ file instead of refusing it. Images can be up to 3.75 MB, and each costs about 1
 | Command | Does |
 |---|---|
 | `/help` | Lists the commands |
-| `/clear` | Starts a new session in the same workspace |
+| `/clear` | Starts a new session in the same workspace, after saying what the old one cost |
 | `/undo` | Undoes the last turn: puts the files back and drops it from the conversation |
 | `/rewind [turn]` | Lists the turns and the files each changed, or goes back to before one |
 | `/compact` | Summarizes the older messages now, to free up context |
-| `/model [name]` | Shows the model, or switches to another for the rest of the session |
+| `/model [name]` | Lists the models Zwans knows, or switches to one for the rest of the session (Tab completes the name; for any other model, use `zwans --resume <id> --model <name>`) |
 | `/cost` | What the session has cost, and how full its context is |
 | `/resume [n]` | Lists recent sessions in this workspace, or switches to one |
 | `/exit` | Quits |

@@ -45,6 +45,9 @@ class Compactor:
         self.keep_messages = keep_messages
         self._counted_tokens = 0  # what the API counted for the last request, plus its reply
         self._counted_messages = 0  # how many messages that count covers
+        # The system prompt and tool definitions, guessed by the session: they go with every
+        # request, but nothing has counted them yet in a session just opened.
+        self.overhead = 0
 
     def observe(self, response: ModelResponse, message_count: int) -> None:
         """Record the API's token count for the request that just finished."""
@@ -58,7 +61,8 @@ class Compactor:
 
     def estimate(self, messages: Sequence[Message]) -> int:
         """Tokens the next request will send: the API's last count plus a guess for what's new."""
-        return self._counted_tokens + approx_tokens(messages[self._counted_messages :])
+        counted = self._counted_tokens if self._counted_messages else self.overhead
+        return counted + approx_tokens(messages[self._counted_messages :])
 
     async def maybe_compact(self, messages: list[Message]) -> list[Event]:
         """Compact `messages` in place if they're over the threshold. Returns events to emit."""
@@ -88,10 +92,12 @@ class Compactor:
             role="user", content=[TextBlock(text=SUMMARY_HEADER + summary)], turn=kept[0].turn
         )
         messages[:] = [summary_message, *kept]
-        self._counted_tokens = self._counted_messages = 0  # the next response recounts
         # Measured like `before`, which counts the system prompt and tools too: only the
         # messages changed.
         after = max(before - removed + approx_tokens(messages), approx_tokens(messages))
+        # The best count until the next response recounts, so the estimate doesn't drop to
+        # the messages alone.
+        self._counted_tokens, self._counted_messages = after, len(messages)
         compacted = ContextCompacted(tokens_before=before, tokens_after=after, summary=summary)
         return [compacted, *usage]
 

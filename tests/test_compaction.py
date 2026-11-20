@@ -65,6 +65,39 @@ def test_the_estimate_is_the_api_count_plus_a_guess_for_newer_messages() -> None
     assert compactor.estimate(messages) == 940 + approx_tokens(messages[2:])
 
 
+def test_before_any_count_the_estimate_includes_the_system_prompt_and_tools(
+    ctx: ToolContext,
+) -> None:
+    compactor = Compactor(Summarizer(), threshold=10_000)
+    session = Session(
+        provider=Summarizer(),
+        tools=[AppendTool()],
+        ctx=ctx,
+        system="You are a careful agent. " * 400,
+        listeners=[],
+        compactor=compactor,
+    )
+    session.messages = [user("Go"), *tool_round(1)]  # as a resumed session starts
+
+    assert compactor.overhead > 2_500  # the system prompt alone is 10,000 characters
+    assert session.context_tokens() == compactor.overhead + approx_tokens(session.messages)
+
+
+def test_after_compacting_the_estimate_keeps_the_system_prompt_and_tools() -> None:
+    compactor = Compactor(Summarizer(), threshold=0, keep_messages=4)
+    messages = [user("Append lines")]
+    for n in range(1, 6):
+        messages += tool_round(n)
+    compactor.observe(
+        ModelResponse(content=[], stop_reason="tool_use", input_tokens=9_000), len(messages)
+    )
+
+    events = asyncio.run(compactor.compact(messages))
+
+    assert isinstance(events[0], ContextCompacted)
+    assert compactor.estimate(messages) == events[0].tokens_after > 8_000
+
+
 def test_nothing_happens_below_the_threshold() -> None:
     compactor = Compactor(Summarizer(), threshold=10_000)
     messages = [user("Go"), *tool_round(1), *tool_round(2)]

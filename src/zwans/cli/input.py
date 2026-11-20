@@ -2,17 +2,23 @@
 
 Enter sends. Esc then Enter, or Ctrl+J, starts a new line, and pasted text keeps its lines.
 Up and Down walk through earlier messages, which are kept in ~/.zwans/history across
-sessions. Tab completes a /command at the start, or an @path anywhere.
+sessions. Tab completes a /command at the start, or an @path anywhere. What's typed while a
+turn runs waits, unechoed: once the prompt is back, each line of it is sent in turn, and a
+paste as one message.
 
 An @path names a file in the workspace: its text goes along with the message, so the model
 doesn't spend a step reading it. A folder sends its listing.
 """
 
+import asyncio
 import os
 import re
-from collections.abc import Callable, Iterable, Sequence
+import sys
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TextIO
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
@@ -20,17 +26,24 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory, History, InMemoryHistory
 from prompt_toolkit.input import Input
+from prompt_toolkit.input.typeahead import store_typeahead
+from prompt_toolkit.input.vt100_parser import Vt100Parser
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
+from prompt_toolkit.key_binding.key_processor import KeyPress
 from prompt_toolkit.output import Output
 
 from zwans.images import ImageError, image_block, media_type
 from zwans.messages import ImageBlock
+
+if sys.platform != "win32":
+    import termios
 
 MENTION = re.compile(r"(?<!\S)@(\S+)")
 TRAILING = ",.;:!?)]}'\""  # punctuation after a mention, as in "look at @calc.py."
 MAX_FILE_CHARS = 100_000  # a bigger file is named but not sent; the model can Read parts of it
 MAX_LISTING = 200
 MENTIONED = "\n\nThe files I mentioned, as they are now:\n\n"  # between a message and its files
+PASTE_ON, PASTE_OFF = "\x1b[?2004h", "\x1b[?2004l"  # the terminal's bracketed paste mode
 SKIPPED_FOLDERS = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", ".next"})
 
 
@@ -39,6 +52,7 @@ class Command:
     name: str
     help: str
     argument: str = ""  # shown in /help, as "/model [name]"
+    choices: tuple[str, ...] = ()  # what Tab completes the argument to
 
 
 @dataclass
@@ -125,6 +139,13 @@ class ChatCompleter(Completer):
             for command in self.commands:
                 if command.name.startswith(before[1:]):
                     yield Completion(f"/{command.name}", -len(before), display_meta=command.help)
+            return
+        name, _, typed = before[1:].partition(" ")
+        choices = [c for command in self.commands if command.name == name for c in command.choices]
+        if before.startswith("/") and choices and not any(c.isspace() for c in typed):
+            for choice in choices:
+                if choice.startswith(typed):
+                    yield Completion(choice, -len(typed))
             return
         word = before.split()[-1] if before and not before[-1].isspace() else ""
         if word.startswith("@"):
@@ -215,3 +236,94 @@ class Composer:
         hints = "Enter sends · Esc Enter new line · @ file · / commands"
         status = self._status()
         return FormattedText([("", f" {status} · {hints}" if status else f" {hints}")])
+
+    @contextmanager
+    def typing_ahead(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        stream: TextIO | None = None,
+        out: TextIO | None = None,
+    ) -> Iterator[None]:
+        """While a turn runs on `loop`, keep what the user types for the next prompt instead
+        of letting the terminal print it into the output. The prompt then sends each line
+        typed ahead as its own message, and a paste as one. It's read as it comes, so a
+        long paste isn't cut off at the terminal's input limit. Ctrl+C drops it."""
+        stream = stream or sys.stdin
+        if sys.platform == "win32" or not stream.isatty():
+            yield
+            return
+        fd = stream.fileno()
+        typed = bytearray()
+
+        def take() -> None:
+            try:
+                chunk = os.read(fd, 4096)
+            except OSError:
+                chunk = b""
+            if chunk:
+                typed.extend(chunk)
+            else:  # the terminal went away
+                loop.remove_reader(fd)
+
+        with _terminal_input(stream, out or sys.stdout, echo=False):
+            loop.add_reader(fd, take)
+            try:
+                yield
+            finally:
+                loop.remove_reader(fd)
+        store_typeahead(self._session.app.input, _key_presses(bytes(typed)))
+
+
+@contextmanager
+def echoing(stream: TextIO | None = None, out: TextIO | None = None) -> Iterator[None]:
+    """Show typing again for a question asked mid-turn, such as an approval. Only what's
+    typed after the question can answer it."""
+    with _terminal_input(stream or sys.stdin, out or sys.stdout, echo=True):
+        yield
+
+
+@contextmanager
+def _terminal_input(stream: TextIO, out: TextIO, echo: bool) -> Iterator[None]:
+    """Hide typing and hand each key over as it comes (echo=False), or show it and read
+    whole lines again (echo=True)."""
+    if sys.platform == "win32" or not stream.isatty():
+        yield
+        return
+    fd = stream.fileno()
+    saved = termios.tcgetattr(fd)
+    hidden = not saved[3] & termios.ECHO  # asked inside Composer.typing_ahead()
+    changed = [*saved[:6], list(saved[6])]  # a copy of the control characters too
+    flags = termios.ECHO | termios.ICANON
+    if echo:
+        termios.tcflush(fd, termios.TCIFLUSH)
+        changed[0] |= termios.ICRNL
+        changed[3] |= flags
+    else:
+        changed[0] &= ~termios.ICRNL
+        changed[3] &= ~flags
+        changed[6][termios.VMIN], changed[6][termios.VTIME] = 1, 0
+    termios.tcsetattr(fd, termios.TCSANOW, changed)
+    if hidden or not echo:
+        _mark_pastes(out, not echo)
+    try:
+        yield
+    finally:
+        termios.tcsetattr(fd, termios.TCSANOW, saved)
+        if hidden or not echo:
+            _mark_pastes(out, echo)
+
+
+def _mark_pastes(out: TextIO, on: bool) -> None:
+    """Turn the terminal's bracketed paste on or off: when on, a paste arrives marked, so the
+    prompt keeps it as one message even if it has several lines."""
+    if out.isatty():
+        out.write(PASTE_ON if on else PASTE_OFF)
+        out.flush()
+
+
+def _key_presses(typed: bytes) -> list[KeyPress]:
+    keys: list[KeyPress] = []
+    parser = Vt100Parser(keys.append)
+    parser.feed(typed.decode("utf-8", errors="replace"))
+    parser.flush()
+    return keys

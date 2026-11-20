@@ -8,9 +8,10 @@ from zwans.checkpoints import Change, CheckpointError
 from zwans.cli.input import MENTIONED, Command
 from zwans.events import ContextCompacted
 from zwans.messages import TextBlock
-from zwans.pricing import price_of
+from zwans.pricing import PRICES, price_of
 from zwans.runtime import OpenedSession
 from zwans.session import Session
+from zwans.store import SessionError
 
 COMMANDS = [
     Command("help", "List these commands"),
@@ -18,11 +19,12 @@ COMMANDS = [
     Command("undo", "Undo the last turn: its file changes and its messages"),
     Command("rewind", "List the turns, or go back to before one", "[turn]"),
     Command("compact", "Summarize the older messages now, to free up context"),
-    Command("model", "Show the model, or switch to another", "[name]"),
+    Command("model", "Show the model, or switch to another", "[name]", choices=tuple(PRICES)),
     Command("cost", "What this session has cost, and how full its context is"),
     Command("resume", "List recent sessions here, or switch to one", "[number or id]"),
     Command("exit", "Quit"),
 ]
+KNOWN = {command.name for command in COMMANDS} | {"quit"}
 RECENT_SHOWN = 10
 TURNS_SHOWN = 10
 
@@ -59,8 +61,13 @@ class Commands:
         self._listed: list[str] = []  # the ids /resume last showed, so "/resume 2" works
 
     async def run(self, line: str) -> Outcome:
-        name, _, argument = line.strip()[1:].partition(" ")
+        first, _, rest = line.strip().partition("\n")
+        name, _, argument = first[1:].partition(" ")
         argument = argument.strip()
+        if rest.strip() and name in KNOWN:
+            # Likely lines typed ahead that ran together: doing only part of it would surprise.
+            _say(f"/{name} goes on a line of its own, so nothing was done.", fg="yellow")
+            return None
         match name:
             case "help":
                 self._help()
@@ -110,7 +117,7 @@ class Commands:
             _say(f"Couldn't put the files back: {exc}", fg="red")
             return None
         if undone:
-            _say(f"Put back {_describe(undone, reverse=True)}.")
+            _say(_describe_undo(undone))
         else:
             _say("No files had changed since then.")
         return Reopen(resume=self.opened.id, rewind=turn - 1, draft=_prompt_of(session, turn))
@@ -150,16 +157,21 @@ class Commands:
             _say("Nothing to compact yet: the conversation is too short.")
 
     def _model(self, name: str) -> None:
+        current = self.opened.model
         if not name:
-            current = self.opened.model
-            _say(f"Model: {current}. /model <name> switches, e.g. /model claude-sonnet-5-5.")
+            _say(f"Model: {current}. /model <name> switches to one of these:")
+            for known in PRICES:
+                typer.echo(f"  {known}{'  (current)' if known == current else ''}")
             return
         switch = getattr(self.opened.session.provider, "set_model", None)
         if switch is None:
             _say("This session's provider can't switch models.", fg="yellow")
             return
         if price_of(name) is None:
-            _say(f"Zwans doesn't know {name}'s price, so its cost won't be counted.", fg="yellow")
+            # A typo would only show up as an API error on the next turn, and stay saved.
+            _say(f"Zwans doesn't know {name}. /model lists the models it knows.", fg="yellow")
+            _say(f"To use it anyway: zwans --resume {self.opened.id} --model {name}")
+            return
         switch(name)
         self.opened.model = name
         self.opened.store.set_model(self.opened.id, name)
@@ -177,7 +189,18 @@ class Commands:
         if argument:
             if argument.isdigit() and 0 < int(argument) <= len(self._listed):
                 return Reopen(resume=self._listed[int(argument) - 1])
-            return Reopen(resume=argument)
+            if argument.isdigit() and int(argument) <= RECENT_SHOWN:  # not the start of an id
+                _say(f"There's no session {argument} in the list. /resume lists them.", fg="yellow")
+                return None
+            try:  # check first, since switching closes this session
+                info = self.opened.store.get(argument)
+            except SessionError as exc:
+                _say(str(exc), fg="yellow")
+                return None
+            if info.id == self.opened.id:
+                _say("That's this session.")
+                return None
+            return Reopen(resume=info.id)
         workspace = self.opened.info.workspace
         found = [
             info
@@ -205,14 +228,36 @@ def _prompt_of(session: Session, turn: int) -> str:
     return ""
 
 
-def _describe(changes: list[Change], reverse: bool = False, shown: int = 4) -> str:
-    """ "calc.py (changed), notes.md (added)", and how many more. With `reverse`, the changes
-    are the undoing of a turn's, so they're named for what the turn did."""
-    flipped = {"added": "deleted", "deleted": "added"} if reverse else {}
-    parts = [f"{c.path} ({flipped.get(c.status, c.status)})" for c in changes[:shown]]
-    if len(changes) > shown:
-        parts.append(f"{len(changes) - shown} more")
+def _describe(changes: list[Change]) -> str:
+    """ "calc.py (changed), notes.md (added)", and how many more."""
+    return _names([f"{c.path} ({c.status})" for c in changes])
+
+
+def _describe_undo(undone: list[Change]) -> str:
+    """What going back did to the files, as "Removed notes.md, which was new; restored calc.py
+    to how it was." The changes are the undoing's, so a file it deleted was a new one."""
+    removed = [c.path for c in undone if c.status == "deleted"]
+    restored = [c.path for c in undone if c.status != "deleted"]
+    parts = []
+    if removed:
+        parts.append(f"removed {_names(removed)}, which {_was(removed)} new")
+    if restored:
+        they = "it" if len(restored) == 1 else "they"
+        parts.append(f"restored {_names(restored)} to how {they} {_was(restored)}")
+    text = "; ".join(parts)
+    return f"{text[0].upper()}{text[1:]}."
+
+
+def _names(items: list[str], shown: int = 4) -> str:
+    """The first few, and how many more."""
+    parts = items[:shown]
+    if len(items) > shown:
+        parts.append(f"{len(items) - shown} more")
     return ", ".join(parts)
+
+
+def _was(items: list[str]) -> str:
+    return "was" if len(items) == 1 else "were"
 
 
 def _say(text: str, **style: object) -> None:
