@@ -32,6 +32,7 @@ class Word:
 class SimpleCommand:
     words: list[Word] = field(default_factory=list)
     redirects: list[tuple[str, Word]] = field(default_factory=list)  # (operator, target)
+    heredocs: list[str] = field(default_factory=list)  # their markers as written: <<'EOF'
 
     @property
     def text(self) -> str:
@@ -105,21 +106,24 @@ class _Parser:
             self.i += 1
         bare = op.lstrip("0123456789")
         if bare.startswith("<<") and bare != "<<<":
-            self._queue_heredoc()
+            self._queue_heredoc(bare)
             return
         target = self._read_word()
         if not target.text:
             raise ShellParseError(f"{op} has no target")
         self.current.redirects.append((bare, target))
 
-    def _queue_heredoc(self) -> None:
+    def _queue_heredoc(self, op: str) -> None:
         if self.s.startswith("-", self.i):
+            op += "-"
             self.i += 1
+        start = self.i
         word = self._read_word()
         quoted = word.text != self.s[self.i - len(word.text) : self.i]  # had quotes in it
         if not word.text:
             raise ShellParseError("<< has no delimiter")
         self.pending_heredocs.append((word.text, not quoted))
+        self.current.heredocs.append(op + self.s[start : self.i])
 
     def _read_heredocs(self) -> None:
         for delimiter, expanded in self.pending_heredocs:
