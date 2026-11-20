@@ -21,7 +21,6 @@ from pathlib import Path
 from types import TracebackType
 from typing import Self
 
-from zwans.executor.base import CommandResult
 from zwans.executor.local import MAX_OUTPUT_BYTES, LocalExecutor, kill_tree, own_process_group
 
 SANDBOX_IMAGE = "zwans-sandbox:0.1"
@@ -175,8 +174,8 @@ class DockerExecutor(LocalExecutor):
     ) -> None:
         await self.stop()
 
-    async def run_shell(self, command: str, timeout: float) -> CommandResult:
-        return await self.run(["bash", "-c", command], timeout)
+    def shell_argv(self, command: str) -> list[str]:
+        return ["bash", "-c", command]
 
     async def _spawn(self, argv: Sequence[str]) -> asyncio.subprocess.Process:
         token = secrets.token_hex(6)

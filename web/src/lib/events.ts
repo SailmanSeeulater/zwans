@@ -198,7 +198,7 @@ export function waitingCalls(turns: Turn[]): ToolCall[] {
 
 /** The one argument worth showing for a call, so it fits on a line. */
 export function keyArgument(call: Pick<ToolCall, "name" | "args">): string {
-  for (const key of ["command", "path", "pattern", "query", "url", "description", "name", "ticket"]) {
+  for (const key of ["command", "path", "pattern", "query", "url", "description", "name", "job_id", "ticket"]) {
     const value = call.args[key];
     if (typeof value === "string" && value) return value.split("\n")[0] ?? "";
   }

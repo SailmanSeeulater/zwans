@@ -13,6 +13,7 @@ from zwans.config import Config, load_credential
 from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
 from zwans.events import Event
+from zwans.executor.background import BackgroundJobs
 from zwans.executor.docker import SANDBOX_OS, DockerExecutor
 from zwans.executor.jail import JAIL_OS, JailExecutor
 from zwans.executor.local import LocalExecutor, find_bash
@@ -30,7 +31,7 @@ from zwans.providers.fake import FakeProvider
 from zwans.session import Session
 from zwans.store import SessionInfo, SessionRecorder, SessionStore, load_session
 from zwans.tools.base import Tool, ToolContext
-from zwans.tools.bash import BashTool
+from zwans.tools.bash import BashOutputTool, BashTool, KillBashTool
 from zwans.tools.edit import EditTool
 from zwans.tools.glob import GlobTool
 from zwans.tools.grep import GrepTool
@@ -57,6 +58,7 @@ class OpenedSession:
     policy: LoadedPolicy
     model: str
     mcp: McpServers | None = None
+    jobs: BackgroundJobs | None = None  # commands left running in the background
     checkpoints: Checkpoints | None = None  # the files before each turn, for /undo
     instructions: list[Path] = field(default_factory=list)  # instruction files, for a new one
     resumed: bool = False
@@ -78,6 +80,8 @@ class OpenedSession:
         return tools, problems
 
     async def close(self) -> None:
+        if self.jobs is not None:
+            await self.jobs.close()
         if self.mcp is not None:
             await self.mcp.close()
         if isinstance(self.executor, DockerExecutor):
@@ -154,6 +158,7 @@ def open_session(
         executor = JailExecutor(root, spill_dir=spill_dir)
     else:
         executor = LocalExecutor(root, shell=config.shell, spill_dir=spill_dir)
+    jobs = BackgroundJobs(executor)
     permissions = Permissions(
         policy, inside=executor.contains, relative=executor.relative, approver=approver
     )
@@ -164,6 +169,8 @@ def open_session(
         GlobTool(),
         GrepTool(),
         BashTool(),
+        BashOutputTool(),
+        KillBashTool(),
     ]
     if config.todos:
         tools.append(TodoWriteTool())
@@ -174,7 +181,7 @@ def open_session(
     session = Session(
         provider=provider,
         tools=tools,
-        ctx=ToolContext(executor=executor),
+        ctx=ToolContext(executor=executor, jobs=jobs),
         system=info.system,  # a resumed session keeps the exact prompt it started with
         listeners=[*listeners, transcript.on_event, meter.on_event],
         max_steps=config.max_steps,
@@ -207,6 +214,7 @@ def open_session(
         policy=loaded,
         model=model,
         mcp=mcp,
+        jobs=jobs,
         checkpoints=checkpoints,
         instructions=followed,
         resumed=resume is not None,

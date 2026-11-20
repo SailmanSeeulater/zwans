@@ -106,7 +106,20 @@ class LocalExecutor:
         await kill_tree(process)
 
     async def run_shell(self, command: str, timeout: float) -> CommandResult:
-        return await self.run([self._shell or find_bash(), "-c", command], timeout)
+        return await self.run(self.shell_argv(command), timeout)
+
+    def shell_argv(self, command: str) -> list[str]:
+        """How to run a command with the shell, wherever this executor runs commands."""
+        return [self._shell or find_bash(), "-c", command]
+
+    async def start_process(self, argv: Sequence[str]) -> asyncio.subprocess.Process:
+        """Start a program and leave it running, its output piped, for background jobs.
+        Stop it with `stop_process`."""
+        return await self._spawn(argv)
+
+    async def stop_process(self, process: asyncio.subprocess.Process) -> None:
+        """Stop a program `start_process` started, and everything it started."""
+        await self._stop(process)
 
     async def spill(self, name: str, text: str) -> str:
         target = self.spill_dir / re.sub(r"[^\w.-]", "_", name)

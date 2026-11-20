@@ -1,11 +1,14 @@
 """The interface every tool implements."""
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel
 
 from zwans.executor.base import Executor
+
+if TYPE_CHECKING:
+    from zwans.executor.background import BackgroundJobs
 
 
 class ToolError(Exception):
@@ -16,6 +19,7 @@ class ToolError(Exception):
 class ToolContext:
     # What a tool can use while it runs. The policy decision joins it in Phase 4.
     executor: Executor
+    jobs: "BackgroundJobs | None" = None  # the session's background commands, if it has any
 
 
 @dataclass(frozen=True)

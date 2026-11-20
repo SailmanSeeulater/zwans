@@ -18,7 +18,7 @@ from zwans.events import (
 )
 
 # The argument most worth showing for each tool, so a call fits on one line.
-KEY_ARGS = ("path", "command", "pattern", "query", "url", "description", "name", "ticket")
+KEY_ARGS = ("path", "command", "pattern", "query", "url", "description", "name", "job_id", "ticket")
 TODO_MARKS = {"completed": "✓", "in_progress": "▸", "pending": "○"}
 
 

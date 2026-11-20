@@ -248,6 +248,14 @@ For a task with several steps, the model keeps a checklist with the `TodoWrite` 
 updates it as it goes. The terminal prints it each time it changes; the web UI pins it above
 the message box while the turn runs. Set `todos = false` to turn it off.
 
+### Background commands
+
+For a command that keeps running, such as a dev server or a watcher, the model sets
+`run_in_background` on `Bash`. It gets a job id (`bg1`, ...) back at once, reads what the job
+has printed since it last looked with `BashOutput` (which can wait for it to finish), and
+stops it with `KillBash`. Jobs run through the same executor and policy as other commands,
+keep the last megabyte of their output, and are stopped when the session closes.
+
 ### Checkpoints
 
 Before each turn, Zwans snapshots the workspace into a git repository of its own in

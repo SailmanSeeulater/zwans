@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 from zwans.config import ConfigError
-from zwans.executor.base import CommandResult
 from zwans.executor.local import MAX_OUTPUT_BYTES, LocalExecutor, command_env, own_process_group
 
 # The jail built in this checkout, when Zwans is installed from it with pip -e.
@@ -69,8 +68,8 @@ class JailExecutor(LocalExecutor):
         self.memory_mb = memory_mb
         self.max_processes = max_processes
 
-    async def run_shell(self, command: str, timeout: float) -> CommandResult:
-        return await self.run(["bash", "-c", command], timeout)
+    def shell_argv(self, command: str) -> list[str]:
+        return ["bash", "-c", command]
 
     def spec(self, argv: Sequence[str]) -> dict[str, Any]:
         env = command_env()
