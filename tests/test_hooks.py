@@ -184,6 +184,59 @@ def test_a_stop_hook_keeps_the_turn_going_until_it_passes(tmp_path: Path) -> Non
     assert messages[-1].content == [TextBlock(text="Fixed now.")]
 
 
+ALWAYS_FAILS = "import sys\nprint('The tests still fail.', file=sys.stderr)\nsys.exit(1)\n"
+
+
+def test_a_stop_hook_gives_up_after_max_blocks_and_lets_the_turn_end(tmp_path: Path) -> None:
+    command = python_hook(tmp_path, "never_passes", ALWAYS_FAILS)
+    hook_set = hooks(tmp_path, HookSpec(event="stop", command=command, max_blocks=2))
+    script = [done("Done."), done("Done now."), done("Really done."), done("Unreached.")]
+
+    events, messages, provider = run(tmp_path, script, hook_set)
+
+    # Sent back twice, then the third answer ends the turn although the hook still fails.
+    assert len(provider.requests) == 3
+    reports = [e for e in events if isinstance(e, HookReported)]
+    assert len(reports) == 3  # the last failure is still shown, not hidden
+    assert isinstance(events[-1], TurnEnded) and events[-1].stop_reason == "end_turn"
+    assert messages[-1].content == [TextBlock(text="Really done.")]
+
+
+def test_a_stop_hook_without_max_blocks_keeps_sending_the_model_back(tmp_path: Path) -> None:
+    command = python_hook(tmp_path, "never_passes", ALWAYS_FAILS)
+    hook_set = hooks(tmp_path, HookSpec(event="stop", command=command))
+
+    _, _, provider = run(tmp_path, [done(), done(), done(), done()], hook_set)
+
+    # Every reply is sent back, until a fifth request finds the fake model out of replies.
+    assert len(provider.requests) == 5
+
+
+def test_a_changed_only_stop_hook_skips_a_turn_that_only_read(tmp_path: Path) -> None:
+    command = python_hook(tmp_path, "never_passes", ALWAYS_FAILS)
+    hook_set = hooks(tmp_path, HookSpec(event="stop", command=command, when="changed"))
+
+    events, _, provider = run(tmp_path, [call("echo", text="hi"), done("It says hi.")], hook_set)
+
+    assert len(provider.requests) == 2
+    assert not [e for e in events if isinstance(e, HookReported)]
+
+
+def test_a_changed_only_stop_hook_runs_after_a_command(tmp_path: Path) -> None:
+    source = (
+        "import json, sys\nprint(json.load(sys.stdin)['changed'], file=sys.stderr)\nsys.exit(1)\n"
+    )
+    command = python_hook(tmp_path, "report_changed", source)
+    spec = HookSpec(event="stop", command=command, when="changed", max_blocks=1)
+    hook_set = hooks(tmp_path, spec)
+
+    events, _, provider = run(tmp_path, [call("Bash", command="true"), done(), done()], hook_set)
+
+    reports = [e for e in events if isinstance(e, HookReported)]
+    assert [r.message for r in reports] == ["True", "True"]
+    assert len(provider.requests) == 3
+
+
 def test_a_workspace_policys_hooks_apply_only_once_trusted(tmp_path: Path) -> None:
     home, workspace = tmp_path / "home", tmp_path / "ws"
     (workspace / ".zwans").mkdir(parents=True)

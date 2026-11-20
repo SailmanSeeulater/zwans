@@ -198,6 +198,25 @@ def test_a_config_can_replace_a_tool_description(tmp_path: Path) -> None:
     )  # class unchanged
 
 
+@needs_bash
+@pytest.mark.usefixtures("python_on_path")
+def test_the_stop_check_config_sends_the_agent_back_while_the_tests_fail(tmp_path: Path) -> None:
+    config = load_eval_config(ROOT / "evals" / "configs" / "stop-check.toml")
+    settings = config.apply(Config(home=tmp_path / "home"))
+    look = ToolUseBlock(id="call_0", name="Bash", input={"command": "ls"})
+    # Claims to be done after only looking; the visible test fails, so it's sent back.
+    script = [ModelResponse(content=[look], stop_reason="tool_use"), *GIVES_UP, *FIXES_IT]
+    agent = ZwansAgent(settings, config, replay(script))
+
+    report = asyncio.run(run_suite([BUGGY_CALC], agent, settings, config, tmp_path))
+
+    [attempt] = report.attempts
+    assert attempt.status == "passed"
+    assert attempt.model_calls == 4
+    transcript = Path(attempt.transcript).read_text(encoding="utf-8")
+    assert "The tests still fail" in transcript
+
+
 def test_a_config_rejects_unknown_tools_and_settings() -> None:
     with pytest.raises(EvalConfigError, match="Nope"):
         make_tools(EvalConfig(name="x", tool_descriptions={"Nope": "?"}), Config())

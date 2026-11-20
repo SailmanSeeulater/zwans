@@ -8,6 +8,8 @@ written as a program:
     tools = "Bash"                     # which tools, as a glob; all of them when left out
     command = "python3 ~/.zwans/hooks/no_push.py"
     timeout = 30                       # seconds
+    max_blocks = 3                     # stop hooks: how often it may send the model back
+    when = "changed"                   # stop hooks: only after a turn that may have changed files
 
 A hook runs in the workspace folder and reads a JSON object on stdin describing the call or
 the turn. Its exit code decides what happens next:
@@ -15,7 +17,11 @@ the turn. Its exit code decides what happens next:
 - pre_tool: non-zero blocks the call, and the model is told why.
 - post_tool: non-zero adds the hook's message to the call's result, such as a linter's output.
 - stop: non-zero keeps the turn going, with the hook's message as the next thing the model
-  reads, such as "the tests still fail".
+  reads, such as "the tests still fail". With `max_blocks`, a hook that has sent the model
+  back that many times in one turn is still run and reported, but no longer keeps the turn
+  going, so a check the model can't satisfy doesn't spend model calls up to the step limit.
+  With `when = "changed"`, it runs only after a turn that ran a tool that can change files
+  (Write, Edit, Bash, ...), so a question answered by reading doesn't run the tests.
 
 The message is what the hook printed to stderr, or to stdout when stderr is empty. A hook that
 can't start, crashes or times out counts as non-zero, so a broken pre_tool hook blocks calls
@@ -45,6 +51,8 @@ class HookSpec(BaseModel):
     tools: str = "*"  # ignored for stop hooks
     command: str
     timeout: float = Field(default=60, gt=0)
+    max_blocks: int | None = Field(default=None, ge=1)  # stop hooks only; None: no limit
+    when: Literal["always", "changed"] = "always"  # stop hooks only
 
     def applies_to(self, event: HookEvent, tool: str | None) -> bool:
         return self.event == event and (tool is None or fnmatchcase(tool, self.tools))
@@ -81,9 +89,14 @@ class Hooks:
         payload = {"tool": tool, "args": args, "output": output, "is_error": is_error}
         return await self._run_all(self._matching("post_tool", tool), payload)
 
-    async def stop(self, stop_reason: str, message: str) -> list[HookFailure]:
-        payload = {"stop_reason": stop_reason, "message": message}
-        return await self._run_all(self._matching("stop", None), payload)
+    async def stop(
+        self, stop_reason: str, message: str, *, changed: bool = True
+    ) -> list[HookFailure]:
+        """The stop hooks that failed. `changed` says whether the turn ran a tool that can
+        change files; hooks with `when = "changed"` are skipped when it didn't."""
+        payload = {"stop_reason": stop_reason, "message": message, "changed": changed}
+        specs = [s for s in self._matching("stop", None) if changed or s.when == "always"]
+        return await self._run_all(specs, payload)
 
     def _matching(self, event: HookEvent, tool: str | None) -> list[HookSpec]:
         return [spec for spec in self.specs if spec.applies_to(event, tool)]

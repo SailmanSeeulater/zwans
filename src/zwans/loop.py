@@ -1,6 +1,7 @@
 """The agent loop: call the model, run the tools it asks for, repeat until it stops."""
 
 import asyncio
+from collections import Counter
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
@@ -22,7 +23,7 @@ from zwans.events import (
     TurnEnded,
     TurnStarted,
 )
-from zwans.ext.hooks import Hooks
+from zwans.ext.hooks import Hooks, HookSpec
 from zwans.messages import (
     ContentBlock,
     ImageBlock,
@@ -73,6 +74,8 @@ async def run_turn(
         images=sum(isinstance(block, ImageBlock) for block in asked.content) if asked else 0,
     )
 
+    changed = False  # whether a tool that can change files has run this turn
+    stop_blocks: Counter[HookSpec] = Counter()  # how often each stop hook sent the model back
     for _ in range(max_steps):
         model_call = TimedCall()
         streamed: list[str] = []  # the reply's text so far, kept if Ctrl+C cuts it off
@@ -122,13 +125,16 @@ async def run_turn(
                 messages.append(_results_message(calls, {}, default=skipped))
             elif hooks is not None and response.stop_reason == "end_turn":
                 text = "".join(b.text for b in response.content if isinstance(b, TextBlock))
-                failures = await hooks.stop(response.stop_reason, text)
+                failures = await hooks.stop(response.stop_reason, text, changed=changed)
                 for failure in failures:
                     yield HookReported(
                         event="stop", command=failure.spec.command, message=failure.message
                     )
-                if failures:
-                    said = "\n\n".join(failure.message for failure in failures)
+                # A hook that has used up its max_blocks is reported but lets the turn end.
+                retry = [f for f in failures if _may_block(f.spec, stop_blocks)]
+                if retry:
+                    stop_blocks.update(f.spec for f in retry)
+                    said = "\n\n".join(failure.message for failure in retry)
                     note = f"A stop hook says the task isn't finished yet:\n{said}"
                     messages.append(Message(role="user", content=[TextBlock(text=note)]))
                     continue
@@ -166,6 +172,9 @@ async def run_turn(
                         yield ToolResult(call_id=call.id, content=refusal, is_error=True)
                 results = await asyncio.gather(
                     *(_run_tool(tools_by_name, c, ctx) for c in runnable)
+                )
+                changed = changed or any(
+                    not tools_by_name[c.name].read_only for c in runnable if c.name in tools_by_name
                 )
                 for call, output in zip(runnable, results, strict=True):
                     if hooks is not None and call.name in tools_by_name:
@@ -325,6 +334,10 @@ def _batches(calls: list[ToolUseBlock], tools: dict[str, Tool[Any]]) -> list[lis
             batches.append([call])
         previous_read_only = read_only
     return batches
+
+
+def _may_block(spec: HookSpec, blocks: Counter[HookSpec]) -> bool:
+    return spec.max_blocks is None or blocks[spec] < spec.max_blocks
 
 
 def _results_message(

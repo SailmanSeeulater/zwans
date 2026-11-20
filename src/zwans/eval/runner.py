@@ -35,6 +35,7 @@ from zwans.events import (
 from zwans.executor.docker import SANDBOX_OS, DockerError, DockerExecutor
 from zwans.executor.jail import JAIL_OS, JailExecutor
 from zwans.executor.local import LocalExecutor, find_bash
+from zwans.ext.hooks import Hooks, HookSpec
 from zwans.policy import Permissions, Policy
 from zwans.pricing import cost
 from zwans.prompt import system_prompt
@@ -66,6 +67,9 @@ class EvalConfig(BaseModel):
 
     Top-level keys override Zwans's own settings (model, effort, max_steps, ...). A
     [tool_descriptions] table replaces what the model is told about a tool, by tool name.
+    [[hooks]] entries, written as in a policy file (see ext/hooks.py), run during every
+    attempt, such as a stop hook that runs the task's visible tests before the agent may
+    finish. They run on this machine in the attempt's folder, whatever the executor.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -73,6 +77,7 @@ class EvalConfig(BaseModel):
     name: str
     settings: dict[str, Any] = {}
     tool_descriptions: dict[str, str] = {}
+    hooks: list[HookSpec] = []
 
     def apply(self, base: Config) -> Config:
         try:
@@ -85,7 +90,10 @@ def load_eval_config(path: Path) -> EvalConfig:
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
         descriptions = data.pop("tool_descriptions", {})
-        return EvalConfig(name=path.stem, settings=data, tool_descriptions=descriptions)
+        hooks = data.pop("hooks", [])
+        return EvalConfig(
+            name=path.stem, settings=data, tool_descriptions=descriptions, hooks=hooks
+        )
     except (OSError, tomllib.TOMLDecodeError, ValidationError) as exc:
         raise EvalConfigError(f"{path}: {exc}") from exc
 
@@ -350,6 +358,7 @@ class ZwansAgent:
             listeners=listeners,
             max_steps=self.config.max_steps,
             compactor=Compactor(provider, self.config.compact_at, self.config.keep_messages),
+            hooks=Hooks(self.eval_config.hooks, workspace) if self.eval_config.hooks else None,
         )
 
 
