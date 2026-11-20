@@ -1,5 +1,7 @@
 """The Grep tool: search file contents with ripgrep."""
 
+from collections.abc import Callable, Sequence
+
 from pydantic import BaseModel, Field
 
 from zwans.checkpoints import EXCLUDED
@@ -42,7 +44,13 @@ class GrepTool:
     input_model = GrepInput
     read_only = True
 
+    def __init__(self, hidden: Callable[[str], Sequence[str]] | None = None) -> None:
+        # The policy's globs for files a search mustn't show (Read deny and ask rules), given
+        # the path searched. The policy checks a path that names such a file itself.
+        self.hidden = hidden
+
     async def run(self, args: GrepInput, ctx: ToolContext) -> ToolOutput:
+        search = ctx.executor.search_path(args.path)
         argv = ["rg", "--color", "never", "--no-require-git", "--path-separator", "/"]
         argv += ["--max-columns", "300", *skipped(args.glob)]
         if args.files_only:
@@ -53,7 +61,11 @@ class GrepTool:
             argv.append("--ignore-case")
         if args.glob:
             argv += ["--glob", args.glob]
-        argv += ["--regexp", args.pattern, ctx.executor.search_path(args.path)]
+        # Last, since a later glob wins over an earlier one. Case is ignored, which only hides
+        # more where the file system tells case apart.
+        for glob in self.hidden(search) if self.hidden else ():
+            argv += ["--iglob", f"!{glob}"]
+        argv += ["--regexp", args.pattern, search]
 
         result = await ctx.executor.run(argv, timeout=60)
         if result.exit_code == 1:  # ripgrep exits 1 when nothing matched

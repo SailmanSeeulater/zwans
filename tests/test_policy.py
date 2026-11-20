@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from helpers import collect, needs_bash, user
+from helpers import collect, needs_bash, needs_rg, user
 
 import zwans.policy.rules
 import zwans.tools
@@ -37,6 +37,7 @@ from zwans.providers.fake import FakeProvider
 from zwans.tools.base import Tool, ToolContext
 from zwans.tools.bash import BashTool
 from zwans.tools.edit import EditTool
+from zwans.tools.grep import GrepInput, GrepTool
 from zwans.tools.read import ReadTool
 from zwans.tools.write import WriteTool
 
@@ -55,7 +56,7 @@ def permissions(
             return False
         return True
 
-    return Permissions(policy, inside, executor.relative)
+    return Permissions(policy, inside, executor.relative, root=executor.root)
 
 
 def decide(perms: Permissions, tool: Any, **args: Any) -> Decision:
@@ -332,6 +333,23 @@ def test_results_from_files_and_commands_are_marked_untrusted(tmp_path: Path) ->
         "find .git/hooks -name pre-commit -exec cp evil.sh {} \\;",
         "awk -i inplace 1 .zwans/policy.toml",
         "git checkout HEAD~1 -- .zwans/policy.toml",
+        # A glob in any part of the path, which the shell expands to .git or .zwans.
+        "cp evil .gi?/hooks/pre-commit",
+        "echo x > .gi?/hooks/pre-commit",
+        "rm .zwa*/policy.toml",
+        "sed -i s/a/b/ .zwa*/policy.toml",
+        "mv x .zwa*/policy.toml",
+        "chmod +x .gi[t]/hooks/pre-commit",
+        # -t in a group of options, or with its value attached.
+        "cp -rt .git/hooks evil.sh",
+        "cp -t.git/hooks evil.sh",
+        # find looks at any depth, .git and .zwans included.
+        "find . -name policy.toml -delete",
+        "find . -name '*.toml' -delete",
+        "find . -name '*.pyc' -delete",
+        "find . -type f -exec rm {} +",
+        "find . -name pre-commit -exec cp evil {} \\;",
+        "find . -name hooks -execdir cp evil pre-commit \\;",
     ],
 )
 def test_file_commands_into_git_or_zwans_ask_even_in_auto_mode(
@@ -351,7 +369,8 @@ def test_file_commands_into_git_or_zwans_ask_even_in_auto_mode(
         "cp a b",
         "cp x .",
         "rm -rf *",
-        "find . -name '*.pyc' -delete",
+        "rm *.pyc",
+        "find src -name '*.pyc' -delete",
         "cd src && rm -rf build",
         "pushd src && make && popd",
         "find src -name '*.tmp' -exec rm {} +",
@@ -422,6 +441,27 @@ def test_read_rules_dont_cover_names_or_other_files(tmp_path: Path) -> None:
         (".env", "config", True, False),
         ("src/*.py", "src", True, True),
         ("src/*.py", "tests", True, False),
+        # Globs in folder parts, and on both sides.
+        ("secrets/**", "secre*/key.pem", False, True),
+        ("secrets/**", "secr?ts/key.pem", False, True),
+        ("secrets/**", "sec*/k*", False, True),
+        ("secrets/**", "src/*", False, False),
+        ("secrets/**", "secre*", False, False),  # the folder alone isn't read
+        ("*.pem", "key.p?m", False, True),
+        ("*.pem", "id.pe*", False, True),
+        ("*.pem", "*.py", False, False),
+        ("*.pem", "*", False, True),
+        (".env", ".[[:alpha:]]nv", False, True),  # a named class ends with its own ]
+        (".env", ".[[:digit:]x]nv", False, True),
+        (".env", "*", False, False),  # a glob doesn't match a leading dot
+        (".git/**", ".gi[t]/hooks/pre-commit", True, True),
+        (".git/**", ".gi[!t]/hooks", True, False),
+        ("src/*.py", "s*/a.p?", False, True),
+        ("a/b/**", "a/*/c", True, True),
+        # A ** part stands for any folders, as for `find . -name x`.
+        (".zwans/**", "**/policy.toml", True, True),
+        (".zwans/**", "src/**/policy.toml", True, False),
+        (".env", "x/**", False, True),
     ],
 )
 def test_may_cover(pattern: str, path: str, folder: bool, covers: bool) -> None:
@@ -606,3 +646,260 @@ def test_the_terminal_offers_always_only_with_rules(
     request = PermissionRequest("c2", "Bash", {"command": "touch x"}, "it asks", rules)
     assert asyncio.run(approval.terminal_approver(request)) == Approval.ALWAYS
     assert prompts[-1] == "  Allow it? [y]es / [a]lways (Bash(touch x)) / [N]o: "
+
+
+# -- audit findings: globs, folders, "always", Grep and read-only mode
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat secre*/key.pem",
+        "cat secr?ts/key.pem",
+        "head sec*/k*",
+        "sed -n p secre*/k",
+        "cat key.p?m",
+        "cat id.pe*",
+    ],
+)
+@pytest.mark.parametrize("mode", ["ask", "read-only"])
+def test_read_rules_cover_globs_in_any_part_of_a_path(
+    tmp_path: Path, command: str, mode: Mode
+) -> None:
+    perms = permissions(tmp_path, mode, deny=["Read(secrets/**)", "Read(*.pem)"])
+    assert decide(perms, BashTool(), command=command) == Decision.DENY
+    assert decide(perms, BashTool(), command="cat src/*.py") == Decision.ALLOW
+
+
+async def _always(request: PermissionRequest) -> Approval:
+    return Approval.ALWAYS
+
+
+def _answer_always(perms: Permissions, command: str) -> tuple[str, ...]:
+    perms.approver = _always
+    verdict = perms.check(BashTool(), {"command": command})
+    assert verdict.decision == Decision.ASK
+    asyncio.run(perms.ask(PermissionRequest("c1", "Bash", {}, verdict.reason, verdict.rules)))
+    return verdict.rules
+
+
+def test_always_isnt_offered_for_a_command_substitution(tmp_path: Path) -> None:
+    perms = permissions(tmp_path)
+    assert _answer_always(perms, "cat $(git ls-files | head -1)") == ()
+    assert decide(perms, BashTool(), command="cat $(echo ~/.ssh/id_rsa)") == Decision.ASK
+    # Nor does a rule written for the placeholder allow one.
+    perms.session_rules.append(Rule.parse("Bash(cat $(...))", "this session"))
+    assert decide(perms, BashTool(), command="cat $(printf /etc/passwd)") == Decision.ASK
+    assert decide(perms, BashTool(), command="rm -rf $(echo ~)") == Decision.ASK
+
+
+def test_always_isnt_offered_for_a_script_piped_to_a_shell(tmp_path: Path) -> None:
+    perms = permissions(tmp_path)
+    assert _answer_always(perms, "git log --oneline | head -5 | bash") == ()
+    assert _answer_always(perms, "cat notes.txt | python3") == ()
+    for command in ["echo x | bash", "bash <<< 'rm -rf ~'", "echo 'import os' | python3"]:
+        assert decide(perms, BashTool(), command=command) == Decision.ASK
+
+
+def test_a_bare_shell_rule_doesnt_allow_a_here_document(tmp_path: Path) -> None:
+    perms = permissions(tmp_path, allow=["Bash(bash)", "Bash(bash *)", "Bash(python3 *)"])
+    assert decide(perms, BashTool(), command="bash <<'EOF'\nrm -rf ~\nEOF") == Decision.ASK
+    assert decide(perms, BashTool(), command="cat notes.txt | bash") == Decision.ASK
+    assert decide(perms, BashTool(), command="python3 - <<'EOF'\nprint(1)\nEOF") == Decision.ASK
+    assert decide(perms, BashTool(), command="python3 x.py") == Decision.ALLOW
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "env -C . rm -rf build",
+        "env -C src git push origin main",
+        "env --chdir=. git push origin main",
+        "env -S 'rm -rf build'",
+        "env PATH=. git push origin main",
+    ],
+)
+def test_deny_rules_see_the_command_env_runs_in_another_folder(
+    tmp_path: Path, command: str
+) -> None:
+    perms = permissions(tmp_path, deny=["Bash(rm -rf *)", "Bash(git push *)"])
+    assert decide(perms, BashTool(), command=command) == Decision.DENY
+    other = command.replace("rm -rf build", "ls").replace("git push origin main", "ls")
+    verdict = permissions(tmp_path).check(BashTool(), {"command": other})
+    assert verdict.decision == Decision.ASK
+    assert verdict.rules == ()  # no rule can say which folder's files it uses
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        (BashTool(), {"command": "cp a .git/hooks/pre-commit"}),
+        (BashTool(), {"command": "chmod +x .git/hooks/pre-commit"}),
+        (BashTool(), {"command": "mv x .zwans/policy.toml"}),
+        (BashTool(), {"command": "tee .zwans/policy.toml"}),
+        (BashTool(), {"command": "rm -rf migrations"}),
+        (EditTool(), {"path": ".git/config"}),
+        (EditTool(), {"path": "migrations/0001.py"}),
+        (ReadTool(), {"path": "secrets/key.txt"}),
+    ],
+)
+def test_read_only_mode_refuses_what_an_ask_rule_covers(
+    tmp_path: Path, tool: Any, args: dict[str, Any]
+) -> None:
+    policy = Policy.default()
+    file = PolicyFile(mode="read-only", ask=["Edit(migrations/**)", "Read(secrets/**)"])
+    policy.add(file, "test")
+    perms = Permissions(policy, lambda path: True, LocalExecutor(tmp_path).relative)
+    verdict = perms.check(tool, args)
+    assert verdict.decision == Decision.DENY
+    assert "read-only mode" in verdict.reason
+
+
+def test_read_rules_cover_the_grep_tool(tmp_path: Path) -> None:
+    perms = permissions(tmp_path, "read-only", deny=["Read(.env)", "Read(secrets/**)"])
+    assert decide(perms, GrepTool(), pattern=".", path=".env") == Decision.DENY
+    assert decide(perms, GrepTool(), pattern=".", path="config/.env") == Decision.DENY
+    assert decide(perms, GrepTool(), pattern=".", path="secrets") == Decision.DENY
+    assert decide(perms, GrepTool(), pattern=".", path="src") == Decision.ALLOW
+    assert decide(perms, GrepTool(), pattern=".") == Decision.ALLOW
+
+
+def test_a_folder_search_hides_what_read_rules_cover() -> None:
+    policy = Policy.default()
+    policy.add(PolicyFile(deny=["Read(.env)", "Read(secrets/)"], ask=["Read(a[1].txt)"]), "t")
+    assert policy.hidden_from_search(".") == [".env", "secrets/**", "a\\[1\\].txt"]
+    assert policy.hidden_from_search("secrets") == [".env", "a\\[1\\].txt"]  # asked already
+
+
+@needs_rg
+def test_grep_through_a_folder_skips_files_read_rules_cover(tmp_path: Path) -> None:
+    for name in (".env", "src/.env", "secrets/key.txt", "src/secrets/key.txt", "src/app.py"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("KEY=fake\n", encoding="utf-8")
+    policy = Policy.default()
+    policy.add(PolicyFile(deny=["Read(.env)", "Read(secrets/**)"]), "test")
+    tool = GrepTool(hidden=policy.hidden_from_search)
+    ctx = ToolContext(executor=LocalExecutor(tmp_path))
+    # glob="*" would let a later glob put .env back; the rules' globs come last.
+    found = asyncio.run(tool.run(GrepInput(pattern="KEY", glob="*", files_only=True), ctx))
+    assert sorted(found.content.splitlines()) == ["src/app.py", "src/secrets/key.txt"]
+    found = asyncio.run(tool.run(GrepInput(pattern="KEY", path="src", files_only=True), ctx))
+    assert sorted(found.content.splitlines()) == ["src/app.py", "src/secrets/key.txt"]
+
+
+def test_policy_errors_show_escape_codes_as_text(tmp_path: Path) -> None:
+    (tmp_path / "policy.toml").write_text('"\\u001b]0;PWNED\\u0007" = 1\n', encoding="utf-8")
+    with pytest.raises(PolicyError) as caught:
+        load_policy(tmp_path / "ws", tmp_path)
+    assert "\x1b" not in str(caught.value)
+    assert "\x07" not in str(caught.value)
+    assert "\\x1b]0;PWNED\\x07" in str(caught.value)
+    (tmp_path / "policy.toml").write_text('deny = ["Nope(\\u001b[8mhidden)"]\n', encoding="utf-8")
+    with pytest.raises(PolicyError) as caught:
+        load_policy(tmp_path / "ws", tmp_path)
+    assert "\x1b" not in str(caught.value)
+    assert "\\x1b[8mhidden" in str(caught.value)
+
+
+def test_a_link_out_of_the_workspace_counts_as_outside(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    (workspace / "docs").mkdir(parents=True)
+    (workspace / "src").mkdir()
+    (workspace / "src" / "a.py").write_text("x")
+    (tmp_path / "credentials").write_text("secret")
+    (workspace / "notes").symlink_to(tmp_path / "credentials")
+    (workspace / "docs" / "setup.md").symlink_to(tmp_path / "credentials")
+    (workspace / "home").symlink_to(tmp_path)
+    read_only = permissions(workspace, "read-only")
+    for command in ["cat notes", "grep KEY notes", "cd home && cat credentials", "cat docs/*"]:
+        assert decide(read_only, BashTool(), command=command) == Decision.DENY, command
+    assert decide(read_only, BashTool(), command="cat src/*") == Decision.ALLOW
+    assert decide(read_only, BashTool(), command="ls -la notes") == Decision.ALLOW  # names only
+    auto = permissions(workspace, "auto")
+    for command in ["tee notes", "cp x notes", "sed -i s/a/b/ notes"]:
+        verdict = auto.check(BashTool(), {"command": command})
+        assert (verdict.decision, verdict.rules) == (Decision.ASK, ()), command
+        assert "symbolic link" in verdict.reason
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep -r KEY secrets",
+        "rg KEY secrets",
+        "cd secrets && grep -rn KEY .",
+        "cp -r secrets /tmp/s",
+        "mv secrets public",
+        "tar czf /tmp/s.tgz secrets",
+        "diff -r secrets /tmp/old",
+    ],
+)
+def test_reading_a_folder_counts_as_reading_what_read_rules_cover_in_it(
+    tmp_path: Path, command: str
+) -> None:
+    perms = permissions(tmp_path, "auto", deny=["Read(secrets/**)", "Read(.env)"])
+    assert decide(perms, BashTool(), command=command) == Decision.DENY
+
+
+@pytest.mark.parametrize(
+    "command", ["grep -rn foo src", "rg foo", "cp -r src backup", "grep -r x .", "ls secrets"]
+)
+def test_other_folders_can_still_be_searched_and_copied(tmp_path: Path, command: str) -> None:
+    perms = permissions(tmp_path, "auto", deny=["Read(secrets/**)", "Read(.env)"])
+    assert decide(perms, BashTool(), command=command) == Decision.ALLOW
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "bash <(git log -1 --format=%s)",
+        "source <(git log -1)",
+        "bash /dev/stdin <<< ls",
+        "python3 /dev/stdin <<< 'print(1)'",
+        "$(which python3) -m pytest",
+        "bash $(git ls-files | head -1)",
+    ],
+)
+def test_always_isnt_offered_when_the_script_isnt_shown(tmp_path: Path, command: str) -> None:
+    perms = permissions(tmp_path)
+    assert _answer_always(perms, command) == ()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/usr/bin/git push origin main",
+        "/usr/bin/env -C . git push origin main",
+        "/bin/bash -c 'git push origin main'",
+        "HOME=/tmp git push origin main",
+        "git -c core.sshCommand=x push origin main",
+        "eval 'git push origin main'",
+    ],
+)
+def test_deny_rules_see_through_paths_variables_and_eval(tmp_path: Path, command: str) -> None:
+    perms = permissions(tmp_path, deny=["Bash(git push *)"])
+    assert decide(perms, BashTool(), command=command) == Decision.DENY
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "x='a[$(touch pwned)]'; echo $((x))",
+        "x='$(touch pwned)'; echo ${x@P}",
+        "PS4='$(touch pwned)' bash -xc ls",
+        'X=-vPATH; printf "$X" .; ls',
+        "PYTHONPATH=. pip list",
+        "python3 -m pip list",
+        "sed 's/x/touch pwned/e' a.txt",
+        "gawk '@load \"./evil\"; BEGIN {}'",
+        "git grep --open-files-in-pager=sh -l x",
+        "sort --compress=sh a.txt",
+        "find . -name '*env' -exec cat {} +",
+        "xargs -a .env echo",
+    ],
+)
+def test_read_only_mode_refuses_what_runs_code_or_reads_denied_files(
+    tmp_path: Path, command: str
+) -> None:
+    perms = permissions(tmp_path, "read-only", deny=["Read(.env)"])
+    assert decide(perms, BashTool(), command=command) == Decision.DENY

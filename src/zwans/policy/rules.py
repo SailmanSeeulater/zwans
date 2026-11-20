@@ -34,7 +34,6 @@ import tomllib
 from dataclasses import dataclass, field
 from enum import StrEnum
 from fnmatch import fnmatchcase
-from itertools import takewhile
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
@@ -75,7 +74,21 @@ IGNORE_CASE = sys.platform in ("darwin", "win32")
 
 
 class PolicyError(Exception):
-    pass
+    """A policy file that can't be used. The message is safe to print: a workspace's file can
+    hold escape codes in its keys and rules, and they are shown as text (such as \\x1b)."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(UNSAFE.sub(_escape, message))
+
+
+# Control characters other than tab and newline, and the bidirectional overrides, as in
+# zwans.cli.terminal_text, which the policy doesn't import.
+UNSAFE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f‪-‮⁦-⁩]")
+
+
+def _escape(match: re.Match[str]) -> str:
+    code = ord(match.group())
+    return f"\\x{code:02x}" if code < 0x100 else f"\\u{code:04x}"
 
 
 class Decision(StrEnum):
@@ -113,6 +126,9 @@ class Rule:
     def covers(self, tool: str) -> bool:
         if self.tool in FILE_CHANGE_TOOLS and tool in FILE_CHANGE_TOOLS:
             return True
+        # Grep shows what's in the files it searches, so a Read rule applies to it too.
+        if self.tool == "Read" and tool == "Grep":
+            return True
         return self.tool == tool
 
     def matches_command(self, command: str) -> bool:
@@ -130,6 +146,8 @@ class Rule:
         """Whether a path a command names could be a file this rule covers: the path itself, a
         glob that could expand to one (`.e*` for `.env`), or, with `folder`, a folder that
         holds one (`.git` for `.git/**`), since removing or moving it changes what's inside.
+        Globs count in any part of the path (`secre*/key.pem`, `.gi?/hooks`), and a `**` part
+        stands for any number of folders, as in `find . -name x`.
         The workspace root isn't counted as such a folder: it holds everything."""
         if self.pattern is None or self.matches_path(path):
             return True
@@ -139,31 +157,161 @@ class Rule:
         pattern = self.pattern.removeprefix("./")
         if pattern.endswith("/"):
             pattern += "**"
-        rule_parts = pattern.split("/")
-        if len(rule_parts) == 1:  # a name at any depth, like .env
-            return not _has_glob(pattern) and _could_expand(parts[-1], pattern)
-        literal = list(takewhile(lambda part: not _has_glob(part), rule_parts))
-        if len(parts) > len(literal):
-            return False
-        if not all(_could_expand(part, name) for part, name in zip(parts, literal, strict=False)):
-            return False
-        return len(parts) == len(rule_parts) or folder
+        rule_parts = tuple(pattern.split("/"))
+        if len(rule_parts) == 1:  # a name at any depth, like .env or *.pem
+            return parts[-1] == "**" or _could_match(parts[-1], pattern)
+        return _parts_cover(tuple(parts), rule_parts, folder)
 
 
-def _has_glob(text: str) -> bool:
-    return any(c in text for c in "*?[")
+def _parts_cover(path: tuple[str, ...], rule: tuple[str, ...], folder: bool) -> bool:
+    """Whether a path's parts, each a shell glob, could name a file the rule's parts match.
+    A `**` in the rule spans folders, at least one when it ends the rule; a `**` in the path
+    spans any folders, hidden ones too. A path that ends first is a folder holding the file."""
+    seen: dict[tuple[int, int], bool] = {}
+
+    def cover(p: int, r: int) -> bool:
+        if (p, r) in seen:
+            return seen[(p, r)]
+        if r == len(rule):
+            result = all(part == "**" for part in path[p:])
+        elif p == len(path):
+            result = folder
+        elif path[p] == "**":
+            result = cover(p + 1, r) or cover(p, r + 1)
+        elif rule[r] == "**":
+            last = r == len(rule) - 1
+            result = cover(p + 1, r) or cover(p + 1 if last else p, r + 1)
+        else:
+            result = _could_match(path[p], rule[r]) and cover(p + 1, r + 1)
+        seen[(p, r)] = result
+        return result
+
+    return cover(0, 0)
 
 
-def _could_expand(word: str, name: str) -> bool:
-    """Whether a shell word could stand for this file name. A glob doesn't match a leading dot,
-    so `*` doesn't stand for `.git`."""
+@dataclass(frozen=True)
+class _Chars:
+    """One character of a glob: one of `chars`, or with `negated`, any other."""
+
+    chars: frozenset[str]
+    negated: bool = False
+
+    def meets(self, other: "_Chars") -> bool:
+        """Whether some character fits both."""
+        if self.negated and other.negated:
+            return True  # two exclusions always leave something
+        if self.negated:
+            return bool(other.chars - self.chars)
+        if other.negated:
+            return bool(self.chars - other.chars)
+        return bool(self.chars & other.chars)
+
+
+ANY_CHAR = _Chars(frozenset(), negated=True)
+DOT = _Chars(frozenset("."))
+NOT_DOT = _Chars(frozenset("."), negated=True)
+MAX_CLASS = 256  # a bigger range, like [!-~], is taken as any character
+type _Token = _Chars | None  # None is *
+
+
+def _could_match(word: str, name: str) -> bool:
+    """Whether a shell word could stand for a file whose name the rule's glob `name` matches:
+    some name fits both. A shell glob doesn't match a leading dot unless it starts with one,
+    so `*` doesn't stand for `.git`. Rule globs know only * and ?, so [ is a plain letter."""
     if IGNORE_CASE:
         word, name = word.lower(), name.lower()
     if word == name:
         return True
-    if not _has_glob(word) or (name.startswith(".") and not word.startswith(".")):
-        return False
-    return fnmatchcase(name, word)
+    a, b = _glob_tokens(word, classes=True), _glob_tokens(name, classes=False)
+    seen: dict[tuple[int, int, bool], bool] = {}
+
+    def fits(i: int, j: int, started: bool) -> bool:
+        key = (i, j, started)
+        if key not in seen:
+            seen[key] = step(i, j, started)
+        return seen[key]
+
+    def step(i: int, j: int, started: bool) -> bool:
+        if i == len(a) and j == len(b):
+            return True
+        x = a[i] if i < len(a) else ANY_CHAR  # ANY_CHAR stands in for "nothing left"
+        y = b[j] if j < len(b) else ANY_CHAR
+        if x is None:
+            if fits(i + 1, j, started):  # the word's * matches nothing
+                return True
+            if y is None:  # both stars: either matches nothing, or both take a plain letter
+                return fits(i, j + 1, started) or (not started and fits(i, j, True))
+            # The word's * takes the rule's next character, which can't be a leading dot.
+            return j < len(b) and (started or y.meets(NOT_DOT)) and fits(i, j + 1, True)
+        if y is None:
+            return fits(i, j + 1, started) or (i < len(a) and fits(i + 1, j, True))
+        if i == len(a) or j == len(b):
+            return False
+        if not started and x != DOT and not y.meets(NOT_DOT):
+            return False  # only a literal dot in the word matches a leading dot
+        return x.meets(y) and fits(i + 1, j + 1, True)
+
+    return fits(0, 0, False)
+
+
+def _glob_tokens(text: str, *, classes: bool) -> list[_Token]:
+    tokens: list[_Token] = []
+    i = 0
+    while i < len(text):
+        c = text[i]
+        i += 1
+        if c == "*":
+            if not tokens or tokens[-1] is not None:
+                tokens.append(None)
+        elif c == "?":
+            tokens.append(ANY_CHAR)
+        elif c == "[" and classes and (found := _char_class(text, i)) is not None:
+            token, i = found
+            tokens.append(token)
+        else:
+            tokens.append(_Chars(frozenset(c)))
+    return tokens
+
+
+def _char_class(text: str, start: int) -> tuple[_Chars, int] | None:
+    """The shell class `[...]` whose body starts at `start`, and where it ends, or None when
+    it isn't closed (the [ is then a plain letter)."""
+    i = start
+    negated = i < len(text) and text[i] in "!^"
+    if negated:
+        i += 1
+    end = i + 1 if i < len(text) and text[i] == "]" else i  # a ] first is a plain letter
+    named = False
+    while end < len(text) and text[end] != "]":
+        # [:alpha:], [=e=] and [.e.] end with their own ], which doesn't close the class.
+        if text[end] == "[" and text[end + 1 : end + 2] in (":", "=", "."):
+            close = text.find(text[end + 1] + "]", end + 2)
+            if close < 0:
+                return None
+            named = True
+            end = close + 2
+        else:
+            end += 1
+    if end >= len(text):
+        return None
+    if named:
+        return ANY_CHAR, end + 1  # named classes: any character, which only covers more
+    body = text[i:end]
+    chars: set[str] = set()
+    k = 0
+    while k < len(body):
+        if k + 2 < len(body) and body[k + 1] == "-":
+            low, high = ord(body[k]), ord(body[k + 2])
+            if high - low > MAX_CLASS:
+                return ANY_CHAR, end + 1
+            chars.update(chr(code) for code in range(low, high + 1))
+            k += 3
+        else:
+            chars.add(body[k])
+            k += 1
+    if IGNORE_CASE:
+        chars = {c.lower() for c in chars}
+    return _Chars(frozenset(chars), negated), end + 1
 
 
 def path_glob(pattern: str) -> re.Pattern[str]:
@@ -258,6 +406,25 @@ class Policy:
                     setattr(self.after_untrusted, name, new)
         if loosen:
             self.hooks.extend(file.hooks)
+
+    def hidden_from_search(self, search: str) -> list[str]:
+        """Globs, for ripgrep's --glob (gitignore-style, from the workspace root), for the files
+        that Read deny and ask rules cover, so a Grep through a folder doesn't show them. Such
+        a rule that covers the searched path itself was applied to the call already (it was
+        refused, or the user said yes), so it's left out."""
+        globs: list[str] = []
+        for decision in (Decision.DENY, Decision.ASK):
+            for rule in self.rules[decision]:
+                if rule.pattern is None or not rule.covers("Grep"):
+                    continue
+                if rule.may_cover(search, folder=True):
+                    continue
+                pattern = rule.pattern.removeprefix("./")
+                if pattern.endswith("/"):
+                    pattern += "**"
+                # Rule globs know only * and ?; ripgrep's other special letters are escaped.
+                globs.append(re.sub(r"([\[\]{}\\!])", r"\\\1", pattern))
+        return list(dict.fromkeys(globs))
 
 
 def read_policy_file(path: Path) -> PolicyFile | None:
