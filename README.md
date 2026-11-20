@@ -89,10 +89,10 @@ what you've typed, and Ctrl+D quits. A line under the prompt shows the model, th
 context size and the session's cost so far, then key hints; in a narrow terminal the hints go
 first, then the end of the status, so the line never wraps. What you type while a turn runs isn't shown; it
 waits for the prompt, and each line of it is then sent as its own message, while a paste goes
-as one. Ctrl+C drops it along with the turn. So does a question to approve a tool call:
-only what you type after the question answers it, and nothing typed during that turn is sent
-to the model afterwards, as it may have been meant as the answer. Resuming a session in the
-chat shows its last three turns again.
+as one. Ctrl+C drops it along with the turn. A question to approve a tool call drops what
+was typed before it, as it may have been meant as the answer: only what you type after the
+question answers it, and the earlier text isn't sent to the model afterwards either. Resuming
+a session in the chat shows its last three turns again.
 
 Write `@path` to send a file's text along with the message, or a folder's listing, so the
 model doesn't spend a step reading it; Tab completes the path. Files over 100,000 characters

@@ -380,14 +380,17 @@ def test_model_and_clear_in_an_empty_chat_dont_name_the_session_that_goes(
 
 
 class _FakeComposer:
-    """Stands in for the chat's composer: reads scripted lines, and after each turn leaves
-    `ahead` typed ahead for the next prompt, as typing while a turn runs does."""
+    """Stands in for the chat's composer: reads scripted lines, and in each turn has `ahead`
+    typed ahead from its start, and `later` once a question has been asked, for the next
+    prompt, as typing while a turn runs does."""
 
-    def __init__(self, lines: list[str], ahead: str, input: Input) -> None:
+    def __init__(self, lines: list[str], ahead: str, later: str, input: Input) -> None:
         self.lines = lines
         self.ahead = ahead
+        self.later = later
         self.input = input
         self.drafts: list[str] = []
+        self.typed: list[str] | None = None
 
     async def read(self, draft: str = "") -> str:
         self.drafts.append(draft)
@@ -397,17 +400,28 @@ class _FakeComposer:
 
     @contextmanager
     def typing_ahead(self, loop: asyncio.AbstractEventLoop) -> Iterator[None]:
+        self.typed = list(self.ahead)
         yield
-        store_typeahead(self.input, [KeyPress(c) for c in self.ahead])
+        store_typeahead(self.input, [KeyPress(c) for c in self.typed])
+        self.typed = None
+
+    def drop_typed_ahead(self) -> bool:
+        dropped = bool(self.typed)
+        self.typed = list(self.later)  # typed after the question, which is kept
+        return dropped
 
 
 def _chat_with_typing_ahead(
-    monkeypatch: pytest.MonkeyPatch, opened: OpenedSession, lines: list[str], ahead: str
+    monkeypatch: pytest.MonkeyPatch,
+    opened: OpenedSession,
+    lines: list[str],
+    ahead: str,
+    later: str = "",
 ) -> tuple[_FakeComposer, list[KeyPress]]:
     from zwans.cli import app as app_module
 
     with create_pipe_input() as keys:
-        composer = _FakeComposer(lines, ahead, keys)
+        composer = _FakeComposer(lines, ahead, later, keys)
         monkeypatch.setattr(app_module, "can_prompt", lambda: True)
         monkeypatch.setattr(app_module, "create_input", lambda: keys)
         monkeypatch.setattr(app_module, "Composer", lambda *args, **kwargs: composer)
@@ -434,10 +448,10 @@ def test_lines_typed_ahead_of_a_failed_message_are_dropped_not_merged_into_it(
     assert composer.drafts == ["", "first line"]
     assert left == []  # nothing is added to the restored draft and sent along with it
     out = capsys.readouterr().out
-    assert "What you typed during the turn was dropped, as the message failed." in out
+    assert "What you typed during the turn was dropped, as it failed." in out
 
 
-def test_text_typed_before_an_approval_question_isnt_sent_afterwards(
+def test_text_typed_before_an_approval_question_is_dropped_and_what_follows_kept(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     workspace = tmp_path / "work"
@@ -459,12 +473,13 @@ def test_text_typed_before_an_approval_question_isnt_sent_afterwards(
     )
     monkeypatch.setattr("builtins.input", lambda text: "n")  # the answer, typed after it
 
-    _, left = _chat_with_typing_ahead(monkeypatch, opened, ["Write b.txt"], "y\r")
+    _, left = _chat_with_typing_ahead(monkeypatch, opened, ["Write b.txt"], "y\r", "next\r")
 
-    assert left == []  # the stray "y" doesn't answer the model's question
+    # The stray "y" doesn't answer the model's question; what came after the answer is kept.
+    assert [key.key for key in left] == list("next\r")
     assert not (workspace / "b.txt").exists()
     out = capsys.readouterr().out
-    assert "dropped, as you were asked a question meanwhile." in out
+    assert "What you typed before this question was dropped." in out
 
 
 def test_typing_ahead_is_kept_when_a_turn_asks_nothing(

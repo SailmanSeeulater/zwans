@@ -274,14 +274,17 @@ def _start(
 
 
 class EchoingApprover:
-    """Asks in the terminal, with typing shown again: the chat hides it while a turn runs.
-    It counts its questions, so the chat can tell whether a turn asked one."""
+    """Asks in the terminal, with typing shown again: the chat hides it while a turn runs."""
 
     def __init__(self) -> None:
-        self.asked = 0
+        # The chat's composer, holding what was typed ahead during the turn. That was typed
+        # before the question, perhaps meant as its answer, so it mustn't be sent to the model
+        # afterwards, where a stray "y" would answer whatever the model last asked.
+        self.composer: Composer | None = None
 
     async def __call__(self, request: PermissionRequest) -> Approval:
-        self.asked += 1
+        if self.composer is not None and self.composer.drop_typed_ahead():
+            typer.secho("  What you typed before this question was dropped.", dim=True)
         with echoing():
             return await terminal_approver(request)
 
@@ -416,6 +419,9 @@ def _chat(
             status=lambda: _status(opened),
             input=keys,
         )
+        approver = opened.session.permissions.approver if opened.session.permissions else None
+        if isinstance(approver, EchoingApprover):
+            approver.composer = composer
         if hint:
             typer.secho(
                 "Type a task, or /help. Ctrl+C stops a running turn; Ctrl+D quits.", dim=True
@@ -452,7 +458,6 @@ def _chat(
                 opened.session.permissions.observe("Read", is_error=False)
         checkpoint_problem = opened.checkpoints.problem if opened.checkpoints else None
         turns = opened.session.turn
-        asked = _questions_asked(opened)
         try:
             with _typing_ahead(composer, runner):
                 runner.run(opened.session.send(mentions.text, mentions.images))
@@ -463,21 +468,12 @@ def _chat(
             draft = line  # it failed before the model answered, so it wasn't kept
             typer.secho("Your message is back in the input, to send again.", dim=True)
         # Lines typed ahead were meant to follow this message, so they'd go without it, or
-        # merge with it back in the input. And text typed before an approval question may have
-        # been meant as its answer, which it mustn't become for the model instead.
-        dropping = failed or _questions_asked(opened) != asked
-        if keys is not None and dropping and get_typeahead(keys):  # which takes them out
-            why = "the message failed" if failed else "you were asked a question meanwhile"
-            typer.secho(f"What you typed during the turn was dropped, as {why}.", dim=True)
+        # merge with it back in the input.
+        if keys is not None and failed and get_typeahead(keys):  # which takes them out
+            typer.secho("What you typed during the turn was dropped, as it failed.", dim=True)
         if opened.checkpoints and opened.checkpoints.problem != checkpoint_problem:
             typer.secho(str(opened.checkpoints.problem), fg="yellow")
         _print_turn(opened)
-
-
-def _questions_asked(opened: OpenedSession) -> int:
-    permissions = opened.session.permissions
-    approver = permissions.approver if permissions is not None else None
-    return approver.asked if isinstance(approver, EchoingApprover) else 0
 
 
 def _typing_ahead(
