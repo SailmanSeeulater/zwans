@@ -29,7 +29,7 @@ from zwans.providers.anthropic import AnthropicProvider
 from zwans.providers.base import Provider
 from zwans.providers.fake import FakeProvider
 from zwans.session import Session
-from zwans.store import SessionInfo, SessionRecorder, SessionStore, load_session
+from zwans.store import SessionError, SessionInfo, SessionRecorder, SessionStore, load_session
 from zwans.tools.base import Tool, ToolContext
 from zwans.tools.bash import BashOutputTool, BashTool, KillBashTool
 from zwans.tools.edit import EditTool
@@ -68,6 +68,11 @@ class OpenedSession:
     def id(self) -> str:
         return self.info.id
 
+    @property
+    def empty(self) -> bool:
+        """Nothing was said in it, so closing it deletes it rather than keep a blank row."""
+        return not self.session.messages
+
     async def start(self) -> tuple[list[McpTool], list[str]]:
         """Start the container, if commands run in one, and the MCP servers. Returns the MCP
         tools added and a message for each server that didn't start. Raises DockerError."""
@@ -88,6 +93,8 @@ class OpenedSession:
             await self.executor.stop()
         await self.session.provider.aclose()
         self.transcript.close()
+        if self.empty:
+            self.store.delete(self.info.id)
         self.store.close()
 
 
@@ -113,7 +120,20 @@ def open_session(
     repaired = False
     followed: list[Path] = []
     if resume is not None:
-        info, messages, repaired = load_session(store, resume, rewind)
+        try:
+            found = store.get(resume)
+            if not Path(found.workspace).is_dir():  # checked first, so nothing is rewound
+                raise SessionError(
+                    f"Session {found.id} worked in {found.workspace}, which no longer exists. "
+                    "Move the folder back to resume it."
+                )
+            info, messages, repaired = load_session(store, found.id, rewind)
+        except SessionError:
+            store.close()  # the server carries on after a failed resume
+            raise
+        if model and model != info.model:
+            store.set_model(info.id, model)  # --model switches it, as /model does
+            info.model = model
         meter = CostMeter.restore(info.usage)
         skills = find_skills(skill_folders(Path(info.workspace), config.home))
     else:
@@ -129,7 +149,9 @@ def open_session(
             shell = describe_shell(config.shell)
             system = system_prompt(root, shell, instructions, skills=skills, web=config.web)
         session_id = f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
-        info = SessionInfo(id=session_id, workspace=str(root), model=config.model, system=system)
+        info = SessionInfo(
+            id=session_id, workspace=str(root), model=model or config.model, system=system
+        )
         meter = CostMeter()
     model = model or info.model
 

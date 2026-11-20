@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import os
 import sys
 from contextlib import AbstractContextManager, nullcontext
 from enum import StrEnum
@@ -35,11 +36,24 @@ app.command()(serve)
 
 EXIT_INTERRUPTED = 130  # the usual exit code after Ctrl+C
 REPLAYED_TURNS = 3  # of a resumed session, shown again in the chat
+WORKSPACE_WIDTH = 24  # characters of a session's folder that `zwans sessions` shows
 
 Workspace = Annotated[
     Path,
     typer.Option(
         "--workspace", "-w", exists=True, file_okay=False, help="Folder the agent works in."
+    ),
+]
+# None when not given, so --resume can tell a -w for another folder from the default
+SessionWorkspace = Annotated[
+    Path | None,
+    typer.Option(
+        "--workspace",
+        "-w",
+        exists=True,
+        file_okay=False,
+        help="Folder the agent works in: this one unless given. A resumed session keeps its own.",
+        show_default=False,
     ),
 ]
 Model = Annotated[str | None, typer.Option(help="Model to use instead of the configured one.")]
@@ -48,7 +62,12 @@ Resume = Annotated[
     typer.Option(help="Continue a saved session: its id from `zwans sessions`, or its start."),
 ]
 Rewind = Annotated[
-    int | None, typer.Option(min=1, help="With --resume, first drop every turn after this one.")
+    int | None,
+    typer.Option(
+        min=1,
+        help="With --resume, first drop every turn after this one from the conversation. "
+        "The files stay as they are; /rewind in a chat puts them back too.",
+    ),
 ]
 
 
@@ -87,7 +106,7 @@ def main(
             "--version", callback=_show_version, is_eager=True, help="Show the version and exit."
         ),
     ] = False,
-    workspace: Workspace = Path("."),
+    workspace: SessionWorkspace = None,
     model: Model = None,
     resume: Resume = None,
     rewind: Rewind = None,
@@ -102,7 +121,7 @@ def main(
 @app.command()
 def run(
     task: Annotated[str, typer.Argument(help="What the agent should do.")],
-    workspace: Workspace = Path("."),
+    workspace: SessionWorkspace = None,
     model: Model = None,
     resume: Resume = None,
     rewind: Rewind = None,
@@ -116,7 +135,12 @@ def run(
 @app.command()
 def sessions(limit: Annotated[int, typer.Option(min=1, help="How many to list.")] = 20) -> None:
     """List saved sessions, most recent first."""
-    config, _ = load_settings()
+    _tolerate_unprintable_text()  # titles and shortened folders can hold any character
+    try:
+        config, _ = load_settings()
+    except ConfigError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(2) from exc
     store = SessionStore(config.home / "sessions.db")
     found = store.recent(limit)
     store.close()
@@ -125,8 +149,18 @@ def sessions(limit: Annotated[int, typer.Option(min=1, help="How many to list.")
     for info in found:
         when = info.updated_at.replace("T", " ")[:16]
         dollars = float(info.usage.get("dollars", 0.0))
-        turns = _count(info.turns, "turn")
-        typer.echo(f"{info.id}  {when}  {turns:>9}  ${dollars:7.4f}  {info.title}")
+        turns = f"{info.turns:>4} {'turn' if info.turns == 1 else 'turns':<5}"
+        folder = _short_path(info.workspace, WORKSPACE_WIDTH)
+        line = f"{info.id}  {when}  {turns}  ${dollars:7.4f}  {folder:<{WORKSPACE_WIDTH}}"
+        typer.echo(f"{line}  {info.title}".rstrip())
+
+
+def _short_path(path: str, width: int) -> str:
+    """`path` with the home folder as ~, and its start left out if it's still too long."""
+    home = str(Path.home())
+    if path == home or path.startswith(home + os.sep):
+        path = "~" + path[len(home) :]
+    return path if len(path) <= width else "…" + path[-(width - 1) :]
 
 
 @app.command()
@@ -172,7 +206,7 @@ def attach(
 
 def _start(
     task: str | None,
-    workspace: Path,
+    given_workspace: Path | None,
     model: str | None,
     resume: str | None,
     rewind: int | None,
@@ -191,6 +225,10 @@ def _start(
     # /clear, /resume and /undo close the session and open another, so this can go round again.
     switch: Reopen | None = None  # how the last session ended, when it was switched away from
     left: str | None = None  # that session's id
+    files_kept = rewind is not None  # --rewind leaves the files; /rewind and /undo don't
+    workspace = given_workspace or Path(".")
+    # A resumed session keeps its own folder, so a -w given with --resume is ignored.
+    ignored = given_workspace.resolve() if resume and given_workspace else None
     while True:
         try:
             opened = open_session(
@@ -213,13 +251,24 @@ def _start(
             # Go back to the session that was open rather than quit in the middle of a chat.
             resume, rewind, switch, left = left, None, None, None
             continue
+        if ignored is not None and ignored != Path(opened.info.workspace):
+            typer.secho(
+                f"Session {opened.id} works in {opened.info.workspace}, so -w {ignored} "
+                "is ignored.",
+                fg="yellow",
+                err=True,
+            )
         scripted = fake_script is not None
-        outcome = _run_session(opened, task, scripted, switch)
+        outcome = _run_session(opened, task, scripted, switch, files_kept)
         if not isinstance(outcome, Reopen):
             return outcome
         workspace = Path(opened.info.workspace)
-        resume, rewind, model = outcome.resume, outcome.rewind, opened.model
+        resume, rewind = outcome.resume, outcome.rewind
+        # A new session, or this one again, keeps the current model; another saved session
+        # opens with its own.
+        model = opened.model if resume in (None, opened.id) else None
         switch, left = outcome, opened.id
+        files_kept, ignored = False, None
 
 
 async def _approve_with_echo(request: PermissionRequest) -> Approval:
@@ -229,14 +278,18 @@ async def _approve_with_echo(request: PermissionRequest) -> Approval:
 
 
 def _run_session(
-    opened: OpenedSession, task: str | None, scripted: bool, switch: Reopen | None = None
+    opened: OpenedSession,
+    task: str | None,
+    scripted: bool,
+    switch: Reopen | None = None,
+    files_kept: bool = False,
 ) -> int | Reopen:
     rewind = switch.rewind if switch is not None else None
     rewound = rewind is not None
     if rewind is not None:  # the same session as before, so the banner would only repeat
         typer.secho(f"Went back to before turn {rewind + 1}.", dim=True)
     else:
-        _banner(opened, scripted)
+        _banner(opened, scripted, files_kept)
         if opened.resumed and task is None:
             _replay(opened)
     # One event loop for the whole session, so the API client's connections stay usable.
@@ -266,12 +319,13 @@ def _run_session(
             runner.run_cleanup(opened.close())
             if not isinstance(outcome, Reopen):  # only when leaving Zwans, not switching
                 typer.secho(f"\nSession cost: {opened.meter.summary()}", dim=True)
-                typer.secho(f"To continue it: zwans --resume {opened.id}", dim=True)
+                if not opened.empty:  # an empty session isn't kept
+                    typer.secho(f"To continue it: zwans --resume {opened.id}", dim=True)
             elif outcome.resume != opened.id:  # switching to another, so say what this one cost
                 typer.secho(f"Left {opened.id}, which cost {opened.meter.summary()}.", dim=True)
 
 
-def _banner(opened: OpenedSession, scripted: bool) -> None:
+def _banner(opened: OpenedSession, scripted: bool, files_kept: bool = False) -> None:
     for path in opened.instructions:
         typer.secho(f"Following {path}", dim=True)
     config, info = opened.config, opened.info
@@ -281,6 +335,12 @@ def _banner(opened: OpenedSession, scripted: bool) -> None:
     typer.secho(f"Zwans {__version__} | {label} | mode {mode} | {info.workspace}", dim=True)
     if opened.resumed:
         typer.secho(f"Resumed {info.id} after {_count(info.turns, 'turn')}: {info.title}", dim=True)
+        if files_kept:
+            typer.secho(
+                f"Turns after turn {info.turns} were dropped from the conversation. The files "
+                "were left as they are.",
+                dim=True,
+            )
     if opened.repaired:
         typer.secho("Its last turn was cut off mid-tool; those calls are marked unfinished.")
 
@@ -366,11 +426,15 @@ def _chat(
                 # File contents may carry instructions, just as when the model reads them.
                 opened.session.permissions.observe("Read", is_error=False)
         checkpoint_problem = opened.checkpoints.problem if opened.checkpoints else None
+        turns = opened.session.turn
         try:
             with _typing_ahead(composer, runner):
                 runner.run(opened.session.send(mentions.text, mentions.images))
         except KeyboardInterrupt:
             typer.secho("Interrupted. The conversation is kept, so carry on.", fg="yellow")
+        if opened.session.turn == turns and composer is not None:
+            draft = line  # it failed before the model answered, so it wasn't kept
+            typer.secho("Your message is back in the input, to send again.", dim=True)
         if opened.checkpoints and opened.checkpoints.problem != checkpoint_problem:
             typer.secho(str(opened.checkpoints.problem), fg="yellow")
         _print_turn(opened)

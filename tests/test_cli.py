@@ -12,6 +12,7 @@ from zwans.cli.commands import Commands, Reopen
 from zwans.messages import Message, TextBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse
 from zwans.runtime import OpenedSession
+from zwans.store import SessionStore
 
 
 def test_version() -> None:
@@ -223,3 +224,119 @@ def test_the_replay_shows_the_last_turns_and_a_stop_hooks_note_as_a_note(
     assert "> Task 2\nAnswer 2.\n" in out and "> Task 4\nAnswer 4.\n" in out
     assert "  A stop hook says the task isn't finished yet:\nFixed.\n" in out
     assert "> A stop hook" not in out
+
+
+def test_sessions_lists_only_used_sessions_in_aligned_columns(tmp_path: Path) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    env = {"ZWANS_HOME": str(tmp_path / "home")}
+    runner = CliRunner()
+    script = _script(tmp_path / "script.json", "One.", "Two.")
+    args = ["-w", str(workspace), "--fake-script", str(script)]
+
+    started = runner.invoke(app, ["run", "First line\n\nand more", *args], env=env)
+    session_id = runner.invoke(app, ["sessions"], env=env).output.split()[0]
+    runner.invoke(app, ["run", "Again", "--resume", session_id, *args], env=env)
+    unused = runner.invoke(app, args, env=env, input="")  # a chat closed without a word
+    listing = runner.invoke(app, ["sessions"], env=env)
+
+    assert started.exit_code == 0, started.output
+    assert unused.exit_code == 0, unused.output
+    assert "To continue it" not in unused.output
+    [row] = listing.output.splitlines()
+    assert "   2 turns  $ 0.0000" in row
+    assert str(workspace)[-10:] in row
+    assert row.endswith("  First line")
+
+
+def test_rewind_from_the_command_line_says_the_files_were_kept(tmp_path: Path) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    env = {"ZWANS_HOME": str(tmp_path / "home")}
+    runner = CliRunner()
+    script = _script(tmp_path / "script.json", "One.", "Two.", "Three.")
+    args = ["-w", str(workspace), "--fake-script", str(script)]
+    runner.invoke(app, ["run", "First", *args], env=env)
+    session_id = runner.invoke(app, ["sessions"], env=env).output.split()[0]
+    runner.invoke(app, ["run", "Second", "--resume", session_id, *args], env=env)
+
+    resume = ["--resume", session_id]
+    too_far = runner.invoke(app, ["run", "Hi", *resume, "--rewind", "2", *args], env=env)
+    rewound = runner.invoke(app, ["run", "Third", *resume, "--rewind", "1", *args], env=env)
+
+    assert too_far.exit_code == 2
+    assert "has 2 turns, so there are no turns after turn 2 to drop" in too_far.output
+    assert rewound.exit_code == 0, rewound.output
+    assert "Turns after turn 1 were dropped from the conversation" in rewound.output
+    assert "The files were left as they are." in rewound.output
+
+
+def test_a_bad_setting_is_reported_without_a_traceback(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        app,
+        ["run", "Hi", "-w", str(tmp_path)],
+        env={"ZWANS_HOME": str(tmp_path), "ZWANS_AUTH": "oauth"},
+    )
+
+    assert result.exit_code == 2
+    assert "ZWANS_AUTH: Input should be 'api_key' or 'subscription'" in result.output
+
+
+def test_a_turn_that_fails_before_any_reply_leaves_no_session(tmp_path: Path) -> None:
+    env = {"ZWANS_HOME": str(tmp_path / "home")}
+    runner = CliRunner()
+    script = _script(tmp_path / "script.json")  # an empty script fails like an API error
+
+    failed = runner.invoke(
+        app, ["run", "Hi", "-w", str(tmp_path), "--fake-script", str(script)], env=env
+    )
+    listing = runner.invoke(app, ["sessions"], env=env)
+
+    assert failed.exit_code == 1
+    assert "ran out of scripted responses" in failed.output
+    assert "[stopped: error]" not in failed.output  # the error line has said why
+    assert "To continue it" not in failed.output
+    assert listing.output.strip() == "No saved sessions yet."
+
+
+def test_resume_says_it_ignores_another_workspace(tmp_path: Path) -> None:
+    workspace, other = tmp_path / "work", tmp_path / "other"
+    workspace.mkdir()
+    other.mkdir()
+    env = {"ZWANS_HOME": str(tmp_path / "home")}
+    runner = CliRunner()
+    script = _script(tmp_path / "script.json", "Hi.")
+    args = ["--fake-script", str(script)]
+    runner.invoke(app, ["run", "Hi", "-w", str(workspace), *args], env=env)
+    session_id = runner.invoke(app, ["sessions"], env=env).output.split()[0]
+
+    elsewhere = runner.invoke(
+        app, ["run", "Again", "--resume", session_id, "-w", str(other), *args], env=env
+    )
+    same = runner.invoke(
+        app, ["run", "Again", "--resume", session_id, "-w", str(workspace), *args], env=env
+    )
+
+    assert elsewhere.exit_code == 0, elsewhere.output
+    assert f"works in {workspace.resolve()}, so -w {other.resolve()} is ignored." in (
+        elsewhere.output
+    )
+    assert same.exit_code == 0, same.output
+    assert "is ignored" not in same.output
+
+
+def test_switching_to_another_session_in_the_chat_keeps_its_model(tmp_path: Path) -> None:
+    env = {"ZWANS_HOME": str(tmp_path / "home")}
+    runner = CliRunner()
+    script = _script(tmp_path / "script.json", "Hi.")
+    args = ["-w", str(tmp_path), "--fake-script", str(script)]
+    runner.invoke(app, ["run", "Hi", "--model", "claude-haiku-4-5", *args], env=env)
+    session_id = runner.invoke(app, ["sessions"], env=env).output.split()[0]
+
+    chat = runner.invoke(app, args, env=env, input=f"Hello\n/resume {session_id}\n")
+
+    assert chat.exit_code == 0, chat.output
+    assert f"Resumed {session_id}" in chat.output
+    store = SessionStore(tmp_path / "home" / "sessions.db")
+    assert store.get(session_id).model == "claude-haiku-4-5"
+    store.close()

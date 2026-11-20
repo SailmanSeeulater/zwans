@@ -95,7 +95,7 @@ class Renderer:
                 self._result(event)
             case PermissionRequested():
                 self._finish_line()  # the question comes next, on a line of its own
-            case TurnEnded(stop_reason="end_turn"):
+            case TurnEnded(stop_reason="end_turn" | "error"):  # an error has said why already
                 self._finish_line()
             case TurnEnded(stop_reason=reason, detail=detail):
                 if reason == "interrupted" and self._at_line_start and sys.stdout.isatty():

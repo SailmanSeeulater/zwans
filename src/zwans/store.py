@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from zwans.events import ContextCompacted, Event, TurnEnded, TurnStarted
+from zwans.events import ContextCompacted, Event, TurnEnded, TurnStarted, UsageUpdated
 from zwans.loop import answer_pending_calls
 from zwans.messages import Message
 from zwans.pricing import CostMeter
@@ -34,6 +34,14 @@ CREATE TABLE IF NOT EXISTS messages (
     PRIMARY KEY (session_id, position)
 );
 """
+# A session's row with its turns made at least the latest turn among its saved messages, as a
+# session killed mid-turn by an older version was saved without counting that turn.
+SELECT = """
+SELECT sessions.*, MAX(sessions.turns, COALESCE(
+    (SELECT MAX(turn) FROM messages WHERE session_id = sessions.id), 0)) AS last_turn
+FROM sessions
+"""
+TITLE_CHARS = 80
 
 
 class SessionError(Exception):
@@ -76,7 +84,7 @@ class SessionStore:
     def get(self, id_or_prefix: str) -> SessionInfo:
         """Find a session by its id, or by the start of it when that's unambiguous."""
         rows = self._db.execute(
-            "SELECT * FROM sessions WHERE substr(id, 1, length(?)) = ? ORDER BY updated_at DESC",
+            f"{SELECT} WHERE substr(id, 1, length(?)) = ? ORDER BY updated_at DESC",
             (id_or_prefix, id_or_prefix),
         ).fetchall()
         if not rows:
@@ -89,10 +97,18 @@ class SessionStore:
         return _info((exact or rows)[0])
 
     def recent(self, limit: int = 20) -> list[SessionInfo]:
+        """The latest sessions with something in them. Empty ones, which older versions left
+        behind whenever Zwans was opened and closed again, are left out."""
         rows = self._db.execute(
-            "SELECT * FROM sessions ORDER BY updated_at DESC LIMIT ?", (limit,)
+            f"{SELECT} WHERE EXISTS (SELECT 1 FROM messages WHERE session_id = sessions.id)"
+            " ORDER BY updated_at DESC LIMIT ?",
+            (limit,),
         ).fetchall()
         return [_info(row) for row in rows]
+
+    def delete(self, session_id: str) -> None:
+        with self._db:  # its messages go with it (ON DELETE CASCADE)
+            self._db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
     def load_messages(self, session_id: str) -> list[Message]:
         rows = self._db.execute(
@@ -125,6 +141,12 @@ class SessionStore:
     def rewind(self, session_id: str, turn: int) -> None:
         """Delete every turn after `turn`. Turns already summarized away can't be returned to,
         but 0, an empty conversation, always can."""
+        turns = self.get(session_id).turns
+        if turn >= turns:
+            raise SessionError(
+                f"Session {session_id} has {turns} turn{'' if turns == 1 else 's'}, so there "
+                f"are no turns after turn {turn} to drop."
+            )
         (first,) = self._db.execute(
             "SELECT MIN(turn) FROM messages WHERE session_id = ?", (session_id,)
         ).fetchone()
@@ -186,9 +208,13 @@ class SessionRecorder:
 
     def on_event(self, event: Event) -> None:
         if isinstance(event, TurnStarted) and not self.title:
-            self.title = event.prompt[:80]
+            self.title = title_of(event.prompt)
+        if isinstance(event, TurnEnded) and not self.session.messages:
+            self.title = ""  # the only turn failed and was taken back
         self.save(rewritten=isinstance(event, ContextCompacted))
-        if isinstance(event, TurnEnded):
+        # Saved as the turn starts and after each model call, not only as it ends, so a turn
+        # that Zwans was killed in the middle of still counts, and so does what it cost.
+        if isinstance(event, TurnStarted | UsageUpdated | TurnEnded):
             self.store.update(
                 self.session_id,
                 title=self.title,
@@ -215,6 +241,19 @@ class SessionRecorder:
                 message.turn = self.session.turn
 
 
+def title_of(prompt: str) -> str:
+    """A session's title: the first paragraph of its first prompt, on one line, shortened at
+    a word. That leaves out the files @mentions add, which follow a blank line."""
+    first = prompt.strip().split("\n\n", 1)[0]
+    title = " ".join(first.split())
+    if len(title) <= TITLE_CHARS:
+        return title
+    cut = title[: TITLE_CHARS - 1]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(" ,.;:") + "…"
+
+
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -225,8 +264,8 @@ def _info(row: sqlite3.Row) -> SessionInfo:
         workspace=row["workspace"],
         model=row["model"],
         system=row["system"],
-        title=row["title"],
-        turns=row["turns"],
+        title=title_of(row["title"]),  # older versions saved the prompt as it was
+        turns=row["last_turn"],
         usage=json.loads(row["usage"]),
         created_at=row["created_at"],
         updated_at=row["updated_at"],

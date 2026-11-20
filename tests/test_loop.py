@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from zwans.events import (
     Error,
+    Event,
     ModelCalled,
     TextDelta,
     ToolCallRequested,
@@ -15,10 +16,12 @@ from zwans.events import (
     TurnStarted,
     UsageUpdated,
 )
-from zwans.loop import INTERRUPTED, run_turn
+from zwans.loop import CUT_OFF, INTERRUPTED, run_turn
 from zwans.messages import Message, TextBlock, ToolResultBlock, ToolUseBlock
+from zwans.pricing import CostMeter
 from zwans.providers.base import ModelResponse
 from zwans.providers.fake import FakeProvider
+from zwans.session import Session
 from zwans.tools.base import ToolContext, ToolOutput
 from zwans.tools.bash import BashTool
 from zwans.tools.read import ReadInput, ReadTool
@@ -210,6 +213,44 @@ def test_ctrl_c_stops_the_command_and_the_session_carries_on(ctx: ToolContext) -
     messages.append(user("Never mind"))
     events = asyncio.run(collect(run_turn(provider, [BashTool()], messages, ctx)))
     assert events[-1] == TurnEnded(stop_reason="end_turn")
+
+
+def test_ctrl_c_mid_reply_keeps_what_the_model_had_written(ctx: ToolContext) -> None:
+    """So it knows what it said and that it was cut off, and its cost is counted."""
+    story = " ".join(f"word{n}" for n in range(300))
+    provider = FakeProvider(
+        [ModelResponse(content=[TextBlock(text=story)], stop_reason="end_turn")], pace=0.01
+    )
+    provider.set_model("claude-opus-5-5")
+    meter = CostMeter()
+    session = Session(provider, [], ctx, "S", listeners=[meter.on_event])
+    deltas: list[TextDelta] = []
+
+    async def press_ctrl_c_mid_reply() -> None:
+        turn = asyncio.create_task(session.send("Write a story"))
+
+        def cancel_after_ten_pieces(event: Event) -> None:
+            if isinstance(event, TextDelta):
+                deltas.append(event)
+                if len(deltas) == 10:  # counted, not timed, so a slow machine can't flake
+                    turn.cancel()
+
+        session.listeners.append(cancel_after_ten_pieces)
+        with pytest.raises(asyncio.CancelledError):
+            await turn
+
+    asyncio.run(press_ctrl_c_mid_reply())
+
+    cut_off = session.messages[-1]
+    assert cut_off.role == "assistant"
+    [block] = cut_off.content
+    assert isinstance(block, TextBlock)
+    written, note = block.text.split("\n\n")
+    assert note == CUT_OFF
+    streamed = "".join(delta.text for delta in deltas)
+    assert written == streamed and len(written) < len(story)
+    assert meter.output_tokens == len(streamed) // 4
+    assert meter.session_dollars > 0
 
 
 class FloodTool:
