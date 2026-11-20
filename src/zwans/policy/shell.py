@@ -5,6 +5,7 @@ so a harmless first command can't carry a harmful second one past it. Anything t
 doesn't understand raises ShellParseError, and the policy then asks instead of guessing.
 """
 
+import re
 from dataclasses import dataclass, field
 
 # Words that start or end a compound command. They are dropped, and what follows is a new
@@ -141,6 +142,8 @@ class _Parser:
                     break
                 if expanded and ("$(" in line or "`" in line):
                     raise ShellParseError("a here-document runs commands")
+                if expanded:
+                    _check_expansions_in(line)
                 if end < 0:
                     raise ShellParseError(f"the here-document never ends with {delimiter}")
             # Kept with the body, so a rule for this command covers only this text.
@@ -184,7 +187,7 @@ class _Parser:
                 if c in "<>" and self.s.startswith("(", self.i + 1):
                     self.i += 1
                     self._substitution(self._balanced(")"))
-                    text.append("<(...)")
+                    text.append(c + "(...)")  # <(...) or >(...)
                     dynamic = True
                     continue
                 break
@@ -253,9 +256,12 @@ class _Parser:
             body = self._balanced(")")
             if "$(" in body or "`" in body:
                 raise ShellParseError("arithmetic that runs commands")
+            _check_arithmetic(body)
             if not self.s.startswith(")", self.i):
                 raise ShellParseError("$(( is never closed")
             self.i += 1
+        elif self.s.startswith("[", self.i):
+            raise ShellParseError(ARITHMETIC_VARIABLES)  # $[...], the old $((...))
         elif self.s.startswith("(", self.i):
             self._substitution(self._balanced(")"))
             return "$(...)"
@@ -263,6 +269,7 @@ class _Parser:
             body = self._balanced("}")
             if "$(" in body or "`" in body:
                 raise ShellParseError("a ${...} that runs commands")
+            _check_expansion(body)
         elif self.s.startswith("'", self.i):  # $'...' quoting
             end = self.s.find("'", self.i + 1)
             if end < 0:
@@ -324,3 +331,65 @@ class _Parser:
     def _substitution(self, body: str) -> None:
         """Commands inside $(...), `...` and <(...) run too, so they join the list."""
         self.commands.extend(parse(body))
+
+
+# Bash evaluates a variable named in arithmetic as arithmetic itself, and an array index in
+# that runs any $(...) it holds: after x='a[$(rm -rf ~)]', `echo $((x))` runs rm. The same
+# goes for ${s:x}, ${a[x]}, ${!x}, and ${x@P}, which expands x like a prompt.
+ARITHMETIC_VARIABLES = "arithmetic on a variable, which runs any command the variable holds"
+PLAIN_ARITHMETIC = re.compile(r"[\s0-9+\-*/%<>=!&|^~?:,()]*")
+EXPANSION = re.compile(r"(#?)([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!-])(\[[^\]]*\])?(.*)", re.S)
+PLAIN_INDEX = re.compile(r"\[(-?[0-9]*|[@*])\]")
+# The operators after a name that don't take arithmetic: ${x:-default}, ${x#prefix}, ...
+TEXT_OPERATORS = (":-", ":=", ":+", ":?", "-", "=", "+", "?", "#", "%", "/", "^", ",")
+
+
+def _check_arithmetic(body: str) -> None:
+    """Allow arithmetic on numbers only. A name or $x in it may hold a command."""
+    if not PLAIN_ARITHMETIC.fullmatch(body):
+        raise ShellParseError(ARITHMETIC_VARIABLES)
+
+
+def _check_expansion(body: str) -> None:
+    """Refuse a ${...} that evaluates what a variable holds: an indirect ${!x} (but not
+    ${!prefix*} or ${!a[@]}, which list names), a non-numeric index or offset, or @P."""
+    if body.startswith("!") and body != "!":  # ${!} is the last background job
+        if not body.endswith(("*", "@", "[@]", "[*]")):
+            raise ShellParseError(ARITHMETIC_VARIABLES)
+        return
+    match = EXPANSION.fullmatch(body)
+    if match is None:
+        raise ShellParseError("a ${...} Zwans can't follow")
+    index, rest = match.group(3), match.group(4)
+    if index and not PLAIN_INDEX.fullmatch(index):
+        raise ShellParseError(ARITHMETIC_VARIABLES)
+    if not rest or rest.startswith(TEXT_OPERATORS):
+        _check_expansions_in(rest)  # ${x:-${!y}}
+        return
+    if rest.startswith("@"):
+        if rest[1:] in ("Q", "E", "A", "a", "U", "u", "L", "K", "k"):
+            return
+        raise ShellParseError("${x@P} expands x like a prompt, which can run commands")
+    if rest.startswith(":"):
+        _check_arithmetic(rest[1:])  # ${x:offset:length}
+        return
+    raise ShellParseError("a ${...} Zwans can't follow")
+
+
+def _check_expansions_in(text: str) -> None:
+    """Check each ${...} and $[...] in text that bash expands: a here-document's lines, or
+    the default in ${x:-...}."""
+    i = text.find("$")
+    while 0 <= i < len(text) - 1:
+        if text[i + 1] == "[":
+            raise ShellParseError(ARITHMETIC_VARIABLES)
+        if text[i + 1] == "{":
+            depth, j = 0, i + 1
+            while j < len(text):
+                depth += {"{": 1, "}": -1}.get(text[j], 0)
+                if depth == 0:
+                    break
+                j += 1
+            _check_expansion(text[i + 2 : j])
+            i = j
+        i = text.find("$", i + 1)

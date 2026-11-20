@@ -408,7 +408,7 @@ def _injection_permissions(injection: Injection, executor: LocalExecutor) -> Per
     policy = Policy.default()
     policy.mode = injection.mode
     approver = CarefulUser(injection, executor.contains, executor.relative)
-    return Permissions(policy, executor.contains, executor.relative, approver)
+    return Permissions(policy, executor.contains, executor.relative, approver, executor.root)
 
 
 def _find_bash() -> str:

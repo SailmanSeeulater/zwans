@@ -56,7 +56,7 @@ def permissions(
             return False
         return True
 
-    return Permissions(policy, inside, executor.relative)
+    return Permissions(policy, inside, executor.relative, root=executor.root)
 
 
 def decide(perms: Permissions, tool: Any, **args: Any) -> Decision:
@@ -451,6 +451,8 @@ def test_read_rules_dont_cover_names_or_other_files(tmp_path: Path) -> None:
         ("*.pem", "id.pe*", False, True),
         ("*.pem", "*.py", False, False),
         ("*.pem", "*", False, True),
+        (".env", ".[[:alpha:]]nv", False, True),  # a named class ends with its own ]
+        (".env", ".[[:digit:]x]nv", False, True),
         (".env", "*", False, False),  # a glob doesn't match a leading dot
         (".git/**", ".gi[t]/hooks/pre-commit", True, True),
         (".git/**", ".gi[!t]/hooks", True, False),
@@ -797,3 +799,107 @@ def test_policy_errors_show_escape_codes_as_text(tmp_path: Path) -> None:
         load_policy(tmp_path / "ws", tmp_path)
     assert "\x1b" not in str(caught.value)
     assert "\\x1b[8mhidden" in str(caught.value)
+
+
+def test_a_link_out_of_the_workspace_counts_as_outside(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    (workspace / "docs").mkdir(parents=True)
+    (workspace / "src").mkdir()
+    (workspace / "src" / "a.py").write_text("x")
+    (tmp_path / "credentials").write_text("secret")
+    (workspace / "notes").symlink_to(tmp_path / "credentials")
+    (workspace / "docs" / "setup.md").symlink_to(tmp_path / "credentials")
+    (workspace / "home").symlink_to(tmp_path)
+    read_only = permissions(workspace, "read-only")
+    for command in ["cat notes", "grep KEY notes", "cd home && cat credentials", "cat docs/*"]:
+        assert decide(read_only, BashTool(), command=command) == Decision.DENY, command
+    assert decide(read_only, BashTool(), command="cat src/*") == Decision.ALLOW
+    assert decide(read_only, BashTool(), command="ls -la notes") == Decision.ALLOW  # names only
+    auto = permissions(workspace, "auto")
+    for command in ["tee notes", "cp x notes", "sed -i s/a/b/ notes"]:
+        verdict = auto.check(BashTool(), {"command": command})
+        assert (verdict.decision, verdict.rules) == (Decision.ASK, ()), command
+        assert "symbolic link" in verdict.reason
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep -r KEY secrets",
+        "rg KEY secrets",
+        "cd secrets && grep -rn KEY .",
+        "cp -r secrets /tmp/s",
+        "mv secrets public",
+        "tar czf /tmp/s.tgz secrets",
+        "diff -r secrets /tmp/old",
+    ],
+)
+def test_reading_a_folder_counts_as_reading_what_read_rules_cover_in_it(
+    tmp_path: Path, command: str
+) -> None:
+    perms = permissions(tmp_path, "auto", deny=["Read(secrets/**)", "Read(.env)"])
+    assert decide(perms, BashTool(), command=command) == Decision.DENY
+
+
+@pytest.mark.parametrize(
+    "command", ["grep -rn foo src", "rg foo", "cp -r src backup", "grep -r x .", "ls secrets"]
+)
+def test_other_folders_can_still_be_searched_and_copied(tmp_path: Path, command: str) -> None:
+    perms = permissions(tmp_path, "auto", deny=["Read(secrets/**)", "Read(.env)"])
+    assert decide(perms, BashTool(), command=command) == Decision.ALLOW
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "bash <(git log -1 --format=%s)",
+        "source <(git log -1)",
+        "bash /dev/stdin <<< ls",
+        "python3 /dev/stdin <<< 'print(1)'",
+        "$(which python3) -m pytest",
+        "bash $(git ls-files | head -1)",
+    ],
+)
+def test_always_isnt_offered_when_the_script_isnt_shown(tmp_path: Path, command: str) -> None:
+    perms = permissions(tmp_path)
+    assert _answer_always(perms, command) == ()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/usr/bin/git push origin main",
+        "/usr/bin/env -C . git push origin main",
+        "/bin/bash -c 'git push origin main'",
+        "HOME=/tmp git push origin main",
+        "git -c core.sshCommand=x push origin main",
+        "eval 'git push origin main'",
+    ],
+)
+def test_deny_rules_see_through_paths_variables_and_eval(tmp_path: Path, command: str) -> None:
+    perms = permissions(tmp_path, deny=["Bash(git push *)"])
+    assert decide(perms, BashTool(), command=command) == Decision.DENY
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "x='a[$(touch pwned)]'; echo $((x))",
+        "x='$(touch pwned)'; echo ${x@P}",
+        "PS4='$(touch pwned)' bash -xc ls",
+        'X=-vPATH; printf "$X" .; ls',
+        "PYTHONPATH=. pip list",
+        "python3 -m pip list",
+        "sed 's/x/touch pwned/e' a.txt",
+        "gawk '@load \"./evil\"; BEGIN {}'",
+        "git grep --open-files-in-pager=sh -l x",
+        "sort --compress=sh a.txt",
+        "find . -name '*env' -exec cat {} +",
+        "xargs -a .env echo",
+    ],
+)
+def test_read_only_mode_refuses_what_runs_code_or_reads_denied_files(
+    tmp_path: Path, command: str
+) -> None:
+    perms = permissions(tmp_path, "read-only", deny=["Read(.env)"])
+    assert decide(perms, BashTool(), command=command) == Decision.DENY

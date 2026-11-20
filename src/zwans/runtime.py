@@ -187,7 +187,11 @@ def open_session(
         executor = LocalExecutor(root, shell=config.shell, spill_dir=spill_dir)
     jobs = BackgroundJobs(executor)
     permissions = Permissions(
-        policy, inside=executor.contains, relative=executor.relative, approver=approver
+        policy,
+        inside=executor.contains,
+        relative=executor.relative,
+        approver=approver,
+        root=executor.root,
     )
     tools: list[Tool[Any]] = [
         ReadTool(),

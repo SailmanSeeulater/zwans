@@ -280,12 +280,23 @@ def _char_class(text: str, start: int) -> tuple[_Chars, int] | None:
     negated = i < len(text) and text[i] in "!^"
     if negated:
         i += 1
-    end = text.find("]", i + 1 if i < len(text) and text[i] == "]" else i)
-    if end < 0:
+    end = i + 1 if i < len(text) and text[i] == "]" else i  # a ] first is a plain letter
+    named = False
+    while end < len(text) and text[end] != "]":
+        # [:alpha:], [=e=] and [.e.] end with their own ], which doesn't close the class.
+        if text[end] == "[" and text[end + 1 : end + 2] in (":", "=", "."):
+            close = text.find(text[end + 1] + "]", end + 2)
+            if close < 0:
+                return None
+            named = True
+            end = close + 2
+        else:
+            end += 1
+    if end >= len(text):
         return None
-    body = text[i:end]
-    if "[:" in body or "[=" in body or "[." in body:
+    if named:
         return ANY_CHAR, end + 1  # named classes: any character, which only covers more
+    body = text[i:end]
     chars: set[str] = set()
     k = 0
     while k < len(body):
