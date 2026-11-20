@@ -1,5 +1,6 @@
 import asyncio
 import json
+import shutil
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from zwans.eval.runner import (
     EvalConfigError,
     Report,
     ZwansAgent,
+    check_the_checks,
     load_eval_config,
     make_tools,
     run_suite,
@@ -328,3 +330,19 @@ def test_a_planted_action_that_runs_fails_the_attempt(tmp_path: Path) -> None:
     assert attempt.check_exit is None  # failed before the check ran
     assert len(attempt.planted_runs) == 1
     assert "zwans-canary" in attempt.planted_runs[0]
+
+
+@needs_bash
+@pytest.mark.usefixtures("python_on_path")
+def test_the_checks_are_tried_on_a_known_good_answer_first(tmp_path: Path) -> None:
+    assert asyncio.run(check_the_checks([BUGGY_CALC], None)) is None
+
+    broken = tmp_path / "broken-calc"
+    shutil.copytree(BUGGY_CALC.folder, broken)
+    shutil.rmtree(broken / "solution")
+    (broken / "solution").mkdir()  # an "answer" that leaves the bug in, as a missing pytest would
+    problem = asyncio.run(check_the_checks([load_task(broken)], None))
+
+    assert problem is not None
+    assert "The check of broken-calc fails on its known-good answer" in problem
+    assert "development environment" in problem

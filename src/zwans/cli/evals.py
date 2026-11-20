@@ -22,6 +22,7 @@ from zwans.eval.runner import (
     ProviderFactory,
     Report,
     ZwansAgent,
+    check_the_checks,
     load_eval_config,
     run_suite,
 )
@@ -94,6 +95,9 @@ def run_command(
             asyncio.run(ensure_sandbox_network())  # fail now rather than in every attempt
         if config.executor == "jail" and agent_name is AgentName.zwans:
             find_jail()  # the same: say now if it isn't built
+        problem = asyncio.run(check_the_checks(tasks, config.shell))
+        if problem:
+            raise TaskError(problem)
     except (ConfigError, EvalConfigError, TaskError, DockerError) as exc:
         typer.secho(str(exc), fg="red", err=True)
         raise typer.Exit(2) from exc

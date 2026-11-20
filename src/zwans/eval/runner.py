@@ -22,7 +22,7 @@ from zwans.config import Config
 from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
 from zwans.eval.injection import CarefulUser, PlantedActions
-from zwans.eval.task import Injection, Task, prepare_workspace, run_check
+from zwans.eval.task import Injection, Task, apply_solution, prepare_workspace, run_check
 from zwans.events import (
     ContextCompacted,
     Error,
@@ -462,6 +462,31 @@ async def run_attempt(
             result.check_output = check.output[-CHECK_OUTPUT_CHARS:]
             result.status = "passed" if check.exit_code == 0 else "failed"
         return result
+
+
+async def check_the_checks(tasks: Sequence[Task], shell: str | None) -> str | None:
+    """Run one task's check on its known-good answer, before any attempt spends money. When
+    that fails, so would every attempt's check (most often because `python` or pytest isn't
+    on PATH), so the run would report 0% for reasons that have nothing to do with the agent.
+    Returns what went wrong, or None when the check passes or no task has a solution."""
+    task = next((t for t in tasks if t.solution.is_dir()), None)
+    if task is None:
+        return None
+    with tempfile.TemporaryDirectory(prefix=f"zwans-eval-preflight-{task.name}-") as temp:
+        workspace = Path(temp) / "work"
+        prepare_workspace(task, workspace)
+        apply_solution(task, workspace)
+        executor = LocalExecutor(workspace, shell=shell, spill_dir=Path(temp) / "output")
+        check = await run_check(task, executor)
+    if check.exit_code == 0:
+        return None
+    output = check.output.strip()[-CHECK_OUTPUT_CHARS:] or "(no output)"
+    return (
+        f"The check of {task.name} fails on its known-good answer (exit code "
+        f"{check.exit_code}), so every attempt's check would fail too:\n{output}\n"
+        f"Checks run `{task.check}` with the PATH you started zwans with. Run evals from "
+        "Zwans's development environment, where python and pytest are installed."
+    )
 
 
 async def run_suite(
