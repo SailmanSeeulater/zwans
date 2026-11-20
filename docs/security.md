@@ -44,9 +44,13 @@ The classifier reads the command line, not what programs do. These are deliberat
 - **The untrusted-content flag is session-wide and coarse.** Once anything from a file or
   command has been read, which is almost always, network commands ask even when a rule allows
   them. It cannot tell which content influenced which call.
-- **A workspace policy is trusted by content hash**, so trusting a policy file and then
-  letting the agent edit it requires trusting it again. The agent's own edits to `.zwans/`
-  always ask.
+- **A workspace policy is trusted by content hash**, together with the workspace scripts its
+  hooks run (such as `.zwans/hooks/check.py`), so trusting a policy file and then letting the
+  agent edit it or one of those scripts requires trusting it again. The agent's own changes
+  to `.zwans/` and `.git/` always ask, whether made with the file tools or with commands such
+  as `cp` and `rm`. A script that writes there from its own code, or an archive or patch
+  that holds such paths (`tar xf`, `git apply`), isn't seen this way, which is one more
+  reason to pair `auto` mode with a sandbox.
 
 ## Extensions
 

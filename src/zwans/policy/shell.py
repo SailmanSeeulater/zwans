@@ -32,6 +32,8 @@ class Word:
 class SimpleCommand:
     words: list[Word] = field(default_factory=list)
     redirects: list[tuple[str, Word]] = field(default_factory=list)  # (operator, target)
+    # Its here-documents as written, from the marker (<<'EOF') through the closing line.
+    heredocs: list[str] = field(default_factory=list)
 
     @property
     def text(self) -> str:
@@ -52,6 +54,7 @@ class _Parser:
         self.commands: list[SimpleCommand] = []
         self.current = SimpleCommand()
         self.pending_heredocs: list[tuple[str, bool]] = []  # (delimiter, body is expanded)
+        self.heredoc_owners: list[tuple[SimpleCommand, int]] = []  # where each one is kept
 
     def run(self) -> None:
         while self.i < len(self.s):
@@ -105,24 +108,31 @@ class _Parser:
             self.i += 1
         bare = op.lstrip("0123456789")
         if bare.startswith("<<") and bare != "<<<":
-            self._queue_heredoc()
+            self._queue_heredoc(bare)
             return
         target = self._read_word()
         if not target.text:
             raise ShellParseError(f"{op} has no target")
         self.current.redirects.append((bare, target))
 
-    def _queue_heredoc(self) -> None:
+    def _queue_heredoc(self, op: str) -> None:
         if self.s.startswith("-", self.i):
+            op += "-"
             self.i += 1
+        start = self.i
         word = self._read_word()
         quoted = word.text != self.s[self.i - len(word.text) : self.i]  # had quotes in it
         if not word.text:
             raise ShellParseError("<< has no delimiter")
         self.pending_heredocs.append((word.text, not quoted))
+        self.heredoc_owners.append((self.current, len(self.current.heredocs)))
+        self.current.heredocs.append(op + self.s[start : self.i])
 
     def _read_heredocs(self) -> None:
-        for delimiter, expanded in self.pending_heredocs:
+        for (delimiter, expanded), (owner, index) in zip(
+            self.pending_heredocs, self.heredoc_owners, strict=True
+        ):
+            start = self.i
             while True:
                 end = self.s.find("\n", self.i)
                 line = self.s[self.i : len(self.s) if end < 0 else end]
@@ -133,7 +143,10 @@ class _Parser:
                     raise ShellParseError("a here-document runs commands")
                 if end < 0:
                     raise ShellParseError(f"the here-document never ends with {delimiter}")
+            # Kept with the body, so a rule for this command covers only this text.
+            owner.heredocs[index] += "\n" + self.s[start : self.i].removesuffix("\n")
         self.pending_heredocs = []
+        self.heredoc_owners = []
 
     def _add_word(self, word: Word) -> None:
         if not self.current.words and not word.dynamic:

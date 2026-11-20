@@ -104,14 +104,19 @@ refused call goes back to the model as an error that says why.
 | `ask` (default) | The same | File changes and every other command |
 | `auto` | Also edits, and commands that change files or run code (`pytest`, `make`, `git commit`) | Commands that use the network (`curl`, `pip install`, `git push`) or that Zwans can't classify |
 
-At a prompt, `y` allows the call once, `a` allows that exact call for the rest of the
-session, and anything else (or Ctrl+C) declines. When no one is at a terminal, as with
-`zwans run` in a script, a call that needs asking is refused.
+At a prompt, `y` allows the call once, `a` allows that exact call, as shown (with any
+here-document's text), for the rest of the session, and anything else (or Ctrl+C) declines.
+`a` isn't offered when it couldn't take
+effect: for a call an `ask` rule covers, or a network command once untrusted content has been
+read. When no one is at a terminal, as with `zwans run` in a script, a call that needs asking
+is refused.
 
 Bash commands are split into the simple commands they run before they're judged, so
 `ls && rm -rf build` is a read and a delete, and `echo $(curl x)` contains a network call.
 Commands that touch paths outside the workspace (other than `/tmp`), that come from a
-variable, or that Zwans can't parse count as unknown.
+variable, that print every environment variable (`env`, `printenv`), that move to a folder
+the command doesn't name (`cd` alone, `cd -`), that run a program or script Zwans can't see
+(`sed -f`, `awk -f`, `rg --pre`), or that Zwans can't parse count as unknown.
 
 Rules go in `~/.zwans/policy.toml` (all projects) or `.zwans/policy.toml` (one project):
 
@@ -126,11 +131,28 @@ network = "ask"    # default: network commands ask even when a rule allows them
 write = "allow"
 ```
 
-A Bash rule's pattern matches each simple command, with `*` matching anything; file rules
-take gitignore-style globs, and an `Edit` rule also covers `Write`. Deny wins over ask, and
-ask over allow. Changes to `.zwans/` and `.git/` always ask. A project's policy file arrives
-with its code, so its deny and ask rules apply at once, but the parts that loosen the policy
-(allow rules, `mode = "auto"`) apply only after you trust that exact file at the prompt.
+A Bash rule's pattern matches each simple command, with `*` matching anything. It sees the
+command's redirections to files, so `Bash(cat)` doesn't allow `cat > app.py`, but not git's
+global options, so `Bash(git push *)` covers `git -C . push`. An allow rule with a `*` (or a
+bare `Bash`) doesn't cover a command that reaches outside the workspace; allow that exact
+command instead.
+
+File rules take gitignore-style globs, and an `Edit` rule also covers `Write`. They apply to
+the files Bash commands name too: `Read` rules to what `cat`, `grep` or `< file` read, and
+`Edit` rules to what `cp`, `mv`, `rm`, `sed -i` or `> file` write, including a folder that
+holds a covered file (`rm -rf .git`). Paths after a `cd` count from its folder, and on macOS
+and Windows, whose file systems ignore case, so do path rules (`.GIT/config` is `.git/config`).
+Not covered: a program that opens files from its own code (`python x.py`), a search through
+a whole folder (`grep -r KEY .`), the files an archive or patch holds (`tar xf`, `unzip`,
+`patch`, `git apply`), and git commands that don't name the files they change (`git reset`,
+`git switch`). Deny wins over ask, and ask over allow. A rule that names a tool Zwans doesn't
+have, such as `bash(...)`, is an error.
+
+Changes to `.zwans/` and `.git/` always ask, from the file tools and from commands. A
+project's policy file arrives with its code, so its deny and ask rules apply at once, but the
+parts that loosen the policy (allow rules, `mode = "auto"`, hooks) apply only after you trust
+that exact file at the prompt. Trusting it also covers the workspace scripts its hooks run, so
+a change to the file or to one of those scripts needs trusting again.
 
 Tool output from files and commands is marked untrusted in the event stream, and the system
 prompt tells the model that instructions inside it aren't the user's. See

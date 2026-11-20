@@ -12,7 +12,7 @@ from enum import StrEnum
 from typing import Any, Protocol
 
 from zwans.policy.classify import Action, Kind, analyze
-from zwans.policy.rules import Decision, Policy, Rule, strictest
+from zwans.policy.rules import Decision, Policy, Rule, normalize, strictest
 
 # Tools whose output comes from outside: files, programs, the web. Instructions inside it
 # are data, not the user's.
@@ -118,14 +118,12 @@ class Permissions:
             verdict = Verdict(Decision.ASK, f"{what} {effect}")
         else:
             verdict = Verdict(Decision.ALLOW)
-        if self.tainted and verdict.decision != Decision.DENY:
-            after = (
-                self.policy.after_untrusted.network if mcp else self.policy.after_untrusted.write
-            )
-            if strictest(after, verdict.decision) != verdict.decision:
-                reason = f"{what} {effect} after untrusted content was read"
-                verdict = Verdict(after, reason)
-        if verdict.decision == Decision.ASK:
+        after = self.policy.after_untrusted.network if mcp else self.policy.after_untrusted.write
+        if self.tainted and strictest(after, verdict.decision) != verdict.decision:
+            verdict = Verdict(after, f"{what} {effect} after untrusted content was read")
+        # An allow rule from "always" would be overruled by the untrusted content, so it isn't
+        # offered then.
+        if verdict.decision == Decision.ASK and not (self.tainted and after != Decision.ALLOW):
             always = f"{tool.name}({relative})" if relative else tool.name
             return Verdict(Decision.ASK, verdict.reason, (always,))
         return verdict
@@ -141,44 +139,83 @@ class Permissions:
             return Verdict(Decision.ALLOW)
         chosen = [v for v in verdicts if v.decision == worst]
         reason = "; ".join(dict.fromkeys(v.reason for v in chosen))
-        rules = tuple(
-            dict.fromkeys(r for v in verdicts if v.decision == Decision.ASK for r in v.rules)
-        )
+        asked = [v for v in verdicts if v.decision == Decision.ASK]
+        # "Always" is offered only when its rules would let this whole call run next time.
+        rules: tuple[str, ...] = ()
+        if all(v.rules for v in asked):
+            rules = tuple(dict.fromkeys(r for v in asked for r in v.rules))
         return Verdict(worst, reason, rules)
 
     def _check_action(self, action: Action) -> Verdict:
-        shown = f"`{action.command}`"
-        for path in action.writes:
-            matched = self._match("Write", _matches_path(path))
-            if matched is not None and matched[0] != Decision.ALLOW:
-                decision, rule = matched
-                return Verdict(
-                    decision,
-                    f"{shown} writes {path}, which matches the {decision} rule {rule}",
-                    (_exact_rule(action.command),),
-                )
-        matched = self._match("Bash", lambda rule: rule.matches_command(action.command))
-        if matched is not None:
+        shown = f"`{_brief(action.display)}`"
+        # File rules apply to the files a command names, as they do to the file tools.
+        by_file = self._check_files(action, shown)
+        texts = {action.command, action.display}
+        matched = self._match(
+            "Bash",
+            lambda rule: any(rule.matches_command(t) for t in {*texts, action.bare or ""} if t),
+            allows=lambda rule: _allows(rule, action, texts),
+        )
+        by_rule = None
+        if matched is not None and matched[0] != Decision.ALLOW:
             decision, rule = matched
-            if decision != Decision.ALLOW:
-                reason = f"{shown} matches the {decision} rule {rule} ({rule.source})"
-                return Verdict(decision, reason, (_exact_rule(action.command),))
-            verdict = Verdict(Decision.ALLOW)
-        else:
-            verdict = self._by_mode(action, shown)
-        if self.tainted and verdict.decision != Decision.DENY:
-            after = None
-            if action.kind == Kind.NETWORK:
-                after = self.policy.after_untrusted.network
-            elif action.kind == Kind.WRITE:
-                after = self.policy.after_untrusted.write
-            if after is not None and strictest(after, verdict.decision) != verdict.decision:
-                what = "uses the network" if action.kind == Kind.NETWORK else "changes files"
-                reason = f"{shown} {what} after untrusted content was read"
-                verdict = Verdict(after, reason)
-        if verdict.decision == Decision.ASK:
-            return Verdict(Decision.ASK, verdict.reason, (_exact_rule(action.command),))
+            reason = f"{shown} matches the {decision} rule {rule} ({rule.source})"
+            by_rule = Verdict(decision, reason)
+        # Deny wins over ask, whichever kind of rule says it. A file rule that asks wins over
+        # any allow rule, so "always" couldn't help and isn't offered.
+        found = [v for v in (by_file, by_rule) if v is not None]
+        if found:
+            worst = strictest(*(v.decision for v in found))
+            return next(v for v in found if v.decision == worst)
+        verdict = Verdict(Decision.ALLOW) if matched is not None else self._by_mode(action, shown)
+        after = self._after_untrusted(action.kind) if self.tainted else None
+        if after is not None and strictest(after, verdict.decision) != verdict.decision:
+            what = "uses the network" if action.kind == Kind.NETWORK else "changes files"
+            verdict = Verdict(after, f"{shown} {what} after untrusted content was read")
+        # After untrusted content, an allow rule from "always" would be overruled for this kind
+        # of command, so it isn't offered.
+        lasting = after is None or after == Decision.ALLOW
+        if verdict.decision == Decision.ASK and lasting:
+            return Verdict(Decision.ASK, verdict.reason, (_exact_rule(action.display),))
         return verdict
+
+    def _after_untrusted(self, kind: Kind) -> Decision | None:
+        """What the policy says about this kind of command once untrusted content is read."""
+        if kind == Kind.NETWORK:
+            return self.policy.after_untrusted.network
+        if kind == Kind.WRITE:
+            return self.policy.after_untrusted.write
+        return None
+
+    def _check_files(self, action: Action, shown: str) -> Verdict | None:
+        """The strictest file rule, other than allow, for the files a command names."""
+        found: list[Verdict] = []
+        for verb, paths in (("writes", action.writes), ("reads", action.reads)):
+            for path in paths:
+                relative = self._rule_path(path)
+                matched = self._match_file(verb, relative)
+                if matched is not None and matched[0] != Decision.ALLOW:
+                    decision, rule = matched
+                    reason = f"{shown} {verb} {relative}, which matches the {decision} rule {rule}"
+                    found.append(Verdict(decision, f"{reason} ({rule.source})"))
+        if not found:
+            return None
+        worst = strictest(*(v.decision for v in found))
+        return next(v for v in found if v.decision == worst)
+
+    def _match_file(self, verb: str, path: str) -> tuple[Decision, Rule] | None:
+        # Writing to a folder (rm -rf .git) changes the files in it; reading one doesn't
+        # read them all.
+        if verb == "writes":
+            return self._match("Write", lambda rule: rule.may_cover(path, folder=True))
+        return self._match("Read", lambda rule: rule.may_cover(path, folder=False))
+
+    def _rule_path(self, path: str) -> str:
+        """A path from a command as file rules see it: relative to the workspace root."""
+        try:
+            return self.relative(path)
+        except (OSError, ValueError):
+            return normalize(path)  # outside the workspace, such as /tmp
 
     def _by_mode(self, action: Action, shown: str) -> Verdict:
         what = {
@@ -197,20 +234,49 @@ class Permissions:
             return Verdict(Decision.ALLOW)
         return Verdict(Decision.ASK, reason)
 
-    def _match(self, tool: str, matches: Callable[[Rule], bool]) -> tuple[Decision, Rule] | None:
-        """The strictest rule that matches, or None."""
+    def _match(
+        self,
+        tool: str,
+        matches: Callable[[Rule], bool],
+        allows: Callable[[Rule], bool] | None = None,
+    ) -> tuple[Decision, Rule] | None:
+        """The strictest rule that matches, or None. `allows` replaces `matches` for allow
+        rules, when they need a closer look."""
         session = {Decision.ALLOW: self.session_rules}
         for decision in (Decision.DENY, Decision.ASK, Decision.ALLOW):
+            test = allows if decision == Decision.ALLOW and allows is not None else matches
             for rule in [*self.policy.rules[decision], *session.get(decision, [])]:
-                if rule.covers(tool) and matches(rule):
+                if rule.covers(tool) and test(rule):
                     return decision, rule
         return None
+
+
+def _allows(rule: Rule, action: Action, texts: set[str]) -> bool:
+    """Whether an allow rule covers a command. Not by its words alone, so `Bash(cat)` doesn't
+    allow `cat > app.py`. And only a rule for that exact command covers one that reaches
+    outside the workspace: `Bash(cat *)` doesn't allow `cat < ~/.ssh/id_rsa`."""
+    if action.outside and (rule.pattern is None or _has_wildcard(rule.pattern)):
+        return False
+    return any(rule.matches_command(text) for text in texts)
+
+
+def _has_wildcard(pattern: str) -> bool:
+    unescaped = pattern.replace("[[]", "").replace("[*]", "").replace("[?]", "")
+    return any(c in unescaped for c in "*?[")
 
 
 def _exact_rule(command: str) -> str:
     """A Bash rule for exactly this command, with *, ? and [ escaped so they match themselves."""
     escaped = command.replace("[", "[[]").replace("*", "[*]").replace("?", "[?]")
     return f"Bash({escaped})"
+
+
+def _brief(command: str, limit: int = 80) -> str:
+    """A command's first line, cut short, for a reason the user and the model read."""
+    first, newline, _ = command.partition("\n")
+    if len(first) > limit or newline:
+        return first[:limit].rstrip() + " ..."
+    return first
 
 
 def _matches_path(path: str | None) -> Callable[[Rule], bool]:

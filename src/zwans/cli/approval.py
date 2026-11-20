@@ -7,7 +7,14 @@ from pathlib import Path
 import typer
 
 from zwans.policy.engine import Approval, PermissionRequest
-from zwans.policy.rules import Decision, LoadedPolicy, load_policy, read_policy_file, trust
+from zwans.policy.rules import (
+    Decision,
+    LoadedPolicy,
+    hook_scripts,
+    load_policy,
+    read_policy_file,
+    trust,
+)
 from zwans.policy.rules import Mode as PolicyMode
 
 ANSWERS = {
@@ -23,10 +30,34 @@ def can_prompt() -> bool:
 
 
 async def terminal_approver(request: PermissionRequest) -> Approval:
+    command = request.args.get("command")
+    if request.tool == "Bash" and isinstance(command, str) and "\n" in command:
+        # The tool line above shows only the first line; a here-document's body matters too.
+        for line in _shown_lines(command):
+            typer.secho(f"  | {line}", dim=True)
     typer.secho(f"  ? {request.reason}", fg="yellow")
-    always = ", ".join(request.rules) or request.tool
+    if not request.rules:  # "always" couldn't take effect, as after untrusted content
+        answer = _prompt("  Allow it? [y]es / [N]o: ")
+        return Approval.ONCE if answer.strip().lower() in ("y", "yes") else Approval.NO
+    always = ", ".join(_cut(rule) for rule in request.rules)
     answer = _prompt(f"  Allow it? [y]es / [a]lways ({always}) / [N]o: ")
     return ANSWERS.get(answer.strip().lower(), Approval.NO)
+
+
+MAX_SHOWN_LINES = 20
+
+
+def _shown_lines(command: str) -> list[str]:
+    lines = [_cut(line, 160) for line in command.splitlines()]
+    if len(lines) > MAX_SHOWN_LINES:
+        more = len(lines) - MAX_SHOWN_LINES + 1
+        lines = [*lines[: MAX_SHOWN_LINES - 1], f"... ({more} more lines)"]
+    return lines
+
+
+def _cut(text: str, limit: int = 80) -> str:
+    first, newline, _ = text.partition("\n")
+    return first[:limit] + " ..." if len(first) > limit or newline else first
 
 
 def load_with_trust(workspace: Path, home: Path, mode: PolicyMode | None) -> LoadedPolicy:
@@ -46,9 +77,17 @@ def load_with_trust(workspace: Path, home: Path, mode: PolicyMode | None) -> Loa
             if getattr(file.after_untrusted, name) == Decision.ALLOW:
                 loosening.append(f"{name} allowed after untrusted content")
     loosening.extend(f"run the {hook.event} hook `{hook.command}`" for hook in file.hooks)
+    root = path.resolve().parent.parent
+    scripts = [script.relative_to(root).as_posix() for script in hook_scripts(path)]
     typer.secho(f"{path} came with this workspace and would:", fg="yellow")
     for item in loosening:
         typer.secho(f"  {item}", fg="yellow")
+    if scripts:
+        typer.secho(
+            f"Trusting it also trusts the scripts its hooks run, as they are now: "
+            f"{', '.join(scripts)}",
+            fg="yellow",
+        )
     if can_prompt() and _prompt("Trust this file? [y/N]: ").strip().lower() in ("y", "yes"):
         trust(path, home)
         return load_policy(workspace, home, mode)

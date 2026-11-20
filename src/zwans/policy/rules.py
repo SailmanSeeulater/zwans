@@ -28,10 +28,13 @@ trusted that exact file.
 import hashlib
 import json
 import re
+import shlex
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from enum import StrEnum
 from fnmatch import fnmatchcase
+from itertools import takewhile
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
@@ -45,6 +48,30 @@ MODES: tuple[Mode, ...] = ("read-only", "ask", "auto")  # from the strictest to 
 RULE = re.compile(r"^\s*([A-Za-z_][\w.-]*)\s*(?:\((.*)\))?\s*$", re.DOTALL)
 # Edit and Write both change files, so a rule for one covers the other.
 FILE_CHANGE_TOOLS = frozenset({"Edit", "Write"})
+# The built-in tools' names, so a rule for a misspelled one is reported instead of never
+# matching. MCP tools are named mcp__<server>__<tool>. tests/test_policy.py checks that this
+# lists every tool in zwans.tools.
+TOOL_NAMES = frozenset(
+    {
+        "Bash",
+        "BashOutput",
+        "KillBash",
+        "Read",
+        "Write",
+        "Edit",
+        "Glob",
+        "Grep",
+        "Skill",
+        "Task",
+        "TodoWrite",
+        "web_search",
+        "web_fetch",
+    }
+)
+MCP_PREFIX = "mcp__"
+# macOS and Windows file systems ignore case by default, so .GIT/config is .git/config there
+# and path rules must match it too.
+IGNORE_CASE = sys.platform in ("darwin", "win32")
 
 
 class PolicyError(Exception):
@@ -99,6 +126,45 @@ class Rule:
     def matches_path(self, path: str) -> bool:
         return self.pattern is None or path_glob(self.pattern).match(path) is not None
 
+    def may_cover(self, path: str, *, folder: bool) -> bool:
+        """Whether a path a command names could be a file this rule covers: the path itself, a
+        glob that could expand to one (`.e*` for `.env`), or, with `folder`, a folder that
+        holds one (`.git` for `.git/**`), since removing or moving it changes what's inside.
+        The workspace root isn't counted as such a folder: it holds everything."""
+        if self.pattern is None or self.matches_path(path):
+            return True
+        parts = PurePosixPath(path).parts
+        if not parts or parts[0] in ("/", ".."):
+            return False
+        pattern = self.pattern.removeprefix("./")
+        if pattern.endswith("/"):
+            pattern += "**"
+        rule_parts = pattern.split("/")
+        if len(rule_parts) == 1:  # a name at any depth, like .env
+            return not _has_glob(pattern) and _could_expand(parts[-1], pattern)
+        literal = list(takewhile(lambda part: not _has_glob(part), rule_parts))
+        if len(parts) > len(literal):
+            return False
+        if not all(_could_expand(part, name) for part, name in zip(parts, literal, strict=False)):
+            return False
+        return len(parts) == len(rule_parts) or folder
+
+
+def _has_glob(text: str) -> bool:
+    return any(c in text for c in "*?[")
+
+
+def _could_expand(word: str, name: str) -> bool:
+    """Whether a shell word could stand for this file name. A glob doesn't match a leading dot,
+    so `*` doesn't stand for `.git`."""
+    if IGNORE_CASE:
+        word, name = word.lower(), name.lower()
+    if word == name:
+        return True
+    if not _has_glob(word) or (name.startswith(".") and not word.startswith(".")):
+        return False
+    return fnmatchcase(name, word)
+
 
 def path_glob(pattern: str) -> re.Pattern[str]:
     """Compile a gitignore-style glob. A pattern without a slash matches at any depth, ** spans
@@ -126,7 +192,7 @@ def path_glob(pattern: str) -> re.Pattern[str]:
         else:
             regex += re.escape(pattern[i])
             i += 1
-    return re.compile(regex + r"\Z")
+    return re.compile(regex + r"\Z", re.IGNORECASE if IGNORE_CASE else 0)
 
 
 class AfterUntrusted(BaseModel):
@@ -199,12 +265,51 @@ def read_policy_file(path: Path) -> PolicyFile | None:
         return None
     try:
         file = PolicyFile.model_validate(tomllib.loads(path.read_text(encoding="utf-8")))
-    except (OSError, tomllib.TOMLDecodeError, ValidationError) as exc:
+    except ValidationError as exc:
+        raise PolicyError(f"{path}: {_describe(exc)}") from exc
+    except (OSError, tomllib.TOMLDecodeError) as exc:
         raise PolicyError(f"{path}: {exc}") from exc
     for decision in Decision:
         for text in getattr(file, decision.value):
-            Rule.parse(text, str(path))  # reports a bad rule now, not on first use
+            # Reports a bad rule now, not on first use, and one that could never match.
+            _check_tool_name(Rule.parse(text, str(path)), path)
     return file
+
+
+def _check_tool_name(rule: Rule, path: Path) -> None:
+    if rule.tool in TOOL_NAMES or rule.tool.startswith(MCP_PREFIX):
+        return
+    same = [name for name in TOOL_NAMES if name.lower() == rule.tool.lower()]
+    if same:
+        raise PolicyError(f"{path}: the rule {rule} names {rule.tool}; did you mean {same[0]}?")
+    names = ", ".join(sorted(TOOL_NAMES, key=str.lower))
+    raise PolicyError(
+        f"{path}: the rule {rule} names {rule.tool}, which isn't a Zwans tool. The tools are "
+        f"{names}, and MCP tools are named {MCP_PREFIX}<server>__<tool>."
+    )
+
+
+# The keys each part of a policy file takes, for messages about one that isn't known.
+_SECTIONS: dict[tuple[str, ...], type[BaseModel]] = {
+    (): PolicyFile,
+    ("after_untrusted",): AfterUntrusted,
+    ("hooks",): HookSpec,
+}
+
+
+def _describe(exc: ValidationError) -> str:
+    """Pydantic's errors, said plainly: `unknown key alow (expected mode, allow, ...)`."""
+    problems: list[str] = []
+    for error in exc.errors():
+        where = ".".join(str(part) for part in error["loc"])
+        if error["type"] == "extra_forbidden":
+            section = tuple(str(p) for p in error["loc"][:-1] if not isinstance(p, int))
+            model = _SECTIONS.get(section)
+            expected = f" (expected {', '.join(model.model_fields)})" if model else ""
+            problems.append(f"unknown key `{where}`{expected}")
+        else:
+            problems.append(f"`{where}`: {error['msg']}")
+    return "; ".join(problems)
 
 
 @dataclass
@@ -239,7 +344,36 @@ def _trust_file(home: Path) -> Path:
 
 
 def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """The policy's content, with the hook scripts it runs from the workspace."""
+    digest = hashlib.sha256(path.read_bytes())
+    workspace = path.resolve().parent.parent
+    for script in hook_scripts(path):
+        name = script.relative_to(workspace).as_posix()
+        digest.update(f"\0{name}\0".encode())
+        digest.update(hashlib.sha256(script.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def hook_scripts(path: Path) -> list[Path]:
+    """The workspace files that a workspace policy's hooks run, like .zwans/hooks/check.py in
+    `python3 .zwans/hooks/check.py`. Trusting the policy covers them, so a change to one
+    needs trusting again."""
+    try:
+        file = PolicyFile.model_validate(tomllib.loads(path.read_text(encoding="utf-8")))
+    except (OSError, tomllib.TOMLDecodeError, ValidationError):
+        return []
+    workspace = path.resolve().parent.parent
+    found: set[Path] = set()
+    for hook in file.hooks:
+        try:
+            tokens = shlex.split(hook.command)
+        except ValueError:
+            tokens = hook.command.split()
+        for token in tokens:
+            candidate = (workspace / token).resolve()  # hooks run in the workspace folder
+            if candidate.is_relative_to(workspace) and candidate.is_file():
+                found.add(candidate)
+    return sorted(found)
 
 
 def is_trusted(path: Path, home: Path) -> bool:

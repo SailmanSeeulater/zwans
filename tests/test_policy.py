@@ -1,4 +1,8 @@
 import asyncio
+import hashlib
+import importlib
+import json
+import pkgutil
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -6,18 +10,23 @@ from typing import Any
 import pytest
 from helpers import collect, needs_bash, user
 
+import zwans.policy.rules
+import zwans.tools
+from zwans.cli import approval
 from zwans.events import PermissionDenied, PermissionRequested, PermissionResolved, ToolResult
 from zwans.executor.local import LocalExecutor
 from zwans.loop import run_turn
 from zwans.messages import ToolResultBlock, ToolUseBlock
 from zwans.policy.engine import Approval, PermissionRequest, Permissions
 from zwans.policy.rules import (
+    TOOL_NAMES,
     Decision,
     Mode,
     Policy,
     PolicyError,
     PolicyFile,
     Rule,
+    hook_scripts,
     is_trusted,
     load_policy,
     path_glob,
@@ -295,3 +304,304 @@ def test_results_from_files_and_commands_are_marked_untrusted(tmp_path: Path) ->
     assert results["r"].untrusted
     assert not results["e"].untrusted
     assert perms.tainted
+
+
+# -- file rules for Bash, and what "always" offers
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cp .zwans/hooks/log_edit.py .zwans/hooks/no_rm.py",
+        "cp evil.sh .git/hooks/pre-commit",
+        "chmod +x .git/hooks/pre-commit",
+        "mv x .zwans/policy.toml",
+        "rm -rf .git",
+        "rm -rf .zwans",
+        "rm -rf .*",
+        "tee .zwans/policy.toml",
+        "sed -i 's/a/b/' .zwans/policy.toml",
+        "find .git -delete",
+        "bash -c 'echo x' > .git/hooks/pre-commit",
+        "cd .git/hooks && cp evil.sh pre-commit",
+        "cp --target-directory .git/hooks evil.sh",
+        "cp -r t/.git .",
+        "cp -r t/. .",
+        "ln -s .git g",
+        "cp evil.sh .git{,}",
+        "find .git/hooks -name pre-commit -exec cp evil.sh {} \\;",
+        "awk -i inplace 1 .zwans/policy.toml",
+        "git checkout HEAD~1 -- .zwans/policy.toml",
+    ],
+)
+def test_file_commands_into_git_or_zwans_ask_even_in_auto_mode(
+    tmp_path: Path, command: str
+) -> None:
+    perms = permissions(tmp_path, "auto", allow=["Bash"])
+    verdict = perms.check(BashTool(), {"command": command})
+    assert verdict.decision == Decision.ASK
+    assert "built in" in verdict.reason
+    assert verdict.rules == ()  # an allow rule couldn't win over the built-in ask
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm -rf build",
+        "cp a b",
+        "cp x .",
+        "rm -rf *",
+        "find . -name '*.pyc' -delete",
+        "cd src && rm -rf build",
+        "pushd src && make && popd",
+        "find src -name '*.tmp' -exec rm {} +",
+        "cp -r src/ backup/",
+        "git checkout main",
+        "mkdir -p {src,tests}/pkg",
+    ],
+)
+def test_other_file_commands_still_run_in_auto_mode(tmp_path: Path, command: str) -> None:
+    assert decide(permissions(tmp_path, "auto"), BashTool(), command=command) == Decision.ALLOW
+
+
+def test_edit_rules_cover_the_files_commands_write(tmp_path: Path) -> None:
+    perms = permissions(tmp_path, "auto", deny=["Edit(secrets/**)"])
+    assert decide(perms, BashTool(), command="cp x secrets/a") == Decision.DENY
+    assert decide(perms, BashTool(), command="rm -rf secrets") == Decision.DENY
+    assert decide(perms, BashTool(), command=f"touch {tmp_path}/secrets/b") == Decision.DENY
+    assert decide(perms, BashTool(), command="cp secrets.txt x") == Decision.ALLOW
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat .env",
+        "head -c 100 .env",
+        "grep KEY .env",
+        "cat < .env",
+        "cat config/.env",
+        "cat .en*",
+        "git show HEAD:.env",
+        "cp .env notes.txt",
+        "source .env",
+        "cat .{env,x}",
+        "find . -name .env -exec cat {} +",
+    ],
+)
+def test_read_rules_cover_the_files_commands_read(tmp_path: Path, command: str) -> None:
+    perms = permissions(tmp_path, deny=["Read(.env)"])
+    verdict = perms.check(BashTool(), {"command": command})
+    assert verdict.decision == Decision.DENY
+    assert "Read(.env)" in verdict.reason
+
+
+def test_a_deny_rule_wins_over_a_file_rule_that_asks(tmp_path: Path) -> None:
+    perms = permissions(tmp_path, "auto", deny=["Bash(rm -rf *)", "Read(.env)"])
+    assert decide(perms, BashTool(), command="rm -rf .git") == Decision.DENY
+    assert decide(perms, BashTool(), command="cp .env .git/hooks/x") == Decision.DENY
+
+
+def test_read_rules_dont_cover_names_or_other_files(tmp_path: Path) -> None:
+    perms = permissions(tmp_path, deny=["Read(.env)"])
+    assert decide(perms, BashTool(), command="ls -la .env") == Decision.ALLOW
+    assert decide(perms, BashTool(), command="cat app.py && grep -rn x src") == Decision.ALLOW
+
+
+@pytest.mark.parametrize(
+    ("pattern", "path", "folder", "covers"),
+    [
+        (".git/**", ".git", True, True),
+        (".git/**", ".git", False, False),
+        (".git/**", ".*", True, True),
+        (".git/**", "*", True, False),  # a glob doesn't match a leading dot
+        (".git/**", ".", True, False),  # the root holds everything, so it isn't counted
+        ("secrets/", "secrets", True, True),
+        ("secrets/key.txt", "secrets/*", False, True),
+        (".env", ".e*", False, True),
+        (".env", "config/.env", False, True),
+        (".env", "config", True, False),
+        ("src/*.py", "src", True, True),
+        ("src/*.py", "tests", True, False),
+    ],
+)
+def test_may_cover(pattern: str, path: str, folder: bool, covers: bool) -> None:
+    assert Rule("Edit", pattern).may_cover(path, folder=folder) == covers
+
+
+@pytest.mark.parametrize("ignore_case", [True, False])
+def test_path_rules_ignore_case_where_the_file_system_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ignore_case: bool
+) -> None:
+    # macOS and Windows: .GIT/config is .git/config.
+    monkeypatch.setattr(zwans.policy.rules, "IGNORE_CASE", ignore_case)
+    expected = Decision.ASK if ignore_case else Decision.ALLOW
+    perms = permissions(tmp_path, "auto")
+    assert decide(perms, BashTool(), command="cp evil.sh .GIT/hooks/pre-commit") == expected
+    assert decide(perms, WriteTool(), path=".Zwans/policy.toml") == expected
+    assert Rule("Read", ".env").may_cover(".EN*", folder=False) == ignore_case
+
+
+def test_always_for_a_command_doesnt_cover_its_redirections(tmp_path: Path) -> None:
+    perms = permissions(tmp_path)
+    perms.session_rules.append(Rule.parse("Bash(cat)", "this session"))
+    assert decide(perms, BashTool(), command="cat") == Decision.ALLOW
+    verdict = perms.check(BashTool(), {"command": "cat > calc.py <<EOF\nimport os\nEOF"})
+    assert verdict.decision == Decision.ASK
+    assert verdict.reason == "`cat > calc.py <<EOF ...` changes files"
+    assert verdict.rules == ("Bash(cat > calc.py <<EOF\nimport os\nEOF)",)
+    assert decide(perms, BashTool(), command="cat < /etc/passwd > out.txt") == Decision.ASK
+
+
+def test_always_for_a_here_document_covers_only_that_text(tmp_path: Path) -> None:
+    perms = permissions(tmp_path)
+    script = "bash <<'EOF'\necho hi\nEOF"
+    verdict = perms.check(BashTool(), {"command": script})
+    assert verdict.rules == (f"Bash({script})",)
+    perms.session_rules.extend(Rule.parse(rule, "this session") for rule in verdict.rules)
+    assert decide(perms, BashTool(), command=script) == Decision.ALLOW
+    other = "bash <<'EOF'\nrm -rf ~\nEOF"
+    assert decide(perms, BashTool(), command=other) == Decision.ASK
+
+
+def test_a_wildcard_allow_rule_doesnt_reach_outside_the_workspace(tmp_path: Path) -> None:
+    perms = permissions(tmp_path, allow=["Bash(cat *)"])
+    assert decide(perms, BashTool(), command="cat notes.txt") == Decision.ALLOW
+    assert decide(perms, BashTool(), command="cat < ~/.ssh/id_rsa") == Decision.ASK
+    assert decide(perms, BashTool(), command="cat ~/.ssh/id_rsa") == Decision.ASK
+    exact = permissions(tmp_path, allow=["Bash(cat ~/.ssh/id_rsa.pub)"])
+    assert decide(exact, BashTool(), command="cat ~/.ssh/id_rsa.pub") == Decision.ALLOW
+
+
+def test_deny_rules_still_match_when_output_is_redirected(tmp_path: Path) -> None:
+    perms = permissions(tmp_path, "auto", deny=["Bash(rm -rf build)", "Bash(git push *)"])
+    assert decide(perms, BashTool(), command="rm -rf build > log.txt") == Decision.DENY
+    assert decide(perms, BashTool(), command="git -C . push origin main") == Decision.DENY
+
+
+def test_prompts_show_quotes_and_always_matches_what_was_shown(tmp_path: Path) -> None:
+    async def always(request: PermissionRequest) -> Approval:
+        return Approval.ALWAYS
+
+    perms = permissions(tmp_path)
+    perms.approver = always
+    command = "git commit -m 'fix the thing; rm -rf x'"
+    verdict = perms.check(BashTool(), {"command": command})
+    assert verdict.reason == f"`{command}` changes files"
+    assert verdict.rules == (f"Bash({command})",)
+    asyncio.run(perms.ask(PermissionRequest("c1", "Bash", {}, verdict.reason, verdict.rules)))
+    assert decide(perms, BashTool(), command=command) == Decision.ALLOW
+    assert decide(perms, BashTool(), command="git commit -m 'fix the thing'") == Decision.ASK
+
+
+def test_long_commands_are_cut_short_in_the_reason(tmp_path: Path) -> None:
+    verdict = permissions(tmp_path).check(BashTool(), {"command": "touch " + "a" * 200})
+    assert verdict.reason == f"`touch {'a' * 74} ...` changes files"
+
+
+def test_always_isnt_offered_when_untrusted_content_would_overrule_it(tmp_path: Path) -> None:
+    perms = permissions(tmp_path)
+    perms.session_rules.append(Rule.parse("Bash(git push origin main)", "this session"))
+    perms.observe("Read", is_error=False)
+    verdict = perms.check(BashTool(), {"command": "git push origin main"})
+    assert verdict.decision == Decision.ASK
+    assert verdict.rules == ()
+    assert perms.check(BashTool(), {"command": "touch x"}).rules == ("Bash(touch x)",)
+    assert perms.check(BashTool(), {"command": "touch x && curl x"}).rules == ()
+
+
+def test_an_mcp_tool_isnt_offered_always_after_untrusted_content(tmp_path: Path) -> None:
+    class McpTool:
+        name = "mcp__docs__post"
+        read_only = False
+
+    perms = permissions(tmp_path)
+    assert perms.check(McpTool(), {}).rules == ("mcp__docs__post",)
+    perms.observe("Read", is_error=False)
+    assert perms.check(McpTool(), {}).rules == ()
+    assert perms.check(EditTool(), {"path": "a.py"}).rules == ("Edit(a.py)",)
+
+
+# -- policy files
+
+
+def test_a_rule_for_a_misspelled_tool_is_reported(tmp_path: Path) -> None:
+    (tmp_path / "policy.toml").write_text('deny = ["bash(git push *)"]\n')
+    with pytest.raises(PolicyError, match="did you mean Bash"):
+        load_policy(tmp_path / "ws", tmp_path)
+    (tmp_path / "policy.toml").write_text('deny = ["Bsh(git push *)"]\n')
+    with pytest.raises(PolicyError, match="isn't a Zwans tool"):
+        load_policy(tmp_path / "ws", tmp_path)
+    (tmp_path / "policy.toml").write_text('deny = ["mcp__docs__post", "Read(.env)"]\n')
+    load_policy(tmp_path / "ws", tmp_path)
+
+
+def test_an_unknown_key_is_reported_plainly(tmp_path: Path) -> None:
+    (tmp_path / "policy.toml").write_text('alow = ["Bash(ls)"]\n')
+    with pytest.raises(PolicyError) as caught:
+        load_policy(tmp_path / "ws", tmp_path)
+    message = str(caught.value)
+    assert "unknown key `alow` (expected mode, allow, ask, deny, after_untrusted, hooks)" in message
+    assert "pydantic" not in message
+
+
+def test_the_tool_names_list_every_tool() -> None:
+    names: set[str] = set()
+    for module_info in pkgutil.iter_modules(zwans.tools.__path__):
+        module = importlib.import_module(f"zwans.tools.{module_info.name}")
+        for value in vars(module).values():
+            name = getattr(value, "name", None)
+            defined_here = getattr(value, "__module__", None) == module.__name__
+            if isinstance(value, type) and isinstance(name, str) and defined_here:
+                names.add(name)
+    assert "Bash" in names
+    assert names <= TOOL_NAMES
+
+
+def test_trusting_a_policy_covers_the_hook_scripts_it_runs(tmp_path: Path) -> None:
+    home, workspace = tmp_path / "home", tmp_path / "ws"
+    (workspace / ".zwans" / "hooks").mkdir(parents=True)
+    script = workspace / ".zwans" / "hooks" / "no_rm.py"
+    script.write_text("import sys\nsys.exit(0)\n")
+    path = workspace / ".zwans" / "policy.toml"
+    path.write_text('[[hooks]]\nevent = "pre_tool"\ncommand = "python3 .zwans/hooks/no_rm.py"\n')
+    assert hook_scripts(path) == [script.resolve()]
+    trust(path, home)
+    assert is_trusted(path, home)
+    script.write_text("import sys\nsys.exit(0)  # replaced\n")
+    assert not is_trusted(path, home)
+    assert load_policy(workspace, home).untrusted == path
+
+
+def test_trust_without_hook_scripts_is_the_plain_file_hash(tmp_path: Path) -> None:
+    home, workspace = tmp_path / "home", tmp_path / "ws"
+    (workspace / ".zwans").mkdir(parents=True)
+    path = workspace / ".zwans" / "policy.toml"
+    path.write_text('allow = ["Bash(pytest *)"]\n')
+    trust(path, home)  # so files trusted before hook scripts were hashed stay trusted
+    stored = json.loads((home / "trusted-policies.json").read_text())
+    assert stored[str(path.resolve())] == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# -- the terminal
+
+
+def test_the_terminal_offers_always_only_with_rules(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    prompts: list[str] = []
+
+    def answer(text: str) -> str:
+        prompts.append(text)
+        return "a"
+
+    monkeypatch.setattr(approval, "_prompt", answer)
+    command = "cat > notes.txt <<EOF\none\ntwo\nEOF"
+    request = PermissionRequest("c1", "Bash", {"command": command}, "it asks", ())
+    assert asyncio.run(approval.terminal_approver(request)) == Approval.NO
+    assert prompts[-1] == "  Allow it? [y]es / [N]o: "
+    assert "  | one\n  | two\n  | EOF\n" in capsys.readouterr().out
+
+    rules = ("Bash(touch x)",)
+    request = PermissionRequest("c2", "Bash", {"command": "touch x"}, "it asks", rules)
+    assert asyncio.run(approval.terminal_approver(request)) == Approval.ALWAYS
+    assert prompts[-1] == "  Allow it? [y]es / [a]lways (Bash(touch x)) / [N]o: "
