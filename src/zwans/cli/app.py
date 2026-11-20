@@ -194,7 +194,7 @@ def _start(
                 model=model,
                 mode=mode.value if mode else None,
                 approver=terminal_approver if can_prompt() else None,
-                listeners=[Renderer().on_event],
+                listeners=[Renderer(spinner=True).on_event],
                 policy_loader=load_with_trust,
                 fake_script=fake_script,
             )

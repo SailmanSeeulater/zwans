@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from zwans.cli.diffs import show_change
 from zwans.policy.engine import Approval, PermissionRequest
 from zwans.policy.rules import Decision, LoadedPolicy, load_policy, read_policy_file, trust
 from zwans.policy.rules import Mode as PolicyMode
@@ -24,6 +25,7 @@ def can_prompt() -> bool:
 
 async def terminal_approver(request: PermissionRequest) -> Approval:
     typer.secho(f"  ? {request.reason}", fg="yellow")
+    show_change(request.tool, request.args)
     always = ", ".join(request.rules) or request.tool
     answer = _prompt(f"  Allow it? [y]es / [a]lways ({always}) / [N]o: ")
     return ANSWERS.get(answer.strip().lower(), Approval.NO)
@@ -62,6 +64,7 @@ def _prompt(text: str) -> str:
     The event loop's own Ctrl+C handler would only cancel the turn after the next Enter, so
     the default one is put back while waiting for an answer.
     """
+    _discard_typeahead()
     previous = signal.signal(signal.SIGINT, signal.default_int_handler)
     try:
         return input(text)
@@ -70,3 +73,22 @@ def _prompt(text: str) -> str:
         return ""
     finally:
         signal.signal(signal.SIGINT, previous)
+
+
+def _discard_typeahead() -> None:
+    """Drop what was typed while the turn ran, as sudo does, so a stray line can't answer the
+    question (and a stray "y" can't allow a call the user never saw)."""
+    if not sys.stdin.isatty():
+        return
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            while msvcrt.kbhit():
+                msvcrt.getwch()
+        else:
+            import termios
+
+            termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+    except (OSError, ValueError):
+        pass  # not a real terminal after all; nothing to drop

@@ -8,6 +8,7 @@ from anthropic.types.beta import BetaMessage
 from pydantic import BaseModel, Field
 
 from zwans.config import Credential, PromptCache
+from zwans.events import TextDelta
 from zwans.messages import Message, RawBlock, TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.providers.anthropic import (
     CUT_OFF_ATTEMPTS,
@@ -15,6 +16,7 @@ from zwans.providers.anthropic import (
     convert_content,
     describe_api_error,
     message_param,
+    sources_note,
     tool_param,
 )
 from zwans.providers.base import ModelResponse, ProviderError
@@ -260,3 +262,133 @@ def test_a_connection_that_keeps_dropping_becomes_a_provider_error(
 
     with pytest.raises(ProviderError, match="kept dropping"):
         asyncio.run(_collect(provider))
+
+
+class _ScriptedStream:
+    """Stands in for the SDK's message stream: plays the given events, then the message, or
+    raises `error` when entered."""
+
+    def __init__(
+        self, events: list[object], content: list[dict[str, object]], error: Exception | None
+    ) -> None:
+        self.events = iter(events)
+        self.content = content
+        self.error = error
+
+    async def __aenter__(self) -> "_ScriptedStream":
+        if self.error is not None:
+            raise self.error
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    def __aiter__(self) -> "_ScriptedStream":
+        return self
+
+    async def __anext__(self) -> object:
+        try:
+            return next(self.events)
+        except StopIteration:
+            raise StopAsyncIteration from None
+
+    async def get_final_message(self) -> BetaMessage:
+        return BetaMessage.model_validate(
+            {
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-opus-5-5",
+                "content": self.content,
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
+        )
+
+
+def _scripted_provider(
+    events: list[object],
+    content: list[dict[str, object]],
+    error: Exception | None = None,
+    mode: str = "api_key",
+) -> AnthropicProvider:
+    credential = Credential(mode, "key")  # type: ignore[arg-type]
+    provider = AnthropicProvider(credential, "claude-opus-5-5", "low", 1000)
+    messages = SimpleNamespace(stream=lambda **request: _ScriptedStream(events, content, error))
+    provider._client = SimpleNamespace(beta=SimpleNamespace(messages=messages))  # type: ignore[assignment]
+    return provider
+
+
+def _block_start(kind: str) -> object:
+    return SimpleNamespace(type="content_block_start", content_block=SimpleNamespace(type=kind))
+
+
+def _text(text: str) -> object:
+    return SimpleNamespace(type="text", text=text)
+
+
+def test_separate_text_blocks_stream_as_paragraphs() -> None:
+    events = [
+        _block_start("text"),
+        _text("Looking it up."),
+        _block_start("server_tool_use"),
+        _block_start("web_search_tool_result"),
+        _block_start("text"),
+        _text("Found it"),
+        _text(" here."),
+    ]
+    provider = _scripted_provider(events, [{"type": "text", "text": "Looking it up."}])
+
+    items = asyncio.run(_collect(provider))
+
+    texts = [item.text for item in items if isinstance(item, TextDelta)]
+    assert texts == ["Looking it up.", "\n\nFound it", " here."]
+
+
+def test_cited_pages_are_listed_after_the_reply() -> None:
+    citation = {
+        "type": "web_search_result_location",
+        "url": "https://pypi.org/project/httpx/",
+        "title": "httpx · PyPI",
+        "cited_text": "httpx 0.28.1",
+        "encrypted_index": "abc",
+    }
+    content: list[dict[str, object]] = [
+        {"type": "text", "text": "The latest is 0.28.1.", "citations": [citation, citation]},
+        {"type": "text", "text": "No citation here."},
+    ]
+    provider = _scripted_provider([_block_start("text"), _text("The latest is 0.28.1.")], content)
+
+    items = asyncio.run(_collect(provider))
+
+    texts = [item.text for item in items if isinstance(item, TextDelta)]
+    assert texts[-1] == "\n\nSources:\n- httpx · PyPI: https://pypi.org/project/httpx/"
+    assert isinstance(items[-1], ModelResponse)
+    assert items[-1].content == [
+        TextBlock(text="The latest is 0.28.1."),
+        TextBlock(text="No citation here."),
+    ]
+
+
+def test_a_reply_without_citations_lists_no_sources() -> None:
+    assert sources_note([{"type": "text", "text": "Hi.", "citations": None}]) == ""
+
+
+def _authentication_error() -> anthropic.AuthenticationError:
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx2.Response(401, request=request)
+    body = {"type": "error", "error": {"type": "authentication_error", "message": "invalid"}}
+    return anthropic.AuthenticationError("Error code: 401", response=response, body=body)
+
+
+@pytest.mark.parametrize(
+    ("mode", "variable"),
+    [("api_key", "ANTHROPIC_API_KEY"), ("subscription", "CLAUDE_CODE_OAUTH_TOKEN")],
+)
+def test_a_rejected_credential_names_the_variable_in_use(mode: str, variable: str) -> None:
+    provider = _scripted_provider([], [], error=_authentication_error(), mode=mode)
+
+    with pytest.raises(ProviderError) as raised:
+        asyncio.run(_collect(provider))
+
+    assert str(raised.value) == f"Claude rejected {variable}. Check its value."

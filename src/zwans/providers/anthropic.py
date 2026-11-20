@@ -102,9 +102,15 @@ class AnthropicProvider:
                 sent = {k: v for k, v in request.items() if v is not anthropic.omit}
                 self.last_request = without_image_data(sent)
                 async with self._client.beta.messages.stream(**request) as stream:
+                    said = False  # some text has been streamed in this reply
+                    new_block = False  # a text block began after it
                     async for event in stream:
-                        if event.type == "text":
-                            yield TextDelta(text=event.text)
+                        if event.type == "content_block_start":
+                            new_block = said and event.content_block.type == "text"
+                        elif event.type == "text" and event.text:
+                            # Separate text blocks (as around a web search) are paragraphs.
+                            yield TextDelta(text=f"\n\n{event.text}" if new_block else event.text)
+                            said, new_block = True, False
                         elif event.type == "thinking" and event.thinking:
                             yield ThinkingDelta(text=event.thinking)
                     message = await stream.get_final_message()
@@ -115,10 +121,8 @@ class AnthropicProvider:
                     continue
                 raise ProviderError("The model kept sending tool input that isn't JSON.") from exc
             except anthropic.AuthenticationError as exc:
-                raise ProviderError(
-                    "Claude rejected the credential. Check ANTHROPIC_API_KEY, or "
-                    "CLAUDE_CODE_OAUTH_TOKEN when auth is 'subscription'."
-                ) from exc
+                variable = "CLAUDE_CODE_OAUTH_TOKEN" if self.plan_token else "ANTHROPIC_API_KEY"
+                raise ProviderError(f"Claude rejected {variable}. Check its value.") from exc
             except anthropic.APIStatusError as exc:
                 plan_token = OAUTH_BETA in self.betas
                 raise ProviderError(describe_api_error(exc, plan_token)) from exc
@@ -134,7 +138,11 @@ class AnthropicProvider:
                 raise ProviderError(
                     f"The connection to the Claude API kept dropping mid-reply ({exc!r})."
                 ) from exc
-            yield to_response(message)
+            response = to_response(message)
+            note = sources_note([block.to_dict(mode="json") for block in message.content])
+            if note:
+                yield TextDelta(text=note)
+            yield response
             return
 
     def request(
@@ -240,6 +248,23 @@ def to_response(message: BetaMessage) -> ModelResponse:
         cache_write_tokens=usage.cache_creation_input_tokens or 0,
         web_searches=usage.server_tool_use.web_search_requests if usage.server_tool_use else 0,
     )
+
+
+def sources_note(blocks: list[dict[str, Any]]) -> str:
+    """The web pages the reply's text cites, as a list to show after it. It's only shown,
+    never added to the conversation, which keeps just the reply's text."""
+    sources: dict[str, str] = {}  # address: title, in the order first cited
+    for block in blocks:
+        if block.get("type") != "text":
+            continue
+        for citation in block.get("citations") or []:
+            url = citation.get("url")
+            if isinstance(url, str) and url and url not in sources:
+                sources[url] = str(citation.get("title") or url)
+    if not sources:
+        return ""
+    lines = [f"- {title}: {url}" if title != url else f"- {url}" for url, title in sources.items()]
+    return "\n\nSources:\n" + "\n".join(lines)
 
 
 def convert_content(blocks: list[dict[str, Any]]) -> list[TextBlock | ToolUseBlock | RawBlock]:

@@ -9,6 +9,7 @@ dependencies = [
     "httpx>=0.27",  # the MCP client's HTTP transport
     "prompt-toolkit>=3.0",  # the chat's input line
     "pydantic>=2.10",
+    "rich>=13.7",  # the chat's markdown
     "typer>=0.15",
     "uvicorn>=0.30",
     "websockets>=13",  # the server's WebSockets, and zwans attach

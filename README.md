@@ -64,6 +64,12 @@ python examples/run_demo.py                  # the same demo with the real model
 Ctrl+C stops the running turn and keeps the conversation. After each turn Zwans prints its
 cost, the context size, and how much input came from the prompt cache.
 
+In a terminal, the model's answers are shown as markdown (headings, lists, tables, code), a
+block at a time, and a status line under the output says what's running and for how long.
+Each tool call gets one line, with its result under it: an Edit or Write shows its diff, a
+command shows the last few lines of its output and its exit code, and a search or fetch
+shows what it found. Piped to a file, the output is plain text.
+
 In the chat, Enter sends and Esc then Enter (or Ctrl+J) starts a new line; pasted text keeps
 its lines. Up and Down go through earlier messages, kept in `~/.zwans/history`. Ctrl+C clears
 what you've typed, and Ctrl+D quits. A line under the prompt shows the model, the mode, the
@@ -104,8 +110,10 @@ refused call goes back to the model as an error that says why.
 | `ask` (default) | The same | File changes and every other command |
 | `auto` | Also edits, and commands that change files or run code (`pytest`, `make`, `git commit`) | Commands that use the network (`curl`, `pip install`, `git push`) or that Zwans can't classify |
 
-At a prompt, `y` allows the call once, `a` allows that exact call for the rest of the
-session, and anything else (or Ctrl+C) declines. When no one is at a terminal, as with
+The question shows what the call would do: an Edit's old and new lines, a Write's new
+contents, or the whole of a long command. At a prompt, `y` allows the call once, `a` allows
+that exact call for the rest of the session, and anything else (or Ctrl+C) declines. Text
+typed while the turn was running is dropped first, so it can't answer by accident. When no one is at a terminal, as with
 `zwans run` in a script, a call that needs asking is refused.
 
 Bash commands are split into the simple commands they run before they're judged, so
@@ -262,6 +270,8 @@ documentation or an error message. The Claude API runs both on Anthropic's serve
   untrusted, so later changes are checked as after untrusted content;
 - a search costs $0.01 on top of tokens, which the cost shown includes; a fetch costs only
   the tokens of the page, at most 25,000.
+
+When an answer cites pages it found, Zwans lists them under it as Sources.
 
 Set `web = false` to turn them off.
 
