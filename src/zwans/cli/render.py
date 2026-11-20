@@ -13,6 +13,7 @@ from rich.markdown import Heading, Markdown, MarkdownElement
 from rich.theme import Theme
 
 from zwans.cli.diffs import show_diff
+from zwans.cli.terminal_text import printable
 from zwans.events import (
     ContextCompacted,
     Error,
@@ -134,7 +135,7 @@ class Renderer:
             status = str(todo.get("status", "pending"))
             mark = TODO_MARKS.get(status, "○")
             text = f"  {mark} {_first_line(str(todo.get('content', '')))}"
-            typer.secho(text, dim=status == "completed", bold=status == "in_progress")
+            typer.secho(printable(text), dim=status == "completed", bold=status == "in_progress")
 
     def _subagent(self, task: str, event: Event) -> None:
         """A subagent's calls, one line each and indented; its text stays out of the way."""
@@ -157,6 +158,7 @@ class Renderer:
         if style != self._style:
             self._finish_line()
             self._style = style
+        text = printable(text)  # the model's text may carry escape codes from what it read
         if style == "text" and self._markdown:
             self._pending += text
             self._flush_markdown(final=False)
@@ -166,7 +168,7 @@ class Renderer:
 
     def _line(self, text: str, **style: Any) -> None:
         self._finish_line()
-        typer.secho(text, **style)
+        typer.secho(printable(text), **style)
         self._style = None
         self._last_call = None
 
@@ -254,7 +256,8 @@ class Renderer:
         if activity != self._activity:
             self._activity, self._since = activity, time.monotonic()
         seconds = int(time.monotonic() - self._since)
-        typer.secho(f"{CLEAR_LINE}{mark} {activity}… {seconds}s", nl=False, dim=True)
+        line = f"{mark} {printable(activity)}… {seconds}s"
+        typer.secho(f"{CLEAR_LINE}{line}", nl=False, dim=True)
         self._status_shown = True
 
     def _current_activity(self) -> str:
@@ -269,9 +272,13 @@ class Renderer:
 
 
 class _LeftHeading(Heading):
-    """Rich centres top-level headings; in a chat they read better on the left like the rest."""
+    """Rich centres top-level headings; in a chat they read better on the left like the rest.
+    An older rich without LEVEL_ALIGN keeps its own layout, rather than failing on import."""
 
-    LEVEL_ALIGN: ClassVar[dict[str, JustifyMethod]] = {**Heading.LEVEL_ALIGN, "h1": "left"}
+    LEVEL_ALIGN: ClassVar[dict[str, JustifyMethod]] = {
+        **getattr(Heading, "LEVEL_ALIGN", {}),
+        "h1": "left",
+    }
 
 
 class _Markdown(Markdown):

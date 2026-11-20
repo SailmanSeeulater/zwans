@@ -252,3 +252,21 @@ def test_an_interruption_wipes_the_echoed_ctrl_c(
 
     assert out.startswith(CLEAR_LINE)
     assert click.unstyle(out) == "\r[stopped: interrupted]\n"
+
+
+def test_escape_codes_from_the_model_or_a_command_are_shown_as_text(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    out = shown(
+        capsys,
+        call("1", "Bash", command="cat notes.txt\x1b[2K\x1b[1Gls"),
+        ToolResult(call_id="1", content="\x1b[31mred\x1b[0m\nhidden\x1b[8m\n(exit code 0)"),
+        TextDelta(text="All done.\x1b[1A\x1b[2K"),
+        TurnEnded(stop_reason="end_turn"),
+        markdown=True,
+    )
+
+    assert "\x1b" not in out
+    assert "> Bash cat notes.txt\\x1b[2K\\x1b[1Gls" in out
+    assert "  red\n  hidden\n  (exit code 0)\n" in out  # colours dropped, so nothing is concealed
+    assert "All done.\\x1b[1A\\x1b[2K" in out

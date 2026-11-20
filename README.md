@@ -111,10 +111,11 @@ refused call goes back to the model as an error that says why.
 | `auto` | Also edits, and commands that change files or run code (`pytest`, `make`, `git commit`) | Commands that use the network (`curl`, `pip install`, `git push`) or that Zwans can't classify |
 
 The question shows what the call would do: an Edit's old and new lines, a Write's new
-contents, or the whole of a long command. At a prompt, `y` allows the call once, `a` allows
-that exact call for the rest of the session, and anything else (or Ctrl+C) declines. Text
-typed while the turn was running is dropped first, so it can't answer by accident. When no one is at a terminal, as with
-`zwans run` in a script, a call that needs asking is refused.
+contents, or the whole of a long command. Escape codes in them are shown as text (such as
+`\x1b`), so they can't hide part of the change. At a prompt, `y` allows the call once, `a`
+allows that exact call for the rest of the session, and anything else (or Ctrl+C) declines.
+Text typed while the turn was running is dropped first, so it can't answer by accident. When
+no one is at a terminal, as with `zwans run` in a script, a call that needs asking is refused.
 
 Bash commands are split into the simple commands they run before they're judged, so
 `ls && rm -rf build` is a read and a delete, and `echo $(curl x)` contains a network call.

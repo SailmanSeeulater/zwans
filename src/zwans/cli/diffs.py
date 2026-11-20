@@ -6,6 +6,8 @@ from typing import Any
 
 import typer
 
+from zwans.cli.terminal_text import printable
+
 MAX_LINES = 40  # longer changes are cut, with a note of how much is left out
 INDENT = "    "
 
@@ -33,7 +35,7 @@ def show_change(tool: str, args: dict[str, Any]) -> None:
         # The call line shows only the start of a long or multi-line command.
         if len(lines) > 1 or len(command) > 100:
             for line in lines[:MAX_LINES]:
-                typer.secho(f"{INDENT}{line}", dim=True)
+                typer.secho(f"{INDENT}{printable(line)}", dim=True)
             if len(lines) > MAX_LINES:
                 typer.secho(f"{INDENT}... {_count(len(lines) - MAX_LINES, 'more line')}", dim=True)
 
@@ -61,7 +63,7 @@ def edit_lines(args: dict[str, Any]) -> list[str]:
 
 def _show(lines: list[str], limit: int) -> None:
     for line in lines[:limit]:
-        typer.secho(f"{INDENT}{line}", **_style(line))
+        typer.secho(f"{INDENT}{printable(line)}", **_style(line))
     if len(lines) > limit:
         typer.secho(f"{INDENT}... {_count(len(lines) - limit, 'more line')}", dim=True)
 

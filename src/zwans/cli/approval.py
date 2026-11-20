@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 
 from zwans.cli.diffs import show_change
+from zwans.cli.terminal_text import printable
 from zwans.policy.engine import Approval, PermissionRequest
 from zwans.policy.rules import Decision, LoadedPolicy, load_policy, read_policy_file, trust
 from zwans.policy.rules import Mode as PolicyMode
@@ -24,9 +25,9 @@ def can_prompt() -> bool:
 
 
 async def terminal_approver(request: PermissionRequest) -> Approval:
-    typer.secho(f"  ? {request.reason}", fg="yellow")
+    typer.secho(f"  ? {printable(request.reason)}", fg="yellow")
     show_change(request.tool, request.args)
-    always = ", ".join(request.rules) or request.tool
+    always = printable(", ".join(request.rules) or request.tool)
     answer = _prompt(f"  Allow it? [y]es / [a]lways ({always}) / [N]o: ")
     return ANSWERS.get(answer.strip().lower(), Approval.NO)
 
@@ -49,8 +50,8 @@ def load_with_trust(workspace: Path, home: Path, mode: PolicyMode | None) -> Loa
                 loosening.append(f"{name} allowed after untrusted content")
     loosening.extend(f"run the {hook.event} hook `{hook.command}`" for hook in file.hooks)
     typer.secho(f"{path} came with this workspace and would:", fg="yellow")
-    for item in loosening:
-        typer.secho(f"  {item}", fg="yellow")
+    for item in loosening:  # from a file that came with the workspace, so possibly hostile
+        typer.secho(f"  {printable(item)}", fg="yellow")
     if can_prompt() and _prompt("Trust this file? [y/N]: ").strip().lower() in ("y", "yes"):
         trust(path, home)
         return load_policy(workspace, home, mode)
