@@ -120,14 +120,17 @@ def open_session(
     repaired = False
     followed: list[Path] = []
     if resume is not None:
-        found = store.get(resume)
-        if not Path(found.workspace).is_dir():  # checked first, so nothing is rewound
-            store.close()
-            raise SessionError(
-                f"Session {found.id} worked in {found.workspace}, which no longer exists. "
-                "Move the folder back to resume it."
-            )
-        info, messages, repaired = load_session(store, found.id, rewind)
+        try:
+            found = store.get(resume)
+            if not Path(found.workspace).is_dir():  # checked first, so nothing is rewound
+                raise SessionError(
+                    f"Session {found.id} worked in {found.workspace}, which no longer exists. "
+                    "Move the folder back to resume it."
+                )
+            info, messages, repaired = load_session(store, found.id, rewind)
+        except SessionError:
+            store.close()  # the server carries on after a failed resume
+            raise
         if model and model != info.model:
             store.set_model(info.id, model)  # --model switches it, as /model does
             info.model = model

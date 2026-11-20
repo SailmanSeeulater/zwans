@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from zwans.events import (
     Error,
+    Event,
     ModelCalled,
     TextDelta,
     ToolCallRequested,
@@ -223,11 +224,18 @@ def test_ctrl_c_mid_reply_keeps_what_the_model_had_written(ctx: ToolContext) -> 
     provider.set_model("claude-opus-5-5")
     meter = CostMeter()
     session = Session(provider, [], ctx, "S", listeners=[meter.on_event])
+    deltas: list[TextDelta] = []
 
     async def press_ctrl_c_mid_reply() -> None:
         turn = asyncio.create_task(session.send("Write a story"))
-        await asyncio.sleep(0.4)  # 0.15s to the first word, then 3 words every 0.01s
-        turn.cancel()
+
+        def cancel_after_ten_pieces(event: Event) -> None:
+            if isinstance(event, TextDelta):
+                deltas.append(event)
+                if len(deltas) == 10:  # counted, not timed, so a slow machine can't flake
+                    turn.cancel()
+
+        session.listeners.append(cancel_after_ten_pieces)
         with pytest.raises(asyncio.CancelledError):
             await turn
 
@@ -239,8 +247,9 @@ def test_ctrl_c_mid_reply_keeps_what_the_model_had_written(ctx: ToolContext) -> 
     assert isinstance(block, TextBlock)
     written, note = block.text.split("\n\n")
     assert note == CUT_OFF
-    assert story.startswith(written) and len(written) < len(story)
-    assert meter.output_tokens == len(written) // 4
+    streamed = "".join(delta.text for delta in deltas)
+    assert written == streamed and len(written) < len(story)
+    assert meter.output_tokens == len(streamed) // 4
     assert meter.session_dollars > 0
 
 

@@ -37,6 +37,18 @@ Workspace = Annotated[
         "--workspace", "-w", exists=True, file_okay=False, help="Folder the agent works in."
     ),
 ]
+# None when not given, so --resume can tell a -w for another folder from the default
+SessionWorkspace = Annotated[
+    Path | None,
+    typer.Option(
+        "--workspace",
+        "-w",
+        exists=True,
+        file_okay=False,
+        help="Folder the agent works in: this one unless given. A resumed session keeps its own.",
+        show_default=False,
+    ),
+]
 Model = Annotated[str | None, typer.Option(help="Model to use instead of the configured one.")]
 Resume = Annotated[
     str | None,
@@ -87,7 +99,7 @@ def main(
             "--version", callback=_show_version, is_eager=True, help="Show the version and exit."
         ),
     ] = False,
-    workspace: Workspace = Path("."),
+    workspace: SessionWorkspace = None,
     model: Model = None,
     resume: Resume = None,
     rewind: Rewind = None,
@@ -102,7 +114,7 @@ def main(
 @app.command()
 def run(
     task: Annotated[str, typer.Argument(help="What the agent should do.")],
-    workspace: Workspace = Path("."),
+    workspace: SessionWorkspace = None,
     model: Model = None,
     resume: Resume = None,
     rewind: Rewind = None,
@@ -116,6 +128,7 @@ def run(
 @app.command()
 def sessions(limit: Annotated[int, typer.Option(min=1, help="How many to list.")] = 20) -> None:
     """List saved sessions, most recent first."""
+    _tolerate_unprintable_text()  # titles and shortened folders can hold any character
     try:
         config, _ = load_settings()
     except ConfigError as exc:
@@ -186,7 +199,7 @@ def attach(
 
 def _start(
     task: str | None,
-    workspace: Path,
+    given_workspace: Path | None,
     model: str | None,
     resume: str | None,
     rewind: int | None,
@@ -205,6 +218,9 @@ def _start(
     # /clear, /resume and /undo close the session and open another, so this can go round again.
     draft = ""
     files_kept = rewind is not None  # --rewind leaves the files; /rewind and /undo don't
+    workspace = given_workspace or Path(".")
+    # A resumed session keeps its own folder, so a -w given with --resume is ignored.
+    ignored = given_workspace.resolve() if resume and given_workspace else None
     while True:
         try:
             opened = open_session(
@@ -223,6 +239,13 @@ def _start(
         except (ConfigError, SessionError, PolicyError) as exc:
             typer.secho(str(exc), fg="red", err=True)
             return 2
+        if ignored is not None and ignored != Path(opened.info.workspace):
+            typer.secho(
+                f"Session {opened.id} works in {opened.info.workspace}, so -w {ignored} "
+                "is ignored.",
+                fg="yellow",
+                err=True,
+            )
         scripted = fake_script is not None
         outcome = _run_session(opened, task, scripted, draft, files_kept)
         if not isinstance(outcome, Reopen):
@@ -232,7 +255,7 @@ def _start(
         # A new session, or this one again, keeps the current model; another saved session
         # opens with its own.
         model = opened.model if resume in (None, opened.id) else None
-        files_kept = False
+        files_kept, ignored = False, None
 
 
 def _run_session(

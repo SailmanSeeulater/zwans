@@ -67,7 +67,8 @@ and how much input came from the prompt cache.
 
 A session is saved as soon as you send something, and one you close without sending anything
 isn't kept. `zwans sessions` shows each one's turns, cost, folder and first message. A session
-keeps its model, whether chosen with `--model` or `/model`. A turn that fails before the model
+keeps its model, whether chosen with `--model` or `/model`, and its folder: `--resume` says so
+when `-w` names another one, and works in the session's folder. A turn that fails before the model
 answers, such as on an API error, is taken back, and in the chat your message goes back into
 the input to send again. `--rewind` only drops turns from the conversation and leaves the
 files as they are; `/rewind` and `/undo` in the chat put the files back too.

@@ -7,6 +7,7 @@ from zwans import __version__
 from zwans.cli.app import app
 from zwans.messages import TextBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse
+from zwans.store import SessionStore
 
 
 def test_version() -> None:
@@ -198,3 +199,63 @@ def test_a_bad_setting_is_reported_without_a_traceback(tmp_path: Path) -> None:
 
     assert result.exit_code == 2
     assert "ZWANS_AUTH: Input should be 'api_key' or 'subscription'" in result.output
+
+
+def test_a_turn_that_fails_before_any_reply_leaves_no_session(tmp_path: Path) -> None:
+    env = {"ZWANS_HOME": str(tmp_path / "home")}
+    runner = CliRunner()
+    script = _script(tmp_path / "script.json")  # an empty script fails like an API error
+
+    failed = runner.invoke(
+        app, ["run", "Hi", "-w", str(tmp_path), "--fake-script", str(script)], env=env
+    )
+    listing = runner.invoke(app, ["sessions"], env=env)
+
+    assert failed.exit_code == 1
+    assert "ran out of scripted responses" in failed.output
+    assert "[stopped: error]" not in failed.output  # the error line has said why
+    assert "To continue it" not in failed.output
+    assert listing.output.strip() == "No saved sessions yet."
+
+
+def test_resume_says_it_ignores_another_workspace(tmp_path: Path) -> None:
+    workspace, other = tmp_path / "work", tmp_path / "other"
+    workspace.mkdir()
+    other.mkdir()
+    env = {"ZWANS_HOME": str(tmp_path / "home")}
+    runner = CliRunner()
+    script = _script(tmp_path / "script.json", "Hi.")
+    args = ["--fake-script", str(script)]
+    runner.invoke(app, ["run", "Hi", "-w", str(workspace), *args], env=env)
+    session_id = runner.invoke(app, ["sessions"], env=env).output.split()[0]
+
+    elsewhere = runner.invoke(
+        app, ["run", "Again", "--resume", session_id, "-w", str(other), *args], env=env
+    )
+    same = runner.invoke(
+        app, ["run", "Again", "--resume", session_id, "-w", str(workspace), *args], env=env
+    )
+
+    assert elsewhere.exit_code == 0, elsewhere.output
+    assert f"works in {workspace.resolve()}, so -w {other.resolve()} is ignored." in (
+        elsewhere.output
+    )
+    assert same.exit_code == 0, same.output
+    assert "is ignored" not in same.output
+
+
+def test_switching_to_another_session_in_the_chat_keeps_its_model(tmp_path: Path) -> None:
+    env = {"ZWANS_HOME": str(tmp_path / "home")}
+    runner = CliRunner()
+    script = _script(tmp_path / "script.json", "Hi.")
+    args = ["-w", str(tmp_path), "--fake-script", str(script)]
+    runner.invoke(app, ["run", "Hi", "--model", "claude-haiku-4-5", *args], env=env)
+    session_id = runner.invoke(app, ["sessions"], env=env).output.split()[0]
+
+    chat = runner.invoke(app, args, env=env, input=f"Hello\n/resume {session_id}\n")
+
+    assert chat.exit_code == 0, chat.output
+    assert f"Resumed {session_id}" in chat.output
+    store = SessionStore(tmp_path / "home" / "sessions.db")
+    assert store.get(session_id).model == "claude-haiku-4-5"
+    store.close()
