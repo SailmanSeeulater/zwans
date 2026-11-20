@@ -41,13 +41,22 @@ PREVIEW_CHARS = 2_000  # of each tool call and result, in what the summarizer re
 class Compactor:
     def __init__(self, provider: Provider, threshold: int, keep_messages: int = 8) -> None:
         self.provider = provider  # could be a cheaper model than the main loop's
-        self.threshold = threshold
+        self.configured = threshold  # compact_at
         self.keep_messages = keep_messages
         self._counted_tokens = 0  # what the API counted for the last request, plus its reply
         self._counted_messages = 0  # how many messages that count covers
         # The system prompt and tool definitions, guessed by the session: they go with every
         # request, but nothing has counted them yet in a session just opened.
         self.overhead = 0
+
+    @property
+    def threshold(self) -> int:
+        """compact_at, or less for a model whose context the config says is smaller: compact
+        at 80% of it, leaving room for the reply and the summary request."""
+        window = getattr(self.provider, "context_window", None)
+        if isinstance(window, int) and window > 0:
+            return min(self.configured, window * 4 // 5)
+        return self.configured
 
     def observe(self, response: ModelResponse, message_count: int) -> None:
         """Record the API's token count for the request that just finished."""

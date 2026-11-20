@@ -1,6 +1,7 @@
 """Slash commands in the chat: things for Zwans itself rather than for the model."""
 
 import shlex
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import typer
@@ -8,9 +9,11 @@ import typer
 from zwans.checkpoints import Change, CheckpointError
 from zwans.cli.input import MENTIONED, Command
 from zwans.cli.terminal_text import printable
+from zwans.config import Config, ConfigError
 from zwans.events import ContextCompacted
-from zwans.pricing import PRICES, price_of
 from zwans.providers.base import ProviderError
+from zwans.providers.catalog import CLAUDE_MODELS, PRESETS, canonical, is_known, list_all, split
+from zwans.providers.router import ModelRouter
 from zwans.runtime import OpenedSession
 from zwans.session import Session
 from zwans.store import SessionError
@@ -21,7 +24,12 @@ COMMANDS = [
     Command("undo", "Undo the last turn: its file changes and its messages"),
     Command("rewind", "List the turns, or go back to before one", "[turn]"),
     Command("compact", "Summarize the older messages now, to free up context"),
-    Command("model", "Show the model, or switch to another", "[name]", choices=tuple(PRICES)),
+    Command(
+        "model",
+        "Show the model, or switch to another",
+        "[name]",
+        choices=(*CLAUDE_MODELS, *(f"{name}/" for name in PRESETS)),
+    ),
     Command("cost", "What this session has cost, and how full its context is"),
     Command("resume", "List recent sessions here, or switch to one", "[number or id]"),
     Command("exit", "Quit"),
@@ -82,7 +90,7 @@ class Commands:
             case "compact":
                 await self._compact()
             case "model":
-                self._model(argument)
+                await self._model(argument)
             case "cost":
                 self._cost()
             case "resume":
@@ -170,18 +178,30 @@ class Commands:
         if not any(isinstance(event, ContextCompacted) for event in events):
             _say("The model wrote no summary, so nothing was compacted.", fg="yellow")
 
-    def _model(self, name: str) -> None:
+    async def _model(self, name: str) -> None:
         current = self.opened.model
+        router = self.opened.session.provider
         if not name:
-            _say(f"Model: {current}. /model <name> switches to one of these:")
-            for known in PRICES:
-                typer.echo(f"  {known}{'  (current)' if known == current else ''}")
+            _say(f"Model: {current}. /model <name> switches to another, such as:")
+            if isinstance(router, ModelRouter):
+                await _print_models(router.config, router.env, current)
+            else:
+                for known in CLAUDE_MODELS:
+                    typer.echo(f"  {known}{'  (current)' if known == current else ''}")
             return
-        switch = getattr(self.opened.session.provider, "set_model", None)
+        switch = getattr(router, "set_model", None)
         if switch is None:
             _say("This session's provider can't switch models.", fg="yellow")
             return
-        if price_of(name) is None:
+        name = canonical(name)
+        if split(name)[0] is None:
+            _say(
+                f"{name} doesn't say where it runs. Name other models as <provider>/<model>, "
+                f"as ollama/{name}; /model lists what's available.",
+                fg="yellow",
+            )
+            return
+        if not is_known(name):
             # A typo would only show up as an API error on the next turn, and stay saved.
             _say(f"Zwans doesn't know {name}. /model lists the models it knows.", fg="yellow")
             model = shlex.quote(name)
@@ -191,17 +211,32 @@ class Commands:
             else:
                 _say(f"To use it anyway: zwans --resume {self.opened.id} --model {model}")
             return
-        switch(name)
-        self.opened.model = name
-        self.opened.store.set_model(self.opened.id, name)
-        _say(f"Switched to {name}. Its first reply reads the whole conversation without the cache.")
+        try:
+            switch(name)
+        except ConfigError as exc:
+            _say(str(exc), fg="yellow")
+            return
+        if not isinstance(router, ModelRouter):  # a scripted provider, in tests
+            self.opened.model = name
+            self.opened.store.set_model(self.opened.id, name)
+            _say(f"Switched to {name}.")
+            return
+        self.opened.model = router.model
+        self.opened.store.set_model(self.opened.id, router.model)
+        note = "Its first reply reads the whole conversation without the cache."
+        if router.resolved.provider != "anthropic":
+            note = (
+                "Its first reply reads the whole conversation. Claude's web search isn't "
+                "offered to it."
+            )
+        _say(f"Switched to {router.model}. {note}")
 
     def _cost(self) -> None:
         opened = self.opened
         _say(f"Session: {opened.meter.summary()}")
         _say(
             f"Context: about {opened.session.context_tokens():,} tokens, compacting at "
-            f"{opened.config.compact_at:,}"
+            f"{opened.session.compact_at(opened.config.compact_at):,}"
         )
 
     def _resume(self, argument: str) -> Outcome:
@@ -279,3 +314,15 @@ def _was(items: list[str]) -> str:
 
 def _say(text: str, **style: object) -> None:
     typer.secho(text, dim=not style, **style)  # type: ignore[arg-type]
+
+
+async def _print_models(config: Config, env: Mapping[str, str], current: str) -> None:
+    """What each provider offers, as `zwans models` shows it, marking the current model."""
+    for listing in await list_all(config, env):
+        if not listing.models and listing.local and listing.note == "not running":
+            continue  # a local server that isn't installed or started: noise here
+        about = f"  ({listing.note})" if listing.note else ""
+        typer.secho(f"  {listing.provider}: {listing.about}{about}", dim=not listing.ready)
+        for model in listing.models:
+            typer.echo(f"    {model}{'  (current)' if model == current else ''}")
+    _say("Other providers' models: <provider>/<model>. `zwans models` lists them all.")

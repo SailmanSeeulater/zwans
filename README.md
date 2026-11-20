@@ -78,6 +78,63 @@ Older models (`claude-fable-5-1`, `claude-opus-5`, `claude-opus-4-8`, `claude-ha
 work too. Cache reads cost far less than fresh input, so a long session costs less per turn
 than these prices suggest. `effort` (`low` to `max`) trades thinking for speed and cost.
 
+### Other models: local, open-source, rented
+
+Zwans also runs any model behind an OpenAI-compatible API, which covers servers on your own
+machine, hosted open models, rented GPUs and other labs' APIs. Name such a model
+`<provider>/<model ID>`, using the model ID the server itself uses:
+
+```bash
+zwans models                                   # every provider, and what's ready
+zwans models openrouter                        # one provider's whole list
+zwans --model ollama/qwen3-coder:30b           # a model on this machine, free
+zwans --model openrouter/qwen/qwen3-coder      # a hosted open model
+```
+
+In a session, `/model ollama/qwen2.5-coder:7b` switches to it, and `/model claude-opus-5-5`
+switches back; the conversation carries over both ways. In the web UI, the model name in a
+session's header opens a menu that does the same.
+
+| Provider | Where | Key |
+|---|---|---|
+| `ollama` | Ollama on this machine (`localhost:11434`) | none |
+| `lmstudio` | LM Studio's server (`localhost:1234`) | none |
+| `llamacpp` | llama.cpp's `llama-server` (`localhost:8080`) | none |
+| `vllm` | vLLM (`localhost:8000`) | `VLLM_API_KEY`, if it was started with one |
+| `openrouter` | OpenRouter: hundreds of models, one key | `OPENROUTER_API_KEY` |
+| `together`, `fireworks`, `groq`, `deepinfra` | Hosted open models | `TOGETHER_API_KEY`, `FIREWORKS_API_KEY`, `GROQ_API_KEY`, `DEEPINFRA_API_KEY` |
+| `deepseek`, `mistral`, `openai`, `gemini`, `xai` | Those labs' own APIs | `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `XAI_API_KEY` |
+
+Keys go where `ANTHROPIC_API_KEY` does: the environment, a `.env` file in the folder, or
+`~/.zwans/.env`. A server of your own, such as vLLM on a rented RunPod or Vast.ai GPU, is a
+table in the config. Its models are then `runpod/<model ID>`:
+
+```toml
+[providers.runpod]
+base_url = "https://<pod-id>-8000.proxy.runpod.net/v1"
+api_key_env = "RUNPOD_VLLM_KEY"          # the variable holding its key
+models = ["Qwen/Qwen3-Coder-30B-A3B-Instruct"]   # offered by /model and the web UI
+context_window = 65536                   # compact before filling it
+prices = { "Qwen/Qwen3-Coder-30B-A3B-Instruct" = [0.20, 0.80] }   # $/M input, output
+```
+
+The same settings change a built-in provider, as `[providers.ollama]` with
+`context_window = 65536` after raising Ollama's own `OLLAMA_CONTEXT_LENGTH`. Ollama
+defaults to a 32K context here, past which it silently drops the start of the conversation,
+so Zwans compacts at 80% of `context_window`. Models on this machine cost nothing; a hosted
+model's cost shows once `prices` gives it. `max_tokens` caps a reply (left to the server
+otherwise), and `reasoning_effort = true` sends `effort` along (on for `openai`).
+
+Things to know:
+
+- Pick models trained for tool calling: Qwen3-Coder, Qwen 2.5 Coder, Devstral, GPT-OSS,
+  Llama 3.3, DeepSeek V3. A model whose server doesn't support tools writes calls as text
+  instead of making them. Small local models get through simple edits but slip on longer
+  tasks. Running the evals with `ZWANS_MODEL=ollama/<model>` measures one against Claude.
+- Web search and fetch run on Claude's servers, so other models don't get them.
+- Images reach a model only if it takes them (a vision model such as Qwen2.5-VL or Gemma 3).
+- A model's thinking shows as progress notes when its server streams it.
+
 Ctrl+C stops the running turn and keeps the conversation, including what the model had
 written so far, marked as cut off. After each turn Zwans prints its cost, the context size,
 and how much input came from the prompt cache.
@@ -527,7 +584,7 @@ environment variables:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `model` | `claude-opus-5-5` | Model to call |
+| `model` | `claude-opus-5-5` | Model to call: a Claude model, or `<provider>/<model>` |
 | `auth` | `api_key` | `api_key` or `subscription` |
 | `effort` | `medium` | How much the model thinks: `low` to `max` |
 | `max_tokens` | `64000` | Output limit per model call, thinking included |
@@ -544,6 +601,7 @@ environment variables:
 | `executor` | `local` | Where commands run: `local`, `docker`, or `jail` (Linux) |
 | `home` | `~/.zwans` | Where transcripts, saved sessions, saved tool output, and the policy file go |
 | `mcp_servers` | none | MCP servers, by name; see above |
+| `providers` | built-in ones | OpenAI-compatible servers for other models, by name; see "Other models" |
 
 A setting that isn't valid, or a file `ZWANS_CONFIG` names that doesn't exist, stops Zwans
 with a message naming the file or variable to fix.

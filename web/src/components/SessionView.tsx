@@ -26,6 +26,7 @@ import { buildTurns, waitingCalls, type RawEvent } from "@/lib/events";
 import { currentTodos } from "@/lib/todos";
 import { AskBar, Conversation, type Answer } from "./Conversation";
 import { Inspector, isTab, type InspectorTab } from "./inspector/Inspector";
+import { ModelPicker } from "./ModelPicker";
 import { TodoList } from "./TodoList";
 import { UnderTheHood } from "./UnderTheHood";
 import { TokenMissing, useHasToken } from "./useApi";
@@ -243,6 +244,18 @@ export function SessionView() {
                 {status.workspace.split("/").filter(Boolean).at(-1)}
               </span>
               <span className="pill pill-quiet">{MODES[status.mode] ?? status.mode}</span>
+              {!status.demo && (
+                <ModelPicker
+                  sessionId={id}
+                  model={status.model}
+                  disabled={running || connection !== "open"}
+                  onSwitched={(next) => {
+                    setStatus(next);
+                    setNotice(`Switched to ${next.model}. The next message goes to it.`);
+                  }}
+                  onError={setNotice}
+                />
+              )}
               {status.demo && <span className="pill">Demo</span>}
             </>
           )}

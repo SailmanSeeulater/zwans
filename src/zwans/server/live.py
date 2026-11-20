@@ -17,10 +17,12 @@ from typing import Any
 
 from zwans import demo as zwans_demo
 from zwans.checkpoints import Change, CheckpointError
-from zwans.config import Config
+from zwans.config import Config, ConfigError
 from zwans.events import Error, Event
 from zwans.messages import ImageBlock
 from zwans.policy.engine import Approval, PermissionRequest
+from zwans.providers.catalog import canonical
+from zwans.providers.router import ModelRouter
 from zwans.runtime import OpenedSession, ProviderFactory, open_session
 from zwans.store import SessionStore
 
@@ -84,7 +86,7 @@ class LiveSession:
             "waiting_for": sorted(self.pending),  # permission questions nobody has answered
             "warnings": self.warnings,
             "demo": self.demo,
-            "compact_at": opened.config.compact_at,
+            "compact_at": opened.session.compact_at(opened.config.compact_at),
         }
 
     def _first_prompt(self) -> str:
@@ -107,6 +109,19 @@ class LiveSession:
         if self.running:
             raise Busy("A turn is already running. Wait for it, or interrupt it.")
         self.turn = asyncio.create_task(self._run(text, images or []))
+        self._broadcast(self.status())
+
+    def set_model(self, name: str) -> None:
+        """Switch the model for the next turns. Raises Busy, or ConfigError when the model
+        can't be used (no such provider, or no key for it)."""
+        if self.running:
+            raise Busy("Wait for the turn to end before switching models.")
+        router = self.opened.session.provider
+        if not isinstance(router, ModelRouter):
+            raise ConfigError("This session's model can't be switched.")
+        router.set_model(canonical(name))
+        self.opened.model = router.model
+        self.opened.store.set_model(self.opened.id, router.model)
         self._broadcast(self.status())
 
     async def undoable_turns(self) -> list[dict[str, Any]]:

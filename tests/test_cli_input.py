@@ -104,7 +104,8 @@ def test_commands_and_paths_complete(workspace: Path) -> None:
     assert complete("fix @src/m", workspace) == ["@src/main.py"]
     assert complete("fix @.e", workspace) == ["@.env"]
     assert complete("fix @../", workspace) == []
-    assert complete("/model x", workspace) == []
+    assert complete("/model zz", workspace) == []
+    assert complete("/model oll", workspace) == ["ollama/"]
     assert complete("/model claude-so", workspace) == ["claude-sonnet-5-5"]
     assert complete("/etc/hosts @src/m", workspace) == ["@src/main.py"]
 

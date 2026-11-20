@@ -441,16 +441,16 @@ def test_a_chat_undone_to_before_its_first_turn_is_kept(tmp_path: Path) -> None:
 def test_model_and_clear_in_an_empty_chat_dont_name_the_session_that_goes(
     tmp_path: Path,
 ) -> None:
-    empty = _chat(tmp_path, "/model my-custom-model\n/clear\nexit\n")
-    used = _chat(tmp_path, "Say hi\n/model my-custom-model\nexit\n")
+    empty = _chat(tmp_path, "/model claude-custom-9\n/clear\nexit\n")
+    used = _chat(tmp_path, "Say hi\n/model claude-custom-9\nexit\n")
 
     assert empty.exit_code == 0, empty.output
     workspace = (tmp_path / "work").resolve()
-    assert f"start a new session: zwans -w {workspace} --model my-custom-model" in empty.output
+    assert f"start a new session: zwans -w {workspace} --model claude-custom-9" in empty.output
     assert "--resume" not in empty.output and "Left " not in empty.output
     assert used.exit_code == 0, used.output
     session_id = used.output.split("To continue it: zwans --resume ")[1].split()[0]
-    assert f"To use it anyway: zwans --resume {session_id} --model my-custom-model" in used.output
+    assert f"To use it anyway: zwans --resume {session_id} --model claude-custom-9" in used.output
 
 
 class _FakeComposer:

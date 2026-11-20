@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from zwans.checkpoints import Checkpoints
-from zwans.config import Config, load_credential
+from zwans.config import Config, ConfigError
 from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
 from zwans.events import Event, ModelCalled, Rewound
@@ -23,11 +23,12 @@ from zwans.mcp.tools import McpServers, McpTool
 from zwans.messages import Message
 from zwans.policy.engine import Approver, Permissions
 from zwans.policy.rules import LoadedPolicy, Mode, load_policy
-from zwans.pricing import CostMeter, price_of
+from zwans.pricing import CostMeter
 from zwans.prompt import system_prompt
-from zwans.providers.anthropic import AnthropicProvider
 from zwans.providers.base import Provider
+from zwans.providers.catalog import canonical, is_known
 from zwans.providers.fake import FakeProvider
+from zwans.providers.router import ModelRouter
 from zwans.session import Session
 from zwans.store import SessionError, SessionInfo, SessionRecorder, SessionStore, load_session
 from zwans.tools.base import Tool, ToolContext
@@ -117,6 +118,7 @@ def open_session(
 ) -> OpenedSession:
     """A new session in `workspace`, or the saved one `resume` names. Raises ConfigError
     (JailError among them), SessionError or PolicyError. Call `start()` before the first turn."""
+    model = canonical(model) if model else None
     store = SessionStore(config.home / "sessions.db")
     messages: list[Message] = []
     repaired = False
@@ -138,7 +140,7 @@ def open_session(
         except SessionError:
             store.close()  # the server carries on after a failed resume
             raise
-        if model and model != info.model and price_of(model) is not None:
+        if model and model != info.model and is_known(model):
             store.set_model(info.id, model)  # --model switches it, as /model does
             info.model = model
         elif model and model != info.model:
@@ -172,10 +174,11 @@ def open_session(
     elif fake_script is not None:
         provider = FakeProvider.from_file(fake_script)
     else:
-        credential = load_credential(config, env)
-        provider = AnthropicProvider(
-            credential, model, config.effort, config.max_tokens, config.prompt_cache, config.web
-        )
+        try:
+            provider = ModelRouter(config, env, model)  # checks the model's provider and key
+        except ConfigError:
+            store.close()
+            raise
     if resume is None:
         store.create(info)  # only once the credential is known to be there
 

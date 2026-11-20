@@ -167,6 +167,19 @@ export interface RewindResult {
   draft: string;
 }
 
+/** What one provider offers: GET /api/models. */
+export interface ModelListing {
+  provider: string;
+  about: string;
+  /** Full names, as the session takes them. */
+  models: string[];
+  /** Whether its models can be used now, as far as the server can tell. */
+  ready: boolean;
+  /** Why it isn't ready, or how to see more. */
+  note: string;
+  local: boolean;
+}
+
 /** An image to send with a prompt: base64 data, checked again by the server. */
 export interface PromptImage {
   name: string;

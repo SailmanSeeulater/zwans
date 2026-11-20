@@ -54,6 +54,10 @@ class Session:
         """About how many tokens the next request will send."""
         return self.compactor.estimate(self.messages) if self.compactor else 0
 
+    def compact_at(self, configured: int) -> int:
+        """Where compaction starts: `configured` (compact_at), or less for a smaller model."""
+        return self.compactor.threshold if self.compactor else configured
+
     def _measure_overhead(self) -> None:
         """Tell the compactor what the system prompt and tool definitions add to each request,
         for its estimates before the API has counted one, as in a session just resumed."""

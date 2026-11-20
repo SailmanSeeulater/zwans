@@ -33,12 +33,21 @@ PRICES: dict[str, Price] = {
 }
 
 
+# Other models' prices, from the config, by full name ("together/<model>"); and providers
+# whose models run on this machine, which cost nothing. Filled in by providers/catalog.py.
+EXTRA_PRICES: dict[str, Price] = {}
+FREE_PROVIDERS: set[str] = set()
+FREE = Price(input=0, output=0, cache_write=0, cache_read=0)
+
 DATED_ID = re.compile(r"-\d{8}$")
 
 
 def price_of(model: str) -> Price | None:
     # Older models answer with a dated ID, such as claude-haiku-4-5-20251001.
-    return PRICES.get(model) or PRICES.get(DATED_ID.sub("", model))
+    found = PRICES.get(model) or PRICES.get(DATED_ID.sub("", model)) or EXTRA_PRICES.get(model)
+    if found is None and model.partition("/")[0] in FREE_PROVIDERS:
+        return FREE
+    return found
 
 
 def cost(usage: UsageUpdated) -> float | None:

@@ -61,6 +61,23 @@ class McpServerConfig(BaseModel):
         return self
 
 
+class ProviderConfig(BaseModel):
+    """A server with an OpenAI-compatible API, for models other than Claude; see
+    providers/catalog.py. Its models are named "<provider>/<model>", as "ollama/qwen3:8b"."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str | None = None  # as "http://localhost:11434/v1"; known for the built-in ones
+    api_key_env: str | None = None  # the environment variable that holds its key, if it needs one
+    headers: dict[str, str] = {}
+    models: list[str] = []  # offered by /model and the web UI, besides what the server lists
+    context_window: int | None = Field(default=None, gt=0)  # compacts before filling it
+    max_tokens: int | None = Field(default=None, gt=0)  # per reply; left to the server if unset
+    reasoning_effort: bool | None = None  # send `effort` as reasoning_effort
+    # Dollars per million input and output tokens, by model ID, to show what a session costs
+    prices: dict[str, tuple[float, float]] = {}
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -83,6 +100,7 @@ class Config(BaseModel):
     executor: Literal["local", "docker", "jail"] = "local"
     home: Path = ZWANS_HOME  # transcripts, saved sessions, and saved tool output live here
     mcp_servers: dict[str, McpServerConfig] = {}  # tools from MCP servers, by server name
+    providers: dict[str, ProviderConfig] = {}  # OpenAI-compatible servers, by name
 
 
 @dataclass(frozen=True)

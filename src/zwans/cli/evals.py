@@ -29,9 +29,10 @@ from zwans.eval.runner import (
 from zwans.eval.task import Task, TaskError, load_suite
 from zwans.executor.docker import DockerError, ensure_sandbox_network
 from zwans.executor.jail import find_jail
-from zwans.providers.anthropic import AnthropicProvider
 from zwans.providers.base import Provider
+from zwans.providers.catalog import resolve
 from zwans.providers.fake import FakeProvider
+from zwans.providers.router import ModelRouter
 
 eval_app = typer.Typer(no_args_is_help=True, help="Run eval tasks and report the results.")
 
@@ -250,19 +251,12 @@ def _provider_factory(
 
         return fake
 
-    credential = load_credential(config, env)  # checked once, before any attempt starts
+    resolve(config.model, config, env)  # checks the model and its key once, before any attempt
 
-    def anthropic(task: Task, config: Config) -> Provider:
-        return AnthropicProvider(
-            credential,
-            config.model,
-            config.effort,
-            config.max_tokens,
-            config.prompt_cache,
-            config.web,
-        )
+    def real(task: Task, config: Config) -> Provider:
+        return ModelRouter(config, env, config.model)
 
-    return anthropic
+    return real
 
 
 def _print_attempt(result: AttemptResult) -> None:

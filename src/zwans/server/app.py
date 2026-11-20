@@ -21,6 +21,7 @@ import asyncio
 import base64
 import binascii
 import contextlib
+import dataclasses
 import json
 import secrets
 from collections.abc import AsyncIterator
@@ -45,6 +46,7 @@ from zwans.executor.docker import DockerError
 from zwans.images import ImageError, image_block
 from zwans.messages import ImageBlock
 from zwans.policy.rules import Mode, PolicyError
+from zwans.providers.catalog import list_all
 from zwans.server import evals
 from zwans.server.live import Busy, HubSettings, LiveSession, Message, RewindError, SessionHub
 from zwans.store import SessionError, SessionStore
@@ -74,6 +76,10 @@ class NewSession(BaseModel):
     mode: Mode | None = None
     model: str | None = None
     demo: bool = False  # the scripted replay in a copy of the demo project; ignores the rest
+
+
+class ChooseModel(BaseModel):
+    name: str
 
 
 class RewindTo(BaseModel):
@@ -176,6 +182,28 @@ def create_app(settings: ServerSettings) -> FastAPI:
         provider = _live(hub, session_id).opened.session.provider
         request = getattr(provider, "last_request", None)
         return {"request": json.loads(json.dumps(request, default=str)) if request else None}
+
+    @api.post("/sessions/{session_id}/model")
+    def set_model(session_id: str, body: ChooseModel) -> Message:
+        """Switch the session's model, for its next turns."""
+        live = _live(hub, session_id)
+        try:
+            live.set_model(body.name)
+        except Busy as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        except ConfigError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        return live.status()
+
+    @api.get("/models")
+    async def models(provider: str | None = None) -> dict[str, Any]:
+        """The models each provider offers. Local servers are asked what they have; remote
+        ones only when `provider` names them."""
+        try:
+            listings = await list_all(settings.config, settings.env, only=provider)
+        except ConfigError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        return {"providers": [dataclasses.asdict(listing) for listing in listings]}
 
     @api.get("/sessions/{session_id}/turns")
     async def undoable_turns(session_id: str) -> dict[str, Any]:

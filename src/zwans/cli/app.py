@@ -30,6 +30,7 @@ from zwans.executor.shutdown import SessionRunner
 from zwans.messages import TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.policy import PolicyError
 from zwans.policy.engine import Approval, PermissionRequest
+from zwans.providers.catalog import list_all
 from zwans.runtime import OpenedSession, open_session
 from zwans.store import SessionError, SessionStore
 
@@ -157,6 +158,40 @@ def sessions(limit: Annotated[int, typer.Option(min=1, help="How many to list.")
         line = f"{info.id}  {when}  {turns}  ${dollars:7.4f}  {folder:<{WORKSPACE_WIDTH}}"
         # A title is the start of a prompt, which may have come from the web UI or a script.
         typer.echo(f"{line}  {printable(info.title)}".rstrip())
+
+
+@app.command()
+def models(
+    provider: Annotated[
+        str | None,
+        typer.Argument(help="Only this provider, asking it for its whole list (as openrouter)."),
+    ] = None,
+) -> None:
+    """List the models Zwans can use, by where they run."""
+    try:
+        config, env = load_settings()
+        listings = asyncio.run(
+            list_all(config, env, only=provider, timeout=5.0 if provider else 2.0)
+        )
+    except ConfigError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(2) from exc
+    for listing in listings:
+        state = (
+            typer.style("ready", fg="green")
+            if listing.ready
+            else typer.style("not ready", dim=True)
+        )
+        note = f" ({listing.note})" if listing.note else ""
+        typer.echo(f"{typer.style(listing.provider, bold=True)}: {listing.about}, {state}{note}")
+        for name in listing.models:
+            typer.echo(f"  {name}")
+    if provider is None:
+        typer.secho(
+            '\nUse one with --model, /model, or model = "..." in the config. Other providers\' '
+            "models are <provider>/<model ID>; add your own under [providers.<name>].",
+            dim=True,
+        )
 
 
 def _short_path(path: str, width: int) -> str:
