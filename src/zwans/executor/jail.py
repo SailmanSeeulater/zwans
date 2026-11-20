@@ -71,6 +71,9 @@ class JailExecutor(LocalExecutor):
     def shell_argv(self, command: str) -> list[str]:
         return ["bash", "-c", command]
 
+    def search_path(self, path: str) -> str:
+        return self.relative(path)  # saved tool output isn't inside the jail
+
     def spec(self, argv: Sequence[str]) -> dict[str, Any]:
         env = command_env()
         env.update({"HOME": "/tmp", "TMPDIR": "/tmp"})  # the real home isn't there
@@ -83,7 +86,9 @@ class JailExecutor(LocalExecutor):
             "max_processes": self.max_processes,
         }
 
-    async def _spawn(self, argv: Sequence[str]) -> asyncio.subprocess.Process:
+    async def _spawn(
+        self, argv: Sequence[str], background: bool = False
+    ) -> asyncio.subprocess.Process:
         process = await asyncio.create_subprocess_exec(
             self.jail,
             cwd=self.root,

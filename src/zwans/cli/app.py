@@ -19,6 +19,7 @@ from zwans.cli.render import Renderer
 from zwans.cli.serve import read_server_file, serve
 from zwans.config import ConfigError, load_settings
 from zwans.executor.docker import DockerError
+from zwans.executor.shutdown import SessionRunner
 from zwans.policy import PolicyError
 from zwans.runtime import OpenedSession, open_session
 from zwans.store import SessionError, SessionStore
@@ -213,7 +214,8 @@ def _run_session(
 ) -> int | Reopen:
     _banner(opened, scripted)
     # One event loop for the whole session, so the API client's connections stay usable.
-    with asyncio.Runner() as runner:
+    # SIGTERM and SIGHUP (the terminal closing) still close the session, stopping its jobs.
+    with SessionRunner() as runner:
         try:
             tools, problems = runner.run(opened.start())
         except DockerError as exc:
@@ -235,7 +237,7 @@ def _run_session(
                 outcome = _run_once(opened, runner, task)
             return outcome
         finally:
-            runner.run(opened.close())
+            runner.run_cleanup(opened.close())
             if not isinstance(outcome, Reopen):  # only when leaving Zwans, not switching
                 typer.secho(f"\nSession cost: {opened.meter.summary()}", dim=True)
                 typer.secho(f"To continue it: zwans --resume {opened.id}", dim=True)

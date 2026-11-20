@@ -17,7 +17,9 @@ class BashInput(BaseModel):
     run_in_background: bool = Field(
         default=False,
         description="Start it and return at once, leaving it running: for dev servers, "
-        "watchers and long builds. Read its output with BashOutput; timeout doesn't apply.",
+        "watchers and long builds. Read its output with BashOutput; timeout doesn't apply. "
+        "Jobs, and anything they started, are stopped when the session ends, so don't tell "
+        "the user a server will keep running afterwards.",
     )
 
 
@@ -28,7 +30,8 @@ class BashTool:
         "and stderr together) and exit code. Each call starts a new shell, so cd and variables "
         "don't carry over. Long output is shortened in the middle. For files, use Read, Edit, "
         "Write, Glob and Grep instead of cat, sed, find and grep. For a command that keeps "
-        "running, such as a dev server, set run_in_background instead of appending &."
+        "running, such as a dev server, set run_in_background instead of appending &: "
+        "anything a command leaves running is stopped when it exits."
     )
     input_model = BashInput
     read_only = False
@@ -92,10 +95,15 @@ class KillBashTool:
     async def run(self, args: KillBashInput, ctx: ToolContext) -> ToolOutput:
         jobs = _jobs(ctx)
         job = _job(jobs, args.job_id)
-        if not job.running:
-            return ToolOutput(content=f"{job.id} had already {job.status()}.")
+        if job.stopped:
+            return ToolOutput(content=f"{job.id} was already stopped.")
+        code = job.process.returncode
         await jobs.kill(job)
-        return ToolOutput(content=f"Stopped {job.id}.")
+        if code is None:
+            return ToolOutput(content=f"Stopped {job.id}.")
+        return ToolOutput(
+            content=f"{job.id} had exited with code {code}; stopped anything it left running."
+        )
 
 
 def _jobs(ctx: ToolContext) -> BackgroundJobs:
