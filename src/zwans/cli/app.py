@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from prompt_toolkit.input import Input, create_input
+from prompt_toolkit.input.typeahead import get_typeahead
 
 from zwans import __version__
 from zwans.cli.approval import can_prompt, load_with_trust, terminal_approver
@@ -241,7 +243,7 @@ def _start(
                 rewind=rewind,
                 model=model,
                 mode=mode.value if mode else None,
-                approver=_approve_with_echo if can_prompt() else None,
+                approver=EchoingApprover() if can_prompt() else None,
                 listeners=[Renderer(spinner=True).on_event],
                 policy_loader=load_with_trust,
                 fake_script=fake_script,
@@ -275,10 +277,20 @@ def _start(
         files_kept, ignored = False, None
 
 
-async def _approve_with_echo(request: PermissionRequest) -> Approval:
-    """Ask in the terminal, with typing shown again: the chat hides it while a turn runs."""
-    with echoing():
-        return await terminal_approver(request)
+class EchoingApprover:
+    """Asks in the terminal, with typing shown again: the chat hides it while a turn runs."""
+
+    def __init__(self) -> None:
+        # The chat's composer, holding what was typed ahead during the turn. That was typed
+        # before the question, perhaps meant as its answer, so it mustn't be sent to the model
+        # afterwards, where a stray "y" would answer whatever the model last asked.
+        self.composer: Composer | None = None
+
+    async def __call__(self, request: PermissionRequest) -> Approval:
+        if self.composer is not None and self.composer.drop_typed_ahead():
+            typer.secho("  What you typed before this question was dropped.", dim=True)
+        with echoing():
+            return await terminal_approver(request)
 
 
 def _run_session(
@@ -334,7 +346,8 @@ def _report_leaving(opened: OpenedSession, outcome: int | Reopen) -> None:
         typer.secho(f"\nSession cost: {opened.meter.summary()}", dim=True)
         if not opened.empty:  # an empty session isn't kept
             typer.secho(f"To continue it: zwans --resume {opened.id}", dim=True)
-    elif outcome.resume != opened.id:  # switching to another, so say what this one cost
+    elif outcome.resume != opened.id and not opened.empty:
+        # Switching to another, so say what this one cost. An empty one is gone, and cost nothing.
         typer.secho(f"Left {opened.id}, which cost {opened.meter.summary()}.", dim=True)
 
 
@@ -405,10 +418,19 @@ def _chat(
     workspace = Path(opened.info.workspace)
     commands = Commands(opened)
     composer: Composer | None = None
+    keys: Input | None = None  # the composer's, whose typed-ahead keys may need dropping
     if can_prompt():
+        keys = create_input()
         composer = Composer(
-            COMMANDS, workspace, opened.config.home / "history", status=lambda: _status(opened)
+            COMMANDS,
+            workspace,
+            opened.config.home / "history",
+            status=lambda: _status(opened),
+            input=keys,
         )
+        approver = opened.session.permissions.approver if opened.session.permissions else None
+        if isinstance(approver, EchoingApprover):
+            approver.composer = composer
         if hint:
             typer.secho(
                 "Type a task, or /help. Ctrl+C stops a running turn; Ctrl+D quits.", dim=True
@@ -450,9 +472,14 @@ def _chat(
                 runner.run(opened.session.send(mentions.text, mentions.images))
         except KeyboardInterrupt:
             typer.secho("Interrupted. The conversation is kept, so carry on.", fg="yellow")
-        if opened.session.turn == turns and composer is not None:
+        failed = opened.session.turn == turns
+        if failed and composer is not None:
             draft = line  # it failed before the model answered, so it wasn't kept
             typer.secho("Your message is back in the input, to send again.", dim=True)
+        # Lines typed ahead were meant to follow this message, so they'd go without it, or
+        # merge with it back in the input.
+        if keys is not None and failed and get_typeahead(keys):  # which takes them out
+            typer.secho("What you typed during the turn was dropped, as it failed.", dim=True)
         if opened.checkpoints and opened.checkpoints.problem != checkpoint_problem:
             typer.secho(str(opened.checkpoints.problem), fg="yellow")
         _print_turn(opened)

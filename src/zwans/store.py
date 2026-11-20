@@ -98,9 +98,11 @@ class SessionStore:
 
     def recent(self, limit: int = 20) -> list[SessionInfo]:
         """The latest sessions with something in them. Empty ones, which older versions left
-        behind whenever Zwans was opened and closed again, are left out."""
+        behind whenever Zwans was opened and closed again, are left out. One rewound to before
+        its first turn has no messages, but its title says it had turns, and it's listed."""
         rows = self._db.execute(
-            f"{SELECT} WHERE EXISTS (SELECT 1 FROM messages WHERE session_id = sessions.id)"
+            f"{SELECT} WHERE sessions.title != ''"
+            " OR EXISTS (SELECT 1 FROM messages WHERE session_id = sessions.id)"
             " ORDER BY updated_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
@@ -204,13 +206,18 @@ class SessionRecorder:
         self.session = session
         self.meter = meter
         self.title = title
+        # Whether this recorder gave the title. One it was given came from a turn that ran,
+        # even if a rewind has since dropped it, and it's what keeps such a session.
+        self._titled = False
         self._saved = saved  # how many of session.messages are already in the database
 
     def on_event(self, event: Event) -> None:
         if isinstance(event, TurnStarted) and not self.title:
             self.title = title_of(event.prompt)
-        if isinstance(event, TurnEnded) and not self.session.messages:
+            self._titled = True
+        if isinstance(event, TurnEnded) and not self.session.messages and self._titled:
             self.title = ""  # the only turn failed and was taken back
+            self._titled = False
         self.save(rewritten=isinstance(event, ContextCompacted))
         # Saved as the turn starts and after each model call, not only as it ends, so a turn
         # that Zwans was killed in the middle of still counts, and so does what it cost.

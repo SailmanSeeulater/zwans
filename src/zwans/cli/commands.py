@@ -1,5 +1,6 @@
 """Slash commands in the chat: things for Zwans itself rather than for the model."""
 
+import shlex
 from dataclasses import dataclass
 
 import typer
@@ -184,7 +185,12 @@ class Commands:
         if price_of(name) is None:
             # A typo would only show up as an API error on the next turn, and stay saved.
             _say(f"Zwans doesn't know {name}. /model lists the models it knows.", fg="yellow")
-            _say(f"To use it anyway: zwans --resume {self.opened.id} --model {name}")
+            model = shlex.quote(name)
+            if self.opened.empty:  # deleted on quitting, so there'd be nothing to resume
+                workspace = shlex.quote(self.opened.info.workspace)
+                _say(f"To use it anyway, start a new session: zwans -w {workspace} --model {model}")
+            else:
+                _say(f"To use it anyway: zwans --resume {self.opened.id} --model {model}")
             return
         switch(name)
         self.opened.model = name

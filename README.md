@@ -66,14 +66,16 @@ written so far, marked as cut off. After each turn Zwans prints its cost, the co
 and how much input came from the prompt cache.
 
 A session is saved as soon as you send something, and one you close without sending anything
-isn't kept. `zwans sessions` shows each one's turns, cost, folder and first message. A session
-keeps its model, whether chosen with `--model` or `/model`, and its folder: `--resume` says so
+isn't kept; one you've undone or rewound to before its first turn is, with what it cost.
+`zwans sessions` shows each one's turns, cost, folder and first message. A session keeps its
+model, whether chosen with `--model` or `/model`, and its folder: `--resume` says so
 when `-w` names another one, and works in the session's folder. A model Zwans doesn't know,
 given with `--resume <id> --model <name>`, is kept only once it has answered, so a typo doesn't
 stick to the session. A turn that fails before the model
 answers, such as on an API error, is taken back, and in the chat your message goes back into
-the input to send again. `--rewind` only drops turns from the conversation and leaves the
-files as they are; `/rewind` and `/undo` in the chat put the files back too.
+the input to send again; anything you typed ahead after it is dropped, so it isn't sent
+without it. `--rewind` only drops turns from the conversation and leaves the files as they
+are; `/rewind` and `/undo` in the chat put the files back too.
 
 In a terminal, the model's answers are shown as markdown (headings, lists, tables, code), a
 block at a time, and a status line under the output says what's running and for how long.
@@ -87,9 +89,10 @@ what you've typed, and Ctrl+D quits. A line under the prompt shows the model, th
 context size and the session's cost so far, then key hints; in a narrow terminal the hints go
 first, then the end of the status, so the line never wraps. What you type while a turn runs isn't shown; it
 waits for the prompt, and each line of it is then sent as its own message, while a paste goes
-as one. Ctrl+C drops it along with the turn. When Zwans asks you to approve a tool call,
-only what you type after the question answers it. Resuming a session in the chat shows its
-last three turns again.
+as one. Ctrl+C drops it along with the turn. A question to approve a tool call drops what
+was typed before it, as it may have been meant as the answer: only what you type after the
+question answers it, and the earlier text isn't sent to the model afterwards either. Resuming
+a session in the chat shows its last three turns again.
 
 Write `@path` to send a file's text along with the message, or a folder's listing, so the
 model doesn't spend a step reading it; Tab completes the path. Files over 100,000 characters
@@ -106,7 +109,7 @@ file instead of refusing it. Images can be up to 3.75 MB, and each costs about 1
 | `/undo` | Undoes the last turn: puts the files back and drops it from the conversation |
 | `/rewind [turn]` | Lists the turns and the files each changed, or goes back to before one |
 | `/compact` | Summarizes the older messages now, to free up context |
-| `/model [name]` | Lists the models Zwans knows, or switches to one for the rest of the session (Tab completes the name; for any other model, use `zwans --resume <id> --model <name>`) |
+| `/model [name]` | Lists the models Zwans knows, or switches to one for the rest of the session (Tab completes the name; for any other model, use `zwans --resume <id> --model <name>`, or `zwans --model <name>` for a new session) |
 | `/cost` | What the session has cost, and how full its context is |
 | `/resume [n]` | Lists recent sessions in this workspace, or switches to one |
 | `/exit` | Quits |
@@ -145,8 +148,10 @@ offered when the command's text doesn't show what it runs, so no rule could say:
 by `$(...)` or a variable, a script piped to a shell or interpreter (`... | bash`), read from
 `<(...)` or `/dev/stdin`, a program named by `$(...)`, a command `env -C` runs in another
 folder, or a path that leads out of the workspace through a symbolic link. Text typed
-while the turn was running is dropped first, so it can't answer by accident. When no one is at
-a terminal, as with `zwans run` in a script, a call that needs asking is refused.
+while the turn was running is dropped first, so it can't answer by accident; in the chat, it
+isn't sent as the next message either. SIGTERM or the terminal closing while a question waits
+stops the turn at once and closes the session. When no one is at a terminal, as with
+`zwans run` in a script, a call that needs asking is refused.
 
 Bash commands are split into the simple commands they run before they're judged, so
 `ls && rm -rf build` is a read and a delete, and `echo $(curl x)` contains a network call.

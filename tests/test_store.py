@@ -282,6 +282,23 @@ def test_an_empty_session_is_deleted_when_it_closes(tmp_path: Path) -> None:
         store.get(unused.id)
 
 
+def test_a_session_rewound_to_before_its_first_turn_stays_listed_and_kept(
+    tmp_path: Path,
+) -> None:
+    first = open_fake(tmp_path, tmp_path, ["Hi."])
+    asyncio.run(first.session.send("Hi"))
+    asyncio.run(first.close())
+    rewound = open_fake(tmp_path, tmp_path, [], resume=first.id, rewind=0)
+    asyncio.run(rewound.session.send("Again"))  # fails, as on an API error, and is taken back
+    asyncio.run(rewound.close())
+    again = open_fake(tmp_path, tmp_path, [], resume=first.id)  # and left again unused
+    asyncio.run(again.close())
+
+    store = SessionStore(tmp_path / "home" / "sessions.db")
+    assert [(info.id, info.turns, info.title) for info in store.recent()] == [(first.id, 0, "Hi")]
+    store.close()
+
+
 def test_the_model_chosen_for_a_session_is_saved_with_it(tmp_path: Path) -> None:
     first = open_fake(tmp_path, tmp_path, ["Hi."], model="claude-haiku-4-5")
     asyncio.run(first.session.send("Hi"))

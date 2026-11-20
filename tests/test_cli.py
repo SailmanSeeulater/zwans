@@ -1,19 +1,27 @@
+import asyncio
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
 import pytest
+from prompt_toolkit.input import Input, create_pipe_input
+from prompt_toolkit.input.typeahead import get_typeahead, store_typeahead
+from prompt_toolkit.key_binding.key_processor import KeyPress
 from typer.testing import CliRunner, Result
 
 import zwans.cli.app as cli_app
 from zwans import __version__
-from zwans.cli.app import _replay, app
+from zwans.cli.app import EchoingApprover, _replay, app
 from zwans.cli.attach import AttachError
 from zwans.cli.commands import Commands, Reopen
+from zwans.config import Config
 from zwans.messages import Message, TextBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse
-from zwans.runtime import OpenedSession
+from zwans.providers.fake import FakeProvider
+from zwans.runtime import OpenedSession, open_session
 from zwans.store import SessionStore
 
 
@@ -414,3 +422,154 @@ def test_attach_shows_the_servers_status_and_errors_as_text(
     assert "MCP server skipped: bad\\x1b]0;x\\x07\n" in shown.output
     assert refused.exit_code == 2
     assert "starts with 'x\\x1b[2K'." in refused.output
+
+
+def test_a_chat_undone_to_before_its_first_turn_is_kept(tmp_path: Path) -> None:
+    undone = _chat(tmp_path, "Say hi\n/undo\nexit\n")
+    session_id = undone.output.split("zwans --resume ")[1].split()[0]
+    resumed = _chat(tmp_path, "exit\n", "--resume", session_id)  # and left again unused
+
+    assert undone.exit_code == 0, undone.output
+    assert resumed.exit_code == 0, resumed.output
+    assert "To continue it" in resumed.output
+    store = SessionStore(tmp_path / "home" / "sessions.db")
+    kept = store.get(session_id)  # with what its turns cost
+    store.close()
+    assert kept.turns == 0 and kept.title == "Say hi" and "dollars" in kept.usage
+
+
+def test_model_and_clear_in_an_empty_chat_dont_name_the_session_that_goes(
+    tmp_path: Path,
+) -> None:
+    empty = _chat(tmp_path, "/model my-custom-model\n/clear\nexit\n")
+    used = _chat(tmp_path, "Say hi\n/model my-custom-model\nexit\n")
+
+    assert empty.exit_code == 0, empty.output
+    workspace = (tmp_path / "work").resolve()
+    assert f"start a new session: zwans -w {workspace} --model my-custom-model" in empty.output
+    assert "--resume" not in empty.output and "Left " not in empty.output
+    assert used.exit_code == 0, used.output
+    session_id = used.output.split("To continue it: zwans --resume ")[1].split()[0]
+    assert f"To use it anyway: zwans --resume {session_id} --model my-custom-model" in used.output
+
+
+class _FakeComposer:
+    """Stands in for the chat's composer: reads scripted lines, and in each turn has `ahead`
+    typed ahead from its start, and `later` once a question has been asked, for the next
+    prompt, as typing while a turn runs does."""
+
+    def __init__(self, lines: list[str], ahead: str, later: str, input: Input) -> None:
+        self.lines = lines
+        self.ahead = ahead
+        self.later = later
+        self.input = input
+        self.drafts: list[str] = []
+        self.typed: list[str] | None = None
+
+    async def read(self, draft: str = "") -> str:
+        self.drafts.append(draft)
+        if not self.lines:
+            raise EOFError
+        return self.lines.pop(0)
+
+    @contextmanager
+    def typing_ahead(self, loop: asyncio.AbstractEventLoop) -> Iterator[None]:
+        self.typed = list(self.ahead)
+        yield
+        store_typeahead(self.input, [KeyPress(c) for c in self.typed])
+        self.typed = None
+
+    def drop_typed_ahead(self) -> bool:
+        dropped = bool(self.typed)
+        self.typed = list(self.later)  # typed after the question, which is kept
+        return dropped
+
+
+def _chat_with_typing_ahead(
+    monkeypatch: pytest.MonkeyPatch,
+    opened: OpenedSession,
+    lines: list[str],
+    ahead: str,
+    later: str = "",
+) -> tuple[_FakeComposer, list[KeyPress]]:
+    from zwans.cli import app as app_module
+
+    with create_pipe_input() as keys:
+        composer = _FakeComposer(lines, ahead, later, keys)
+        monkeypatch.setattr(app_module, "can_prompt", lambda: True)
+        monkeypatch.setattr(app_module, "create_input", lambda: keys)
+        monkeypatch.setattr(app_module, "Composer", lambda *args, **kwargs: composer)
+        with asyncio.Runner() as runner:
+            assert app_module._chat(opened, runner) == 0
+            runner.run(opened.close())
+        return composer, get_typeahead(keys)
+
+
+def test_lines_typed_ahead_of_a_failed_message_are_dropped_not_merged_into_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    opened = open_session(
+        Config(home=tmp_path / "home"),
+        {},
+        workspace=workspace,
+        make_provider=lambda config, model: FakeProvider([]),  # fails like an API error
+    )
+
+    composer, left = _chat_with_typing_ahead(monkeypatch, opened, ["first line"], "second\r")
+
+    assert composer.drafts == ["", "first line"]
+    assert left == []  # nothing is added to the restored draft and sent along with it
+    out = capsys.readouterr().out
+    assert "What you typed during the turn was dropped, as it failed." in out
+
+
+def test_text_typed_before_an_approval_question_is_dropped_and_what_follows_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    write = ToolUseBlock(id="call_1", name="Write", input={"path": "b.txt", "content": "b\n"})
+    script = [
+        ModelResponse(content=[write], stop_reason="tool_use"),
+        ModelResponse(
+            content=[TextBlock(text="Shall I delete the old files?")], stop_reason="end_turn"
+        ),
+    ]
+    opened = open_session(
+        Config(home=tmp_path / "home"),
+        {},
+        workspace=workspace,
+        mode="ask",
+        approver=EchoingApprover(),
+        make_provider=lambda config, model: FakeProvider(script),
+    )
+    monkeypatch.setattr("builtins.input", lambda text: "n")  # the answer, typed after it
+
+    _, left = _chat_with_typing_ahead(monkeypatch, opened, ["Write b.txt"], "y\r", "next\r")
+
+    # The stray "y" doesn't answer the model's question; what came after the answer is kept.
+    assert [key.key for key in left] == list("next\r")
+    assert not (workspace / "b.txt").exists()
+    out = capsys.readouterr().out
+    assert "What you typed before this question was dropped." in out
+
+
+def test_typing_ahead_is_kept_when_a_turn_asks_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    reply = ModelResponse(content=[TextBlock(text="Hi.")], stop_reason="end_turn")
+    opened = open_session(
+        Config(home=tmp_path / "home"),
+        {},
+        workspace=workspace,
+        approver=EchoingApprover(),
+        make_provider=lambda config, model: FakeProvider([reply]),
+    )
+
+    _, left = _chat_with_typing_ahead(monkeypatch, opened, ["Say hi"], "next\r")
+
+    assert [key.key for key in left] == list("next\r")

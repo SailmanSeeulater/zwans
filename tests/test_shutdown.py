@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from helpers import needs_bash, process_gone
 
+from zwans.cli import approval
 from zwans.executor import shutdown
 from zwans.executor.shutdown import SessionRunner
 from zwans.messages import TextBlock, ToolUseBlock
@@ -50,6 +51,34 @@ def test_a_signal_between_runs_exits_at_once() -> None:
         time.sleep(5)  # stands in for waiting on input() outside the event loop
 
     assert exit_info.value.code == 128 + signal.SIGTERM
+
+
+def test_sigterm_while_an_approval_question_waits_cancels_the_turn_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    steps: list[str] = []
+
+    def answer_late(text: str) -> str:
+        os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(5)  # input() too goes on waiting after a signal whose handler returns
+        return "y"
+
+    monkeypatch.setattr("builtins.input", answer_late)
+
+    async def turn() -> str:
+        try:
+            return approval._prompt("  Allow it? [y]es / [N]o: ")
+        except asyncio.CancelledError:
+            steps.append("turn cancelled")  # as Session.send records an interrupted turn
+            raise
+
+    started = time.monotonic()
+    with pytest.raises(SystemExit) as exit_info, SessionRunner() as runner:
+        runner.run(turn())
+
+    assert exit_info.value.code == 128 + signal.SIGTERM
+    assert steps == ["turn cancelled"]
+    assert time.monotonic() - started < 3
 
 
 def test_sighup_stops_printing_to_the_closed_terminal(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -216,6 +216,7 @@ class Composer:
             history_path.parent.mkdir(parents=True, exist_ok=True)
             history = FileHistory(str(history_path))
         self._status = status
+        self._typed: bytearray | None = None  # what's typed ahead, while a turn runs
         self._session: PromptSession[str] = PromptSession(
             history=history,
             completer=ChatCompleter(commands, workspace),
@@ -253,7 +254,7 @@ class Composer:
             yield
             return
         fd = stream.fileno()
-        typed = bytearray()
+        typed = self._typed = bytearray()
 
         def take() -> None:
             try:
@@ -271,7 +272,18 @@ class Composer:
                 yield
             finally:
                 loop.remove_reader(fd)
+                self._typed = None
         store_typeahead(self._session.app.input, _key_presses(bytes(typed)))
+
+    def drop_typed_ahead(self) -> bool:
+        """Forget what's been typed ahead so far in this turn, as when a question is asked:
+        it was typed before the question, so it mustn't answer it, nor become a message that
+        answers the model instead. What's typed after this is kept. Says whether there was
+        anything to drop."""
+        if not self._typed:
+            return False
+        self._typed.clear()
+        return True
 
 
 def toolbar_line(status: str, width: int) -> str:

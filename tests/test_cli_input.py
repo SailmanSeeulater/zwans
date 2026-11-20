@@ -189,6 +189,38 @@ def test_typing_during_a_turn_waits_unechoed_and_a_question_takes_only_later_typ
     assert shown == on + off + b"n\r\n" + on + off + on + off
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="no termios on Windows")
+def test_a_question_drops_what_was_typed_before_it_and_keeps_what_follows(
+    workspace: Path,
+) -> None:
+    leader, follower = os.openpty()
+
+    async def go() -> tuple[bool, bool, list[str]]:
+        loop = asyncio.get_running_loop()
+        with (
+            create_pipe_input() as pipe,
+            os.fdopen(follower, "r") as terminal,
+            os.fdopen(os.dup(follower), "w") as screen,
+        ):
+            composer = Composer(COMMANDS, workspace, None, input=pipe, output=DummyOutput())
+            with composer.typing_ahead(loop, terminal, screen):
+                os.write(leader, b"y\r")  # typed before the question
+                await asyncio.sleep(0.1)
+                dropped = composer.drop_typed_ahead()  # as the question is asked
+                os.write(leader, b"after it\r")
+                await asyncio.sleep(0.1)
+            nothing = composer.drop_typed_ahead()  # no turn running
+            pipe.send_text("kept\r")
+            sent = [await composer.read() for _ in range(2)]
+        os.close(leader)
+        return dropped, nothing, sent
+
+    dropped, nothing, sent = asyncio.run(go())
+
+    assert dropped and not nothing
+    assert sent == ["after it", "kept"]
+
+
 def test_ctrl_c_clears_the_line_and_quits_on_an_empty_one(workspace: Path) -> None:
     assert read_typed("typo\x03kept\r", workspace) == "kept"
     with pytest.raises(KeyboardInterrupt):
