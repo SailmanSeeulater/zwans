@@ -342,11 +342,17 @@ timeout = 30                               # seconds, 60 by default
 
 The hook runs in the workspace folder and reads a JSON object on stdin: `event`,
 `workspace`, and for tool hooks `tool` and `args` (post_tool adds `output` and `is_error`;
-stop has `stop_reason` and `message`). Exit 0 to let things carry on. A non-zero exit
-blocks a pre_tool call, adds to a post_tool call's result, or keeps a stop hook's turn going,
-and in each case the model reads what the hook printed (stderr, or stdout when that's
+stop has `stop_reason`, `message` and `changed`). Exit 0 to let things carry on. A non-zero
+exit blocks a pre_tool call, adds to a post_tool call's result, or keeps a stop hook's turn
+going, and in each case the model reads what the hook printed (stderr, or stdout when that's
 empty). A hook that crashes or times out counts as non-zero, so a broken pre_tool hook
-blocks calls. This one keeps pushing in your hands:
+blocks calls.
+
+A stop hook takes two more settings. `max_blocks = 3` lets it send the model back at most
+three times in a turn; after that it's still run and shown, but the turn ends, so a check the
+model can't satisfy doesn't use model calls up to the step limit. `when = "changed"` runs it
+only after a turn that ran a tool that can change files (`changed` in its JSON), so a
+question answered by reading doesn't run your tests. This one keeps pushing in your hands:
 
 ```python
 import json, sys
@@ -540,6 +546,7 @@ zwans eval run --only buggy-calc                       # one task
 zwans eval run --config evals/configs/vague-edit.toml  # a variant to compare
 zwans eval compare evals/reports/<run A> evals/reports/<run B>
 zwans eval run --agent claude-code --repeats 3          # the Claude Code baseline
+ZWANS_MODEL=openai/<id> zwans eval run --agent codex   # the Codex baseline, on an OpenAI model
 zwans eval run --tasks evals/tasks-hard                # the hard tier
 zwans eval run --tasks evals/tasks-injection           # the prompt-injection suite
 zwans eval run --executor docker                       # commands in the Docker sandbox
@@ -547,7 +554,9 @@ zwans eval run --executor jail                         # commands in zwans-jail 
 ```
 
 A config in `evals/configs/` overrides settings such as `model` or `effort` for the run, and
-can replace a tool's description under `[tool_descriptions]`. Each task's `max_cost` and
+can replace a tool's description under `[tool_descriptions]` and add `[[hooks]]`, written as
+in a policy file: `stop-check.toml` makes Zwans re-run the visible tests before it may finish.
+Each task's `max_cost` and
 `timeout` limit one attempt; going over either fails it. `--budget` stops the whole run once
 it has spent that much; attempts it cut off are reported as stopped and don't count. Each
 run writes `report.html`, `report.json` and a transcript per attempt to `evals/reports/`.
@@ -574,6 +583,15 @@ effort, limits and checks, to see how far Zwans is from a production harness. It
 accepts `ANTHROPIC_API_KEY`, so the baseline is billed per token whatever `auth` says. Its
 cost is charged to `--budget` when each attempt ends, so a run can go over by up to one
 task's `max_cost` per parallel attempt.
+
+`--agent codex` does the same through OpenAI's Codex CLI (`codex exec`), so with an OpenAI
+model it compares two harnesses on one model. It needs `codex` on your PATH, `OPENAI_API_KEY`,
+the model set as `openai/<id>` (with `ZWANS_MODEL` or a config's `model`), and that model's
+price in the config, as `[providers.openai] prices = { "<id>" = [input, output] }` in dollars
+per million tokens. Codex reports tokens but not dollars, so without a price it won't start.
+Each attempt gets an empty `CODEX_HOME`, which keeps your Codex config and login out of it,
+and runs without Codex's approvals or sandbox, as Claude Code's do. Like Claude Code's, its
+cost is charged when an attempt ends.
 
 What the evals have shown so far, with numbers and transcripts: [docs/findings.md](docs/findings.md).
 
