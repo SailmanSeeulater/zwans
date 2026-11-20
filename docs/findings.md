@@ -332,7 +332,28 @@ other `ZWANS_*` variables. Add `--executor jail` on Linux to run commands in zwa
 The dated entries behind the sections above, newest first, as written at the time. Later
 entries sometimes correct earlier ones.
 
-### 2026-11-03: caching and compaction
+### 2026-11-20: a stop hook on the visible tests never fires on the hard suite
+
+`evals/configs/stop-check.toml` adds a stop hook that runs `python -m pytest -q` when the
+agent says it's done and sends it back with the failures (at most 3 times, and only after a
+turn that may have changed files). Hard suite, claude-haiku-5-5 at low effort,
+`--repeats 3`, local executor, against a fresh default run started at the same time.
+Reports `evals/reports/hard-x3-haiku55-low-{baseline-local,stop-check}`, $1.27 in all.
+
+| Config | Passed | $ / attempt | Model calls | Seconds |
+|---|---|---|---|---|
+| default | 31/36 | 0.0174 | 12.1 | 80.4 |
+| stop-check | 30/36 | 0.0179 | 12.2 | 84.7 |
+
+`compare` finds no difference: −3 points [−17, +11], +$0.0004 [−0.0014, +0.0023]. The
+hook was loaded (it's in the report's config) and **never fired in 36 attempts**. Every
+time Haiku said it was done, the visible tests already passed; it runs them itself. All six
+failures were hidden-test failures, which is how this tier is built: the visible tests pass
+with a partial fix. So the four tasks that moved (meetslot-freebusy 3/3 → 1/3,
+feed-cursor-skips 1/3 → 2/3, ...) are run-to-run noise, not the hook. A check the agent
+already runs buys nothing. Measuring one needs a check the agent doesn't run (the
+production backend, a type checker, a linter), or a model that stops with red tests.
+
 
 Hard suite, claude-haiku-5-5 at low effort, `--repeats 6`, five arms side by side in
 zwans-jail: default, `cache-system`, `cache-off`, `compact-20k`, `compact-20k-keep2`.
