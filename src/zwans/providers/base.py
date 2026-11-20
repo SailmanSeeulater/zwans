@@ -12,13 +12,16 @@ from zwans.tools.base import Tool
 
 class ModelResponse(BaseModel):
     content: list[TextBlock | ToolUseBlock | RawBlock]
-    stop_reason: str  # "end_turn", "tool_use", "max_tokens", "refusal", ...
+    # "end_turn", "tool_use", "max_tokens", "refusal", or "pause_turn": the API stopped a
+    # long run of web searches partway, and sending the conversation back carries it on
+    stop_reason: str
     stop_detail: str = ""  # for a refusal, its category
     model: str = ""
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    web_searches: int = 0  # searches the API ran for this reply, charged apart from tokens
 
     def usage_event(self) -> UsageUpdated:
         return UsageUpdated(
@@ -27,6 +30,7 @@ class ModelResponse(BaseModel):
             output_tokens=self.output_tokens,
             cache_read_tokens=self.cache_read_tokens,
             cache_write_tokens=self.cache_write_tokens,
+            web_searches=self.web_searches,
         )
 
 

@@ -17,7 +17,7 @@ from zwans.policy.rules import Decision, Policy, Rule, strictest
 # Tools whose output comes from outside: files, programs, the web. Instructions inside it
 # are data, not the user's.
 # A subagent's report (Task) is made from what it read, so it counts too.
-UNTRUSTED_OUTPUT = frozenset({"Read", "Grep", "Bash", "WebFetch", "Skill", "Task"})
+UNTRUSTED_OUTPUT = frozenset({"Read", "Grep", "Bash", "web_search", "web_fetch", "Skill", "Task"})
 MCP_PREFIX = "mcp__"
 
 

@@ -1,6 +1,7 @@
 """Skills: folders of instructions for particular kinds of task, loaded only when needed.
 
-A skill is a folder with a SKILL.md, in ~/.zwans/skills/ or <workspace>/.zwans/skills/:
+A skill is a folder with a SKILL.md, in ~/.zwans/skills/, or in a project's .zwans/skills/
+or .claude/skills/ (where Claude Code keeps them, so those work too):
 
     ---
     name: release-notes
@@ -56,12 +57,18 @@ def find_skills(folders: list[Path]) -> list[Skill]:
 
 
 def skill_folders(workspace: Path, home: Path | None) -> list[Path]:
+    """Where to look, in order: a later folder's skill replaces an earlier one's."""
     folders = [home / "skills"] if home is not None else []
-    return [*folders, workspace / ".zwans" / "skills"]
+    return [*folders, workspace / ".claude" / "skills", workspace / ".zwans" / "skills"]
+
+
+BLOCK_MARKERS = (">", ">-", ">+", "|", "|-", "|+")  # YAML's folded and literal blocks
 
 
 def split_front_matter(text: str) -> tuple[dict[str, str], str]:
-    """Read simple `key: value` front matter between --- lines. Returns it and the rest."""
+    """Read simple `key: value` front matter between --- lines. Returns it and the rest.
+    A value can also be a YAML block (`description: >` with indented lines below it),
+    which comes back as one line."""
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         return {}, text
@@ -71,11 +78,18 @@ def split_front_matter(text: str) -> tuple[dict[str, str], str]:
     else:
         return {}, text
     fields: dict[str, str] = {}
+    block: str | None = None  # the key whose indented lines are being gathered
     for line in lines[1:end]:
+        if block is not None and (not line.strip() or line[:1] in " \t"):
+            fields[block] = f"{fields[block]} {line.strip()}".strip()
+            continue
+        block = None
         key, sep, value = line.partition(":")
         if sep and key.strip():
             value = value.strip()
-            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            if value in BLOCK_MARKERS:
+                block, value = key.strip(), ""
+            elif len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
                 value = value[1:-1]
             fields[key.strip()] = value
     return fields, "\n".join(lines[end + 1 :])

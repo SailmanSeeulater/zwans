@@ -7,8 +7,9 @@ the full plan.
 **Status:** Phases 0 to 5 are done and Phase 6 (server and web UI) is in review. Zwans can
 read, search, and edit a project and run its tests; it saves and resumes sessions, compacts
 long ones, and caches prompts. It asks before changing anything unless you loosen its policy,
-and it can run commands in a Docker container with filtered network access. Hooks, skills,
-MCP servers and subagents extend it, and a web UI shows sessions and eval runs.
+and it can run commands in a Docker container with filtered network access. It reads `CLAUDE.md`
+and `AGENTS.md` and Claude Code's skills, searches and reads the web, and keeps a to-do list
+for long tasks. Hooks, skills, MCP servers and subagents extend it, and a web UI shows sessions and eval runs.
 
 ## Setup
 
@@ -149,8 +150,8 @@ trust its policy file.
 
 ### Skills
 
-A skill is a folder with a `SKILL.md`, in `~/.zwans/skills/` or a project's
-`.zwans/skills/`:
+A skill is a folder with a `SKILL.md`, in `~/.zwans/skills/`, a project's `.zwans/skills/`,
+or a project's `.claude/skills/`, so skills written for Claude Code work as they are:
 
 ```markdown
 ---
@@ -162,7 +163,8 @@ description: Write release notes from the git log. Use when asked for a changelo
 
 Only the names and descriptions go in the system prompt. The model loads a skill's
 instructions with the `Skill` tool when a task matches, and any other file in its folder the
-same way. A project's skill replaces the user's skill of the same name.
+same way. A project's skill replaces the user's skill of the same name, and one in
+`.zwans/skills/` replaces one in `.claude/skills/`.
 
 ### MCP servers
 
@@ -194,11 +196,36 @@ many files costs the main conversation one result. Several `Task` calls in one r
 at the same time. A subagent's calls go through the same policy and hooks (other than stop
 hooks), and show in the terminal as indented lines. Set `subagents = false` to turn it off.
 
-### ZWANS.md
+### Instruction files
 
-Standing instructions go in `ZWANS.md`: `~/.zwans/ZWANS.md` for all projects, and one in a
-project's folder for that project. Both are added to the system prompt when a session
-starts, the project's last.
+Standing instructions go in `~/.zwans/ZWANS.md` for all projects, and for one project in
+its folder's `ZWANS.md`, `CLAUDE.md` or `AGENTS.md`, so a repository set up for Claude Code
+or another agent works as it is. They're added to the system prompt when a session starts:
+the user's first, then the project's in the order `AGENTS.md`, `CLAUDE.md`, `ZWANS.md`, since
+the later one wins where two disagree. A file that's a link to another, or says the same
+thing, is read once.
+
+A line that is only `@path/to/file.md` brings in that file, as in Claude Code: a `CLAUDE.md`
+that says `@AGENTS.md` is `AGENTS.md`. Only files inside the project are brought in.
+
+### Web search and fetch
+
+The model can search the web (`web_search`) and read a page (`web_fetch`), for a library's
+documentation or an error message. The Claude API runs both on Anthropic's servers, so:
+
+- they work with every executor, and the jail or Docker doesn't keep them off the network;
+- the policy can't stop a single search or fetch, though what they bring in counts as
+  untrusted, so later changes are checked as after untrusted content;
+- a search costs $0.01 on top of tokens, which the cost shown includes; a fetch costs only
+  the tokens of the page, at most 25,000.
+
+Set `web = false` to turn them off.
+
+### To-do list
+
+For a task with several steps, the model keeps a checklist with the `TodoWrite` tool and
+updates it as it goes. The terminal prints it each time it changes; the web UI pins it above
+the message box while the turn runs. Set `todos = false` to turn it off.
 
 ### Long sessions
 
@@ -317,6 +344,8 @@ environment variables:
 | `max_tokens` | `64000` | Output limit per model call, thinking included |
 | `max_steps` | `50` | Model calls allowed in one turn |
 | `subagents` | `true` | Offer the `Task` tool |
+| `todos` | `true` | Offer the `TodoWrite` tool |
+| `web` | `true` | Offer web search and fetch, which the Claude API runs |
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
 | `compact_at` | `200000` | Estimated context tokens that trigger a compaction |
 | `keep_messages` | `8` | Recent messages kept word for word when compacting |

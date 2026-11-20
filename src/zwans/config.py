@@ -67,6 +67,8 @@ class Config(BaseModel):
     max_tokens: int = 64_000  # per model call, thinking included
     max_steps: int = 50  # model calls allowed in one turn
     subagents: bool = True  # offer the Task tool
+    todos: bool = True  # offer TodoWrite, a checklist the model keeps for long tasks
+    web: bool = True  # offer web search and fetch, which the Claude API runs (see web.py)
     subagent_max_steps: int = 30  # model calls allowed in one subagent's task
     compact_at: int = 200_000  # estimated context tokens that trigger a compaction
     keep_messages: int = 8  # recent messages kept word for word when compacting

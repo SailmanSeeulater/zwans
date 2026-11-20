@@ -6,8 +6,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { api, sessionSocket, takeFirstPrompt, type DemoInfo, type SessionStatus } from "@/lib/api";
 import { buildCalls } from "@/lib/calls";
 import { buildTurns, waitingCalls, type RawEvent } from "@/lib/events";
+import { currentTodos } from "@/lib/todos";
 import { AskBar, Conversation, type Answer } from "./Conversation";
 import { Inspector, isTab, type InspectorTab } from "./inspector/Inspector";
+import { TodoList } from "./TodoList";
 import { UnderTheHood } from "./UnderTheHood";
 import { TokenMissing, useHasToken } from "./useApi";
 
@@ -89,6 +91,7 @@ export function SessionView() {
   const turns = useMemo(() => buildTurns(events), [events]);
   const hood = useMemo(() => buildCalls(events), [events]);
   const waiting = waitingCalls(turns);
+  const todos = currentTodos(turns);
 
   useLayoutEffect(() => {
     const box = scroller.current;
@@ -200,6 +203,9 @@ export function SessionView() {
 
         <div className="composer glass">
           {notice && <div className="notice notice-warn">{notice}</div>}
+          {/* The plan stays in view while it's being worked through, but gives way to a
+              question, so the buttons to answer it always fit. */}
+          {running && waiting.length === 0 && todos && todos.length > 0 && <TodoList todos={todos} />}
           {connection === "open" &&
             waiting.map((call) => <AskBar key={call.id} call={call} onAnswer={answer} />)}
           <textarea

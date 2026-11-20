@@ -104,7 +104,8 @@ class TaskTool:
         return _report(messages, stop_reason, problems)
 
     def _tools(self, available: Sequence[Tool[Any]], wanted: list[str] | None) -> list[Tool[Any]]:
-        tools = [tool for tool in available if tool.name != self.name]  # no subagents of its own
+        # No subagents of its own, and no to-do list: the one people see is the parent's.
+        tools = [tool for tool in available if tool.name not in (self.name, "TodoWrite")]
         if wanted is None:
             return tools
         names = {tool.name for tool in tools}

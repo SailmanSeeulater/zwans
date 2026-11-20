@@ -27,6 +27,7 @@ from zwans.policy.engine import Approval, PermissionRequest, Permissions, denial
 from zwans.policy.rules import Decision
 from zwans.providers.base import Provider, ProviderError
 from zwans.tools.base import Tool, ToolContext, ToolError, ToolOutput
+from zwans.web import web_calls, web_results
 
 INTERRUPTED = "Interrupted by the user before this finished."
 STOPPED = "Zwans stopped before this finished, so it may or may not have run."
@@ -79,8 +80,14 @@ async def run_turn(
         messages.append(Message(role="assistant", content=list(response.content)))
         if compactor is not None:
             compactor.observe(response, len(messages))
+        for event in _web_events(response.content, permissions):
+            yield event
         calls = [block for block in response.content if isinstance(block, ToolUseBlock)]
 
+        if response.stop_reason == "pause_turn" and not calls:
+            # The API paused a long run of web searches. Sending the conversation back as it
+            # is, ending in the paused reply, lets the model carry on where it stopped.
+            continue
         if response.stop_reason != "tool_use":
             if calls:
                 # A cut-off response can hold half-written tool calls. Don't run them, but
@@ -192,6 +199,28 @@ async def _gate(
     else:
         yield PermissionDenied(call_id=call.id, reason=verdict.reason)
     yield denial_message(verdict, approval, can_ask)
+
+
+def _web_events(content: Sequence[ContentBlock], permissions: Permissions | None) -> list[Event]:
+    """Events for the web searches and fetches the API ran while writing this reply, so they
+    show like other tool calls. A paused reply can hold a call whose result comes in the next."""
+    calls = web_calls(content)
+    events: list[Event] = [
+        ToolCallRequested(call_id=call.id, name=call.name, args=call.args) for call in calls
+    ]
+    names = {call.id: call.name for call in calls}
+    for result in web_results(content):
+        name = names.get(result.call_id, "web_search")
+        untrusted = permissions.observe(name, result.is_error) if permissions else False
+        events.append(
+            ToolResult(
+                call_id=result.call_id,
+                content=result.content,
+                is_error=result.is_error,
+                untrusted=untrusted,
+            )
+        )
+    return events
 
 
 def answer_pending_calls(messages: list[Message]) -> bool:

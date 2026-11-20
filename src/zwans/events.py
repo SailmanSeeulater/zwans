@@ -124,6 +124,7 @@ class ModelCalled(_Event):
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    web_searches: int = 0
     dollars: float | None = None  # None when the model's price isn't known
     # The model's prices in dollars per million tokens: input, output, cache_write and
     # cache_read. With them the UI can split the cost and price the call without the cache.
@@ -139,6 +140,7 @@ class UsageUpdated(_Event):
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     model: str = ""
+    web_searches: int = 0  # charged per search, apart from tokens
 
 
 class TurnEnded(_Event):

@@ -17,6 +17,7 @@ from zwans.messages import Message, ToolResultBlock, ToolUseBlock
 from zwans.pricing import cost, price_of
 from zwans.providers.base import ModelResponse, Provider
 from zwans.tools.base import Tool, input_schema
+from zwans.web import web_calls
 
 
 def context_split(
@@ -89,9 +90,13 @@ class TimedCall:
             output_tokens=response.output_tokens,
             cache_read_tokens=response.cache_read_tokens,
             cache_write_tokens=response.cache_write_tokens,
+            web_searches=response.web_searches,
             dollars=cost(response.usage_event()),
             prices=dataclasses.asdict(price) if (price := price_of(response.model)) else None,
-            tools=[block.name for block in response.content if isinstance(block, ToolUseBlock)],
+            tools=[
+                *(call.name for call in web_calls(response.content)),
+                *(block.name for block in response.content if isinstance(block, ToolUseBlock)),
+            ],
             context=context,
         )
 

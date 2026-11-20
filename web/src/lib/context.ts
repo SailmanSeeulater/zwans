@@ -21,7 +21,7 @@ export interface Piece {
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
 
 function keyArg(args: Record<string, unknown>): string {
-  for (const key of ["path", "command", "pattern", "description", "name"]) {
+  for (const key of ["path", "command", "pattern", "query", "url", "description", "name"]) {
     const value = args[key];
     if (typeof value === "string" && value) return value.split("\n")[0]!.slice(0, 40);
   }

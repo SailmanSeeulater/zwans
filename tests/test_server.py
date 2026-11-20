@@ -335,6 +335,9 @@ def test_the_demo_fixes_its_project_and_compacts_on_the_second_turn(tmp_path: Pa
 
     results = [m for m in first + second if m["type"] == "tool_result"]
     assert not any(m["is_error"] for m in results), results
+    todos = [m for m in results if m["content"].startswith("To-do list saved")]
+    assert len(todos) == 3  # the plan, kept up to date in the first turn
+    results = [m for m in results if m not in todos]
     assert "FAILED (failures=1)" in results[0]["content"]
     assert "Ran 7 tests" in results[-1]["content"] and "\nOK\n" in results[-1]["content"]
     assert "_term(tokens)" in (workspace / "calc.py").read_text()

@@ -13,6 +13,7 @@ from zwans.context.tokens import approx_tokens
 from zwans.events import ContextCompacted, Event
 from zwans.messages import Message, RawBlock, TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse, Provider, ProviderError
+from zwans.web import web_calls, web_results
 
 SUMMARY_SYSTEM = """\
 You write handoff notes for a coding agent whose conversation got too long. Another agent \
@@ -114,6 +115,11 @@ def render_transcript(messages: Sequence[Message]) -> str:
             elif isinstance(block, ToolResultBlock):
                 label = "TOOL ERROR" if block.is_error else "TOOL RESULT"
                 lines.append(f"{label}: {_preview(block.content)}")
+            else:  # the web searches and fetches the API ran
+                for call in web_calls([block]):
+                    lines.append(f"TOOL CALL {call.name}: {json.dumps(call.args)}")
+                for result in web_results([block]):
+                    lines.append(f"TOOL RESULT: {result.content}")
     return "\n\n".join(lines)
 
 

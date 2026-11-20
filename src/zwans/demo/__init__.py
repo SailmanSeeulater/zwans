@@ -83,7 +83,7 @@ def script() -> list[ModelResponse]:
             # Turn 1: find and fix the bug.
             _reply(
                 "I'll start by running the tests to see what fails.",
-                [_call("Bash", command=TEST)],
+                [_todos(0), _call("Bash", command=TEST)],
                 usage=(310, 0, 4_180, 96),
             ),
             _reply(
@@ -96,12 +96,12 @@ def script() -> list[ModelResponse]:
                 "Found it. `_expression` reads the right-hand side of `+` and `-` by calling "
                 "itself, so `10 - 4 - 3` groups as `10 - (4 - 3)`. It should read one term at "
                 "a time and let the loop carry on, the way `_term` already does for `*` and `/`.",
-                [_call("Edit", path="calc.py", old_string=BUG, new_string=FIX)],
+                [_todos(2), _call("Edit", path="calc.py", old_string=BUG, new_string=FIX)],
                 usage=(12, 4_822, 772, 210),
             ),
             _reply(
                 "Now the tests again.",
-                [_call("Bash", command=TEST)],
+                [_todos(3), _call("Bash", command=TEST)],
                 usage=(10, 5_594, 242, 70),
             ),
             _reply(
@@ -158,6 +158,18 @@ def _numbered(replies: list[ModelResponse]) -> list[ModelResponse]:
             content.append(block)
         numbered.append(reply.model_copy(update={"content": content}))
     return numbered
+
+
+PLAN = ["Run the tests", "Find the cause", "Fix it", "Run the tests again"]
+
+
+def _todos(step: int) -> ToolUseBlock:
+    """The plan for the first task, with steps before `step` done and that one in progress."""
+    statuses = ["completed"] * step + ["in_progress"] + ["pending"] * (len(PLAN) - step - 1)
+    return _call(
+        "TodoWrite",
+        todos=[{"content": c, "status": s} for c, s in zip(PLAN, statuses, strict=True)],
+    )
 
 
 def _call(name: str, **args: Any) -> ToolUseBlock:

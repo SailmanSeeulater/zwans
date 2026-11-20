@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Self
 
 from zwans.events import Event, TurnStarted, UsageUpdated
+from zwans.web import SEARCH_DOLLARS
 
 
 @dataclass(frozen=True)
@@ -50,7 +51,7 @@ def cost(usage: UsageUpdated) -> float | None:
         + usage.cache_write_tokens * price.cache_write
         + usage.cache_read_tokens * price.cache_read
     )
-    return total / 1_000_000
+    return total / 1_000_000 + usage.web_searches * SEARCH_DOLLARS
 
 
 class CostMeter:

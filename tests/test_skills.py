@@ -41,6 +41,30 @@ def test_skills_are_found_and_a_projects_skill_wins_over_the_users(tmp_path: Pat
     assert described == {"release": "The project's.", "code-review": "Review a diff."}
 
 
+def test_yaml_block_values_come_back_as_one_line() -> None:
+    fields, _ = split_front_matter(
+        "---\nname: pdf\ndescription: >\n  Fill in PDF forms.\n  Use for any .pdf file.\n"
+        "license: MIT\n---\nBody\n"
+    )
+    assert fields == {
+        "name": "pdf",
+        "description": "Fill in PDF forms. Use for any .pdf file.",
+        "license": "MIT",
+    }
+
+
+def test_claude_code_skills_are_found_and_zwans_ones_win(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    write_skill(workspace / ".claude" / "skills", "deploy", "description: Claude Code's deploy.")
+    write_skill(workspace / ".claude" / "skills", "lint", "description: Run the linters.")
+    write_skill(workspace / ".zwans" / "skills", "deploy", "description: Zwans's deploy.")
+
+    skills = find_skills(skill_folders(workspace, None))
+
+    described = {skill.name: skill.description for skill in skills}
+    assert described == {"deploy": "Zwans's deploy.", "lint": "Run the linters."}
+
+
 def test_only_names_and_descriptions_go_in_the_system_prompt(tmp_path: Path) -> None:
     write_skill(tmp_path, "release", "description: Write release notes.", body="SECRET STEPS")
     skills = find_skills([tmp_path])

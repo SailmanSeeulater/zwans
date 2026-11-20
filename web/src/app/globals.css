@@ -804,6 +804,55 @@ html[data-desktop] .session-head a {
   font-weight: 600;
 }
 
+.todos {
+  margin: 4px 0 8px;
+}
+.todos ul {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+.todo {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
+  font-size: 13.5px;
+}
+.todo-mark {
+  width: 1em;
+  text-align: center;
+  color: var(--ink-2);
+}
+.todo-completed {
+  color: var(--ink-2);
+  text-decoration: line-through;
+  text-decoration-color: var(--edge);
+}
+.todo-completed .todo-mark {
+  color: var(--ok);
+}
+.todo-in_progress {
+  font-weight: 600;
+}
+.todo-in_progress .todo-mark {
+  color: var(--accent);
+}
+.composer .todos {
+  max-height: 132px;
+  overflow: auto;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--edge);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 .ask {
   border-radius: var(--radius);
   padding: 12px 14px;

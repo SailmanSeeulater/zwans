@@ -250,7 +250,12 @@ def _provider_factory(
 
     def anthropic(task: Task, config: Config) -> Provider:
         return AnthropicProvider(
-            credential, config.model, config.effort, config.max_tokens, config.prompt_cache
+            credential,
+            config.model,
+            config.effort,
+            config.max_tokens,
+            config.prompt_cache,
+            config.web,
         )
 
     return anthropic

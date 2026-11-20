@@ -18,13 +18,15 @@ from zwans.events import (
 )
 
 # The argument most worth showing for each tool, so a call fits on one line.
-KEY_ARGS = ("path", "command", "pattern", "description", "name", "ticket")
+KEY_ARGS = ("path", "command", "pattern", "query", "url", "description", "name", "ticket")
+TODO_MARKS = {"completed": "✓", "in_progress": "▸", "pending": "○"}
 
 
 class Renderer:
     def __init__(self) -> None:
         self._style: str | None = None  # what the current line is showing
         self._at_line_start = True
+        self._todo_calls: set[str] = set()  # TodoWrite calls, whose list says it all
 
     def on_event(self, event: Event) -> None:
         match event:
@@ -32,8 +34,13 @@ class Renderer:
                 self._stream(text, "text")
             case ThinkingDelta(text=text):
                 self._stream(text, "note")
+            case ToolCallRequested(name="TodoWrite", call_id=call_id, args=args):
+                self._todo_calls.add(call_id)
+                self._todos(args)
             case ToolCallRequested(name=name, args=args):
                 self._line(f"> {name} {_summarize(args)}".rstrip(), fg="cyan")
+            case ToolResult(call_id=call_id, is_error=False) if call_id in self._todo_calls:
+                pass
             case ToolResult(content=content, is_error=True):
                 self._line(f"  ! {_first_line(content)}", fg="red")
             case ToolResult(content=content):
@@ -51,6 +58,15 @@ class Renderer:
             case ContextCompacted(tokens_before=before, tokens_after=after):
                 note = f"[Summarized older messages: about {before:,} -> {after:,} tokens]"
                 self._line(note, fg="magenta")
+
+    def _todos(self, args: dict[str, Any]) -> None:
+        self._line("> To-do list", fg="cyan")
+        todos = args.get("todos")
+        for todo in todos if isinstance(todos, list) else []:
+            status = str(todo.get("status", "pending"))
+            mark = TODO_MARKS.get(status, "○")
+            text = f"  {mark} {_first_line(str(todo.get('content', '')))}"
+            typer.secho(text, dim=status == "completed", bold=status == "in_progress")
 
     def _subagent(self, task: str, event: Event) -> None:
         """A subagent's calls, one line each and indented; its text stays out of the way."""

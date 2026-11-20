@@ -36,6 +36,7 @@ from zwans.tools.grep import GrepTool
 from zwans.tools.read import ReadTool
 from zwans.tools.skill import SkillTool
 from zwans.tools.task import TaskTool
+from zwans.tools.todo import TodoWriteTool
 from zwans.tools.write import WriteTool
 from zwans.transcript import TranscriptWriter
 
@@ -55,7 +56,7 @@ class OpenedSession:
     policy: LoadedPolicy
     model: str
     mcp: McpServers | None = None
-    instructions: list[Path] = field(default_factory=list)  # ZWANS.md files, for a new one
+    instructions: list[Path] = field(default_factory=list)  # instruction files, for a new one
     resumed: bool = False
     repaired: bool = False  # its last turn was cut off mid-tool
 
@@ -115,12 +116,12 @@ def open_session(
         instructions = load_instructions(root, config.home)
         followed = [path for path, _ in instructions]
         if config.executor == "docker":
-            system = system_prompt(root, "bash", instructions, SANDBOX_OS, skills)
+            system = system_prompt(root, "bash", instructions, SANDBOX_OS, skills, config.web)
         elif config.executor == "jail":
-            system = system_prompt(root, "bash", instructions, JAIL_OS, skills)
+            system = system_prompt(root, "bash", instructions, JAIL_OS, skills, config.web)
         else:
             shell = describe_shell(config.shell)
-            system = system_prompt(root, shell, instructions, skills=skills)
+            system = system_prompt(root, shell, instructions, skills=skills, web=config.web)
         session_id = f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
         info = SessionInfo(id=session_id, workspace=str(root), model=config.model, system=system)
         meter = CostMeter()
@@ -134,7 +135,7 @@ def open_session(
     else:
         credential = load_credential(config, env)
         provider = AnthropicProvider(
-            credential, model, config.effort, config.max_tokens, config.prompt_cache
+            credential, model, config.effort, config.max_tokens, config.prompt_cache, config.web
         )
     if resume is None:
         store.create(info)  # only once the credential is known to be there
@@ -162,6 +163,8 @@ def open_session(
         GrepTool(),
         BashTool(),
     ]
+    if config.todos:
+        tools.append(TodoWriteTool())
     if skills:
         tools.append(SkillTool(skills))
     if config.subagents:

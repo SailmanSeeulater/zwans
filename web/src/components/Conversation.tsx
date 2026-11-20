@@ -1,8 +1,10 @@
 "use client";
 
 import { keyArgument, type Item, type ToolCall, type Turn } from "@/lib/events";
+import { TODO_TOOL, todosOf } from "@/lib/todos";
 import { DiffBody } from "./DiffBody";
 import { Markdown } from "./Markdown";
+import { TodoList } from "./TodoList";
 
 export type Answer = "once" | "always" | "no";
 
@@ -45,6 +47,7 @@ function ItemView({ item, onAnswer }: { item: Item; onAnswer?: Props["onAnswer"]
     case "note":
       return <div className="model-note">{item.text}</div>;
     case "tool":
+      if (item.call.name === TODO_TOOL && !item.call.result?.isError) return <TodoCard call={item.call} />;
       return <ToolCard call={item.call} onAnswer={onAnswer} />;
     case "error":
       return <div className="notice notice-bad">Error: {item.message}</div>;
@@ -77,6 +80,30 @@ function stateOf(call: ToolCall): { mark: string; tone: string; text: string } {
   const who = state === "allowed" ? "you allowed" : "";
   const text = [call.result.isError ? "error" : "", who, time].filter(Boolean).join(" · ");
   return call.result.isError ? { mark: "✕", tone: "tone-bad", text } : { mark: "✓", tone: "tone-ok", text };
+}
+
+/** A to-do list update, on one line: how far along it is and the step now in progress. */
+function TodoCard({ call }: { call: ToolCall }) {
+  const todos = todosOf(call);
+  const done = todos.filter((t) => t.status === "completed").length;
+  const now = todos.find((t) => t.status === "in_progress");
+  return (
+    <details className="tool">
+      <summary>
+        <span className="tool-mark tone-ok" aria-hidden="true">
+          ☰
+        </span>
+        <span className="tool-name">To-do</span>
+        <span className="tool-arg">{now ? now.content : done === todos.length ? "all done" : ""}</span>
+        <span className="tool-state">
+          {done} of {todos.length} done
+        </span>
+      </summary>
+      <div className="tool-body">
+        <TodoList todos={todos} />
+      </div>
+    </details>
+  );
 }
 
 export function ToolCard({ call, onAnswer }: { call: ToolCall; onAnswer?: Props["onAnswer"] }) {
@@ -118,7 +145,7 @@ export function ToolCard({ call, onAnswer }: { call: ToolCall; onAnswer?: Props[
           {call.result && !diff && (
             <>
               <div className="label">
-                Result{call.result.untrusted ? " (untrusted: from a file, command or server)" : ""}
+                Result{call.result.untrusted ? " (untrusted: from a file, command, web page or server)" : ""}
               </div>
               <pre>{call.result.content}</pre>
             </>

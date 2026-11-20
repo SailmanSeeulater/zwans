@@ -47,6 +47,7 @@ from zwans.tools.glob import GlobTool
 from zwans.tools.grep import GrepTool
 from zwans.tools.read import ReadTool
 from zwans.tools.task import TaskTool
+from zwans.tools.todo import TodoWriteTool
 from zwans.tools.write import WriteTool
 from zwans.transcript import TranscriptWriter
 
@@ -98,6 +99,8 @@ def make_tools(config: EvalConfig, settings: Config) -> list[Tool[Any]]:
         GrepTool(),
         BashTool(),
     ]
+    if settings.todos:
+        tools.append(TodoWriteTool())
     if settings.subagents:
         tools.append(TaskTool(settings.subagent_max_steps))
     names = {tool.name for tool in tools}
@@ -330,12 +333,15 @@ class ZwansAgent:
     ) -> Session:
         # Only the task's own ZWANS.md, never the user's, so every attempt gets the same prompt.
         instructions = load_instructions(workspace, home=workspace)
+        web = self.config.web
         if isinstance(executor, DockerExecutor):
-            system = system_prompt(workspace, "bash", instructions, SANDBOX_OS)
+            system = system_prompt(workspace, "bash", instructions, SANDBOX_OS, web=web)
         elif isinstance(executor, JailExecutor):
-            system = system_prompt(workspace, "bash", instructions, JAIL_OS)
+            system = system_prompt(workspace, "bash", instructions, JAIL_OS, web=web)
         else:
-            system = system_prompt(workspace, self.config.shell or _find_bash(), instructions)
+            system = system_prompt(
+                workspace, self.config.shell or _find_bash(), instructions, web=web
+            )
         return Session(
             provider=provider,
             tools=make_tools(self.eval_config, self.config),

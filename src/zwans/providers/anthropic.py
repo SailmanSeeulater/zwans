@@ -14,6 +14,7 @@ from zwans.events import TextDelta, ThinkingDelta
 from zwans.messages import ContentBlock, Message, RawBlock, TextBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse, ProviderError
 from zwans.tools.base import Tool, input_schema
+from zwans.web import tool_params as web_tool_params
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"  # if a classifier declines, use another model
 PROGRESS_NOTES_BETA = "thinking-display-updates-2026-08-18"  # short notes between tool calls
@@ -30,16 +31,18 @@ class Traits:
     progress_notes: bool = True
     block_binding: bool = True
     fallbacks: bool = True
+    web_filtering: bool = True  # the web tool versions that filter results with code
 
 
 TRAITS: dict[str, Traits] = {
-    "claude-haiku-5-5": Traits(progress_notes=False, fallbacks=False),
+    "claude-haiku-5-5": Traits(progress_notes=False, fallbacks=False, web_filtering=False),
     "claude-haiku-4-5": Traits(
         adaptive_thinking=False,
         effort=False,
         progress_notes=False,
         block_binding=False,
         fallbacks=False,
+        web_filtering=False,
     ),
 }
 
@@ -63,11 +66,13 @@ class AnthropicProvider:
         effort: Effort,
         max_tokens: int,
         prompt_cache: PromptCache = "conversation",
+        web: bool = False,
     ) -> None:
         self.model = model
         self.effort = effort
         self.max_tokens = max_tokens
         self.prompt_cache = prompt_cache
+        self.web = web  # offer web search and fetch, which the API runs (see zwans/web.py)
         self.traits = TRAITS.get(model, Traits())
         self.betas = _betas(self.traits)
         # The last request body, as sent, for the web UI's inspector. The credential is on
@@ -138,7 +143,7 @@ class AnthropicProvider:
             if system
             else anthropic.omit,
             "messages": [message_param(m) for m in messages],
-            "tools": [tool_param(t) for t in tools] if tools else anthropic.omit,
+            "tools": self._tools(tools) or anthropic.omit,
             # Automatic caching: a breakpoint on the conversation's last block, moving forward
             # each request, so every call re-reads everything before it from the cache.
             **self._cache("conversation"),
@@ -147,6 +152,12 @@ class AnthropicProvider:
             "fallbacks": "default" if self.traits.fallbacks else anthropic.omit,
             "betas": self.betas,
         }
+
+    def _tools(self, tools: Sequence[Tool[Any]]) -> list[dict[str, Any]]:
+        params = [tool_param(t) for t in tools]
+        if self.web:
+            params += web_tool_params(self.traits.web_filtering)
+        return params
 
     def _cache(self, breakpoint: PromptCache) -> dict[str, Any]:
         """A cache_control field for this breakpoint, if prompt_cache covers it."""
@@ -209,6 +220,7 @@ def to_response(message: BetaMessage) -> ModelResponse:
         output_tokens=usage.output_tokens,
         cache_read_tokens=usage.cache_read_input_tokens or 0,
         cache_write_tokens=usage.cache_creation_input_tokens or 0,
+        web_searches=usage.server_tool_use.web_search_requests if usage.server_tool_use else 0,
     )
 
 
