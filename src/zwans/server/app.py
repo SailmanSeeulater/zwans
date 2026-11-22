@@ -12,6 +12,8 @@ running or waits for an answer. A client may send:
     {"type": "prompt", "text": "..."}     (while a turn runs, steers it instead)
     {"type": "approve", "call_id": "...", "answer": "once" | "always" | "no"}
     {"type": "interrupt"}
+    {"type": "loop", "argument": "until pytest -q"}   (/loop: work until a check passes)
+    {"type": "budget", "dollars": "2"}    (the spending cap; "off" clears it)
 
 A request the session can't take gets {"type": "server_error", "message": "..."} back, to
 that client only.
@@ -579,6 +581,16 @@ def _act(live: LiveSession, message: dict[str, Any]) -> str | None:
             live.prompt(text or "What do you see in this image?", images)
         except Busy as exc:
             return str(exc)
+    elif kind == "loop":
+        try:
+            live.loop(str(message.get("argument", "")))
+        except (Busy, ValueError) as exc:
+            return str(exc)
+    elif kind == "budget":
+        try:
+            live.set_budget(str(message.get("dollars", "")))
+        except ValueError:
+            return f"{message.get('dollars')} isn't an amount: try 2, $0.50 or off."
     elif kind == "approve":
         if not live.answer(str(message.get("call_id", "")), str(message.get("answer", ""))):
             return "Nothing is waiting for that answer."

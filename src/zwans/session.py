@@ -51,6 +51,8 @@ class Session:
         self.turn = 0  # how many user turns the session has had
         # What the user has sent during the running turn, for the model's next step.
         self.steering: list[str] = []
+        # Asked before each model call for a reason not to make it, such as a spent budget.
+        self.limit: Callable[[], str | None] | None = None
         # Awaited with the turn's number before it starts, as checkpoints.py snapshots files.
         self.before_turn: Callable[[int], Awaitable[None]] | None = None
         for tool in self.tools:
@@ -116,6 +118,7 @@ class Session:
             hooks=self.hooks,
             follow_through=self.follow_through() if self.follow_through else 0,
             steer=self._take_steering,
+            limit=self.limit,
         )
         try:
             async for event in turn:

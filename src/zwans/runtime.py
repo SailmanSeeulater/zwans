@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from zwans.budget import Budget
 from zwans.checkpoints import Checkpoints
 from zwans.config import Config, ConfigError
 from zwans.context.compaction import Compactor
@@ -93,6 +94,7 @@ class OpenedSession:
     resumed: bool = False
     repaired: bool = False  # its last turn was cut off mid-tool
     had_turns: bool = False  # it had turns before, even if a rewind has dropped them all
+    budget: Budget | None = None  # its spending cap, which /budget changes
 
     @property
     def id(self) -> str:
@@ -354,6 +356,8 @@ def open_session(
     if unsaved_model is not None:
         session.listeners.append(_ModelSaver(store, info, provider, unsaved_model).on_event)
     recorder.save()  # saves the answers to any cut-off tool calls right away
+    budget = Budget(meter, config.budget)
+    session.limit = budget.exceeded
 
     mcp = None
     if config.mcp_servers and not chat:
@@ -364,6 +368,7 @@ def open_session(
         session=session,
         executor=executor,
         meter=meter,
+        budget=budget,
         transcript=transcript,
         store=store,
         policy=loaded,

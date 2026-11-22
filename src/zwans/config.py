@@ -113,6 +113,9 @@ class Config(BaseModel):
     # The model a session on a local model can hand its task to when it gets stuck: the web
     # UI offers it, and nothing is sent until the person says so. None never offers.
     handoff_model: str | None = "claude-sonnet-5-5"
+    # The most a session may cost, in dollars; turns stop before the call that would go on
+    # past it. /budget changes it for a session. None is no cap.
+    budget: float | None = None
     # Offer web search and fetch. The Claude API runs its own (see web.py); other models get
     # WebFetch, and WebSearch when web_search says where to search (see tools/web_local.py).
     web: bool = True

@@ -11,7 +11,7 @@ import contextlib
 import json
 import logging
 import shutil
-from collections.abc import Mapping, Sequence
+from collections.abc import Coroutine, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,15 +19,17 @@ from typing import Any
 
 from zwans import demo as zwans_demo
 from zwans import pricing, races, usage
+from zwans.budget import parse_dollars
 from zwans.checkpoints import Change, CheckpointError
 from zwans.config import Config, ConfigError
 from zwans.events import Error, Event, TurnEnded
+from zwans.looping import parse_loop, run_loop
 from zwans.messages import ImageBlock, TextBlock
 from zwans.policy.engine import Approval, PermissionRequest
 from zwans.providers.catalog import canonical
 from zwans.providers.router import ModelRouter, helper
 from zwans.runtime import OpenedSession, ProviderFactory, is_chat, open_session
-from zwans.store import SessionError, SessionStore
+from zwans.store import SessionError, SessionStore, title_of
 from zwans.titles import title_model, write_title
 
 log = logging.getLogger(__name__)
@@ -94,6 +96,7 @@ class LiveSession:
             "mode": opened.policy.policy.mode,
             "executor": opened.config.executor,
             "running": self.running,
+            "budget": opened.budget.dollars if opened.budget else None,  # the cap, in $
             "queued": list(opened.session.steering),  # sent mid-turn, not yet read
             "turns": opened.session.turn,
             "dollars": opened.meter.session_dollars,
@@ -116,7 +119,7 @@ class LiveSession:
     def _first_prompt(self) -> str:
         for event in self.events:
             if event.get("type") == "turn_started":
-                return str(event.get("prompt", ""))[:80]
+                return title_of(str(event.get("prompt", "")))
         return ""
 
     def subscribe(self) -> tuple[list[Message], asyncio.Queue[Message]]:
@@ -250,9 +253,31 @@ class LiveSession:
             await asyncio.gather(self.turn, return_exceptions=True)
         await self.opened.close()
 
+    def loop(self, argument: str) -> None:
+        """Start /loop: work until a check passes. Raises Busy, or ValueError for an
+        argument that can't be read."""
+        if self.running:
+            raise Busy("Wait for the turn to end, or stop it, before starting a loop.")
+        if self.opened.chat or self.demo:
+            raise Busy("A loop needs a project to run its check in.")
+        spec = parse_loop(argument)
+        work = run_loop(self.opened.session, self.opened.executor, spec)
+        self.turn = asyncio.create_task(self._run_work(work))
+        self._broadcast(self.status())
+
+    def set_budget(self, text: str) -> None:
+        """Set the spending cap: "2", "$0.50", or "off". Raises ValueError."""
+        if self.opened.budget is None:
+            raise ValueError("This session has no budget to set.")
+        self.opened.budget.dollars = parse_dollars(text)
+        self._broadcast(self.status())
+
     async def _run(self, text: str, images: list[ImageBlock]) -> None:
+        await self._run_work(self.opened.session.send(text, images))
+
+    async def _run_work(self, work: Coroutine[Any, Any, object]) -> None:
         try:
-            await self.opened.session.send(text, images)
+            await work
         except asyncio.CancelledError:
             pass  # interrupted; the session has already said so
         except Exception as exc:  # a bug, not a model error: those arrive as events

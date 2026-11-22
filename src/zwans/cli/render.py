@@ -19,6 +19,8 @@ from zwans.events import (
     Error,
     Event,
     HookReported,
+    LoopChecked,
+    LoopEnded,
     PermissionRequested,
     PermissionResolved,
     SubagentEvent,
@@ -118,6 +120,16 @@ class Renderer:
                 self._line(f"  {hook_event} hook: {_first_line(message)}", fg="yellow")
             case Error(message=message):
                 self._line(f"Error: {message}", fg="red")
+            case LoopChecked(round=0, passed=False, check=check):
+                self._line(f"[loop: `{check}` fails now; sending it the failure]", fg="cyan")
+            case LoopChecked(round=round_, rounds=rounds, passed=False, check=check):
+                self._line(
+                    f"[loop: `{check}` still fails after turn {round_} of {rounds}]", fg="cyan"
+                )
+            case LoopChecked(passed=True):
+                pass  # LoopEnded says so
+            case LoopEnded(reason=reason, detail=detail):
+                self._line(f"[loop: {detail}]", fg="green" if reason == "passed" else "yellow")
             case ContextCompacted(tokens_before=before, tokens_after=after):
                 note = f"[Summarized older messages: about {before:,} -> {after:,} tokens]"
                 self._line(note, fg="magenta")

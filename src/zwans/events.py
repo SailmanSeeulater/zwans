@@ -171,6 +171,27 @@ class Steered(_Event):
     text: str
 
 
+class LoopChecked(_Event):
+    """/loop ran its check: before the first turn (round 0) and after each one."""
+
+    type: Literal["loop_checked"] = "loop_checked"
+    check: str
+    round: int
+    rounds: int
+    passed: bool
+    exit_code: int | None
+    output: str  # its end, as the model is sent it
+
+
+class LoopEnded(_Event):
+    """/loop stopped: the check passed, the rounds ran out, or a turn ended early."""
+
+    type: Literal["loop_ended"] = "loop_ended"
+    reason: str  # "passed", "rounds", "stopped", "budget" or "error"
+    detail: str
+    check: str = ""
+
+
 class Error(_Event):
     type: Literal["error"] = "error"
     message: str
@@ -192,6 +213,8 @@ type Event = (
     | ModelCalled
     | TurnEnded
     | Steered
+    | LoopChecked
+    | LoopEnded
     | Rewound
     | Error
 )

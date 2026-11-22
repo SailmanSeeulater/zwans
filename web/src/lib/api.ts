@@ -124,6 +124,8 @@ export interface SessionStatus {
   context_tokens: number;
   waiting_for: string[];
   warnings: string[];
+  /** The session's spending cap in dollars; null for none. */
+  budget?: number | null;
   /** The model runs on this machine. */
   local?: boolean;
   /** Who a stuck local session can hand its task to; null when no one. */

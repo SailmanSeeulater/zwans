@@ -513,6 +513,33 @@ def test_a_race_runs_two_models_in_copies_and_keeps_the_chosen_result(server: Se
     assert refused.status_code == 400 and "takes 2 models" in refused.json()["detail"]
 
 
+def test_a_loop_runs_over_the_websocket_and_a_budget_stops_it(server: Server) -> None:
+    priced = ModelResponse(
+        content=[TextBlock(text="Tried.")],
+        stop_reason="end_turn",
+        output_tokens=100_000,
+        model="claude-opus-5-5",
+    )
+    session_id = server.new_session(FakeProvider([priced, say("Not sent.")]))
+
+    with connect(server, session_id) as ws:
+        handshake(ws)
+        ws.send_json({"type": "budget", "dollars": "$0.01"})
+        capped = until(ws, "status")[-1]
+        ws.send_json({"type": "loop", "argument": "3 until exit 1"})
+        seen = until(ws, "loop_ended")
+        ws.send_json({"type": "loop", "argument": "pytest"})
+        refused = until(ws, "server_error")[-1]
+
+    assert capped["budget"] == 0.01
+    checks = [m for m in seen if m["type"] == "loop_checked"]
+    assert [(c["round"], c["passed"]) for c in checks] == [(0, False), (1, False)]
+    ended = [m for m in seen if m["type"] == "turn_ended"]
+    assert ended[-1]["stop_reason"] == "budget"
+    assert seen[-1]["reason"] == "budget"
+    assert "Usage: /loop" in refused["message"]
+
+
 def test_a_new_session_needs_a_real_folder(server: Server, tmp_path: Path) -> None:
     body = {"workspace": str(tmp_path / "missing")}
     response = server.client.post("/api/sessions", json=body, headers=AUTH)

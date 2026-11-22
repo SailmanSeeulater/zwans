@@ -501,8 +501,12 @@ def _chat(
         if not line:
             continue
         if is_command(line):
-            with _typing_ahead(composer, runner):  # /compact can take a while
-                outcome = runner.run(commands.run(line))
+            try:
+                with _typing_ahead(composer, runner):  # /compact and /loop can take a while
+                    outcome = runner.run(commands.run(line))
+            except KeyboardInterrupt:
+                typer.secho("Interrupted. The conversation is kept, so carry on.", fg="yellow")
+                continue
             if isinstance(outcome, Quit):
                 return 0
             if isinstance(outcome, Reopen):

@@ -28,6 +28,8 @@ import { buildTurns, pendingQuestion, waitingCalls, type RawEvent } from "@/lib/
 import { CHANGES, DEFAULT_PANE, readPane, savePane, tabLabel, withNewPage, type PaneState } from "@/lib/pane";
 import { fileChanges, latestServer } from "@/lib/preview";
 import { handoffPrompt, modelName, stuckReason } from "@/lib/handoff";
+import { budgetLevel, COMMANDS, loopState, matching, parseCommand, type Parsed } from "@/lib/commands";
+import { dollars as money } from "@/lib/format";
 import { currentTodos } from "@/lib/todos";
 import { livenessOf, phaseOf, tabTitle, turnStartedAt } from "@/lib/working";
 import { AskBar, Conversation, type Answer } from "./Conversation";
@@ -248,8 +250,41 @@ export function SessionView() {
     [send],
   );
 
+  const runCommand = (command: Parsed) => {
+    if (command.name === "unknown") {
+      setNotice(`There's no ${command.typed}. The commands are ${COMMANDS.map((c) => `/${c.name}`).join(" and ")}.`);
+      return;
+    }
+    setNotice(null);
+    if (command.name === "loop") {
+      if (!command.argument) {
+        setNotice("Say what to check: /loop until pytest -q, or /loop 8 until \"npm test\" fix the dates.");
+        return;
+      }
+      pinned.current = true;
+      send({ type: "loop", argument: command.argument });
+    } else if (!command.argument) {
+      const cap = status?.budget;
+      const spent = status?.dollars ?? 0;
+      setNotice(
+        cap == null
+          ? `No budget: ${money(spent)} spent so far. /budget 2 sets one.`
+          : `${money(spent)} of ${money(cap)} spent. /budget off clears it.`,
+      );
+      return;
+    } else {
+      send({ type: "budget", dollars: command.argument });
+    }
+    setDraft("");
+  };
+
   const prompt = (text: string) => {
     if (!text.trim() && images.length === 0) return;
+    const command = images.length === 0 ? parseCommand(text) : null;
+    if (command) {
+      runCommand(command);
+      return;
+    }
     setNotice(null);
     pinned.current = true;
     const message: Record<string, unknown> = { type: "prompt", text: text.trim() };
@@ -322,6 +357,8 @@ export function SessionView() {
     [id, router],
   );
   const closeInspector = useCallback(() => openTab(null), [openTab]);
+  const loop = useMemo(() => loopState(events), [events]);
+  const menu = matching(draft);
 
   // Local first: when a turn on a model on this machine gets stuck, offer to hand the task
   // to the stronger model the config names. Nothing is sent until the person says so.
@@ -457,6 +494,18 @@ export function SessionView() {
             </>
           )}
           <span style={{ flex: 1 }} />
+          {status && status.budget != null && (
+            <span
+              className="budget-pill"
+              data-level={budgetLevel(status.dollars, status.budget)}
+              title={`Budget: ${money(status.dollars)} of ${money(status.budget)} spent. /budget changes it.`}
+            >
+              <span className="budget-bar" aria-hidden="true">
+                <span style={{ width: `${Math.min(100, (status.dollars / (status.budget || 1)) * 100)}%` }} />
+              </span>
+              {money(status.dollars)} / {money(status.budget)}
+            </span>
+          )}
           {status && status.context_tokens > 0 && (
             <ContextMeter
               tokens={status.context_tokens}
@@ -594,6 +643,38 @@ export function SessionView() {
               </button>
             </div>
           )}
+          {running && loop?.active && (
+            <div className="loop-chip" role="status">
+              <Spark size={13} />
+              <span>
+                Looping until <span className="mono">{loop.check}</span>
+              </span>
+              <span className="loop-chip-count">
+                turn {Math.min(loop.round + 1, loop.rounds)} of {loop.rounds}
+              </span>
+            </div>
+          )}
+          {menu.length > 0 && (
+            <ul className="slash-menu" role="listbox" aria-label="Commands">
+              {menu.map((command) => (
+                <li key={command.name}>
+                  <button
+                    role="option"
+                    aria-selected={false}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setDraft(`/${command.name} `);
+                      composer.current?.focus();
+                    }}
+                  >
+                    <span className="mono slash-name">/{command.name}</span>
+                    <span className="mono muted small">{command.args}</span>
+                    <span className="slash-about">{command.about}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           {running && (status?.queued?.length ?? 0) > 0 && (
             <ul className="queued" aria-label="Sent, waiting for Zwans's next step">
               {status?.queued?.map((text, i) => (
@@ -667,6 +748,11 @@ export function SessionView() {
               void attach(files);
             }}
             onKeyDown={(e) => {
+              if (e.key === "Tab" && menu.length > 0 && menu[0]) {
+                e.preventDefault();
+                setDraft(`/${menu[0].name} `);
+                return;
+              }
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 if (question && waiting.length === 0) answerQuestion(draft);

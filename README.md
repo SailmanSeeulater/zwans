@@ -233,6 +233,8 @@ file instead of refusing it. Images can be up to 3.75 MB, and each costs about 1
 | `/compact` | Summarizes the older messages now, to free up context |
 | `/model [name]` | Lists the models Zwans knows, or switches to one for the rest of the session (Tab completes the name; for any other model, use `zwans --resume <id> --model <name>`, or `zwans --model <name>` for a new session) |
 | `/cost` | What the session has cost, and how full its context is |
+| `/budget [dollars]` | Shows the session's spending cap, or sets one (`/budget 2`, `/budget off`); turns stop before the model call that would go past it |
+| `/loop [rounds] until <check> [task]` | Keeps working until a check passes: Zwans runs the check (say `pytest -q`) after each turn and sends the model what fails, for at most 5 turns unless `rounds` says otherwise. Quote a check with spaces when a task follows: `/loop 8 until "npm test" fix the dates` |
 | `/resume [n]` | Lists recent sessions in this workspace, or switches to one |
 | `/exit` | Quits |
 
@@ -931,6 +933,7 @@ environment variables:
 | `titles` | `true` | After a session's first turn, ask a model for a few words to title it |
 | `title_model` | Haiku for Claude, else the session's | The model that writes titles |
 | `handoff_model` | `claude-sonnet-5-5` | The model the web UI offers a stuck local session to hand its task to; unset never offers |
+| `budget` | none | The most a session may cost, in dollars; `/budget` changes it for a session |
 | `compact_at` | `200000` | Estimated context tokens that trigger a compaction |
 | `keep_messages` | `8` | Recent messages kept word for word when compacting |
 | `compact_model` | the session's | The model that writes the handoff notes when compacting |

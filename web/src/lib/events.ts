@@ -31,6 +31,9 @@ export type Item =
   | { kind: "note"; text: string }
   /** Something the user sent while the turn ran, which the model read at its next step. */
   | { kind: "steer"; text: string }
+  /** /loop ran its check: before the first turn (round 0) and after each. */
+  | { kind: "loop-check"; check: string; round: number; rounds: number; passed: boolean; exitCode: number | null; output: string }
+  | { kind: "loop-end"; reason: string; detail: string }
   | { kind: "tool"; call: ToolCall }
   | { kind: "error"; message: string }
   | { kind: "compacted"; before: number; after: number; summary: string }
@@ -176,6 +179,22 @@ export function buildTurns(events: RawEvent[]): Turn[] {
             summary: str(event.summary),
           });
         }
+        break;
+      case "loop_checked":
+        if (items) {
+          items.push({
+            kind: "loop-check",
+            check: str(event.check),
+            round: num(event.round),
+            rounds: num(event.rounds),
+            passed: Boolean(event.passed),
+            exitCode: typeof event.exit_code === "number" ? event.exit_code : null,
+            output: str(event.output),
+          });
+        }
+        break;
+      case "loop_ended":
+        if (items) items.push({ kind: "loop-end", reason: str(event.reason), detail: str(event.detail) });
         break;
       case "steered":
         if (items) items.push({ kind: "steer", text: str(event.text) });

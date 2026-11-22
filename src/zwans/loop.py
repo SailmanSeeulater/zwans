@@ -61,6 +61,7 @@ async def run_turn(
     hooks: Hooks | None = None,
     follow_through: int = 0,
     steer: Callable[[], list[str]] | None = None,
+    limit: Callable[[], str | None] | None = None,
 ) -> AsyncIterator[Event]:
     """Run one user turn and yield events as they happen.
 
@@ -75,6 +76,9 @@ async def run_turn(
     `steer` is asked after each round of tool calls, and before the turn ends, for what the
     user has sent since it started. Each is added to the conversation for the model's next
     step, and a turn about to end carries on to answer them.
+
+    `limit` is asked before each model call; when it gives a reason, such as a spent
+    budget, the call isn't made and the turn ends with stop_reason "budget".
 
     `messages` must end with the user's message. The loop only ever appends to it: the
     model's replies, then the tool results. Earlier turns are never edited, which the API
@@ -93,6 +97,10 @@ async def run_turn(
     stop_blocks: Counter[HookSpec] = Counter()  # how often each stop hook sent the model back
     sent_back = 0  # how often follow_through has sent the model back this turn
     for _ in range(max_steps):
+        stop = limit() if limit is not None else None
+        if stop is not None:
+            yield TurnEnded(stop_reason="budget", detail=stop)
+            return
         model_call = TimedCall()
         streamed: list[str] = []  # the reply's text so far, kept if Ctrl+C cuts it off
         try:

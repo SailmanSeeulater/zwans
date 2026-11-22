@@ -6,11 +6,13 @@ from dataclasses import dataclass
 
 import typer
 
+from zwans.budget import parse_dollars
 from zwans.checkpoints import Change, CheckpointError
 from zwans.cli.input import MENTIONED, Command
 from zwans.cli.terminal_text import printable
 from zwans.config import Config, ConfigError
 from zwans.events import ContextCompacted
+from zwans.looping import parse_loop, run_loop
 from zwans.providers.base import ProviderError
 from zwans.providers.catalog import CLAUDE_MODELS, PRESETS, canonical, is_known, list_all, split
 from zwans.providers.router import ModelRouter
@@ -31,6 +33,12 @@ COMMANDS = [
         choices=(*CLAUDE_MODELS, *(f"{name}/" for name in PRESETS)),
     ),
     Command("cost", "What this session has cost, and how full its context is"),
+    Command("budget", "Show the spending cap, or set one ($2, or off)", "[dollars]"),
+    Command(
+        "loop",
+        "Keep working until a check passes, such as: /loop until pytest -q",
+        "[rounds] until <check> [task]",
+    ),
     Command("resume", "List recent sessions here, or switch to one", "[number or id]"),
     Command("exit", "Quit"),
 ]
@@ -93,6 +101,10 @@ class Commands:
                 await self._model(argument)
             case "cost":
                 self._cost()
+            case "budget":
+                self._budget(argument)
+            case "loop":
+                await self._loop(argument)
             case "resume":
                 return self._resume(argument)
             case "exit" | "quit":
@@ -238,6 +250,30 @@ class Commands:
             f"Context: about {opened.session.context_tokens():,} tokens, compacting at "
             f"{opened.session.compact_at(opened.config.compact_at):,}"
         )
+
+    def _budget(self, argument: str) -> None:
+        budget = self.opened.budget
+        if budget is None:
+            _say("This session has no budget to set.", fg="yellow")
+            return
+        if argument:
+            try:
+                budget.dollars = parse_dollars(argument)
+            except ValueError:
+                _say(f"{argument} isn't an amount: try /budget 2, /budget $0.50 or /budget off.")
+                return
+        _say(budget.describe())
+        if budget.exceeded():
+            _say("Turns stop before their next model call until it's raised.", fg="yellow")
+
+    async def _loop(self, argument: str) -> None:
+        try:
+            spec = parse_loop(argument)
+        except ValueError as exc:
+            _say(str(exc), fg="yellow")
+            return
+        _say(f"Looping until `{spec.check}` passes, for at most {spec.rounds} turns.", dim=True)
+        await run_loop(self.opened.session, self.opened.executor, spec)
 
     def _resume(self, argument: str) -> Outcome:
         if argument:

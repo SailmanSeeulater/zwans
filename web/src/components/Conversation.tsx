@@ -1,6 +1,6 @@
 "use client";
 
-import { CornerDownRight, ImageIcon, RefreshCw, RotateCcw } from "lucide-react";
+import { Check, CornerDownRight, ImageIcon, Repeat, RefreshCw, RotateCcw } from "lucide-react";
 import {
   canAlwaysAllow,
   diffOf,
@@ -123,6 +123,22 @@ function TurnFoot({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
   );
 }
 
+function LoopCheck({ item }: { item: Extract<Item, { kind: "loop-check" }> }) {
+  const when = item.round === 0 ? "before starting" : `after turn ${item.round} of ${item.rounds}`;
+  const how = item.passed ? "passes" : item.exitCode === null ? "timed out" : `fails (exit ${item.exitCode})`;
+  return (
+    <details className="loop-check" data-passed={item.passed || undefined}>
+      <summary>
+        <Repeat size={13} aria-hidden="true" />
+        <span className="mono">{item.check}</span>
+        <span className="loop-check-how">{how}</span>
+        <span className="muted small">{when}</span>
+      </summary>
+      {item.output ? <pre className="raw">{item.output}</pre> : <p className="muted small">No output.</p>}
+    </details>
+  );
+}
+
 function ItemView({ item, onAnswer, streaming }: { item: Item; onAnswer?: Props["onAnswer"]; streaming: boolean }) {
   switch (item.kind) {
     case "text":
@@ -135,6 +151,15 @@ function ItemView({ item, onAnswer, streaming }: { item: Item; onAnswer?: Props[
       );
     case "note":
       return <Thinking text={item.text} live={streaming} />;
+    case "loop-check":
+      return <LoopCheck item={item} />;
+    case "loop-end":
+      return (
+        <div className="loop-end" data-reason={item.reason} role="status">
+          {item.reason === "passed" ? <Check size={13} aria-hidden="true" /> : <Repeat size={13} aria-hidden="true" />}
+          <span>Loop: {item.detail.replace(/`([^`]+)`/g, "$1")}</span>
+        </div>
+      );
     case "steer":
       return (
         <div className="steer" aria-label="You, during the turn">
