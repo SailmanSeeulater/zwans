@@ -162,7 +162,9 @@ Things to know:
   fixes at best. Details in [docs/findings.md](docs/findings.md).
 - Some models write a tool call as JSON in their reply (`{"name": "Read", "arguments":
   {...}}`) when the server's chat template doesn't turn it into one; qwen2.5-coder on Ollama
-  does. Zwans makes the first such call to a tool it offered into a real one and drops the
+  does. Qwen3-Coder falls back to a form of its own (`<function=Read><parameter=path>…`)
+  when the server's parser misses a call, often after a sentence of preamble. Zwans makes
+  the first such call to a tool it offered, in either form, into a real one and drops the
   rest of the reply, which was written without that call's result.
 - A tool call whose input is broken (JSON cut off, a field misnamed, `"offset": "ten"`) is
   repaired before it runs: Zwans asks the model again for just that input, with the tool's

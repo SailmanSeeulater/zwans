@@ -1,4 +1,5 @@
-"""Tool calls a local model wrote as JSON in its reply become real calls."""
+"""Tool calls a local model wrote in its reply, as JSON or in Qwen3-Coder's form, become real
+calls."""
 
 import json
 from typing import Any
@@ -10,7 +11,24 @@ from test_providers_openai import Server, delta, finish, sse, stream_all
 from zwans.messages import TextBlock, ToolUseBlock
 from zwans.providers.text_calls import TextCall, find_call
 
-TOOLS = {"Read", "Write", "Glob"}
+TOOLS: dict[str, dict[str, Any]] = {
+    "Read": {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "offset": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+        },
+    },
+    "Write": {"properties": {"path": {"type": "string"}, "content": {"type": "string"}}},
+    "Glob": {"properties": {"pattern": {"type": "string"}}},
+    "Edits": {
+        "properties": {
+            "edits": {"type": "array"},
+            "all": {"type": "boolean"},
+            "note": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        }
+    },
+}
 
 
 @pytest.mark.parametrize(
@@ -64,6 +82,67 @@ def test_text_that_isnt_a_call_to_an_offered_tool_stays_text(text: str) -> None:
     assert find_call(text, TOOLS) is None
 
 
+def test_a_call_in_qwen3_coders_form_is_found() -> None:
+    # What qwen3-coder:30b on Ollama wrote on an eval task, ending its turn with nothing done.
+    text = (
+        "I'll convert the classes. Let me first examine the current implementation.\n\n"
+        "<function=Read>\n<parameter=path>\nshipping/models.py\n</parameter>\n"
+        "<parameter=offset>\n10\n</parameter>\n</function>\n</tool_call>"
+    )
+
+    assert find_call(text, TOOLS) == TextCall(
+        "I'll convert the classes. Let me first examine the current implementation.",
+        "Read",
+        {"path": "shipping/models.py", "offset": 10},
+    )
+
+
+def test_qwen3_coder_values_are_read_as_their_schema_types() -> None:
+    text = (
+        "<tool_call>\n<function=Edits>\n"
+        '<parameter=edits>\n[{"old": "a", "new": "b"}]\n</parameter>\n'
+        "<parameter=all>\nTrue\n</parameter>\n"
+        "<parameter=note>\n42\n</parameter>\n"
+        "</function>\n</tool_call>"
+    )
+
+    call = find_call(text, TOOLS)
+
+    assert call == TextCall(
+        "", "Edits", {"edits": [{"old": "a", "new": "b"}], "all": True, "note": "42"}
+    )
+
+
+def test_a_string_keeps_its_inner_lines_and_indentation() -> None:
+    body = "def f():\n    return 1\n"
+    text = (
+        "<function=Write>\n<parameter=path>\nf.py\n</parameter>\n"
+        f"<parameter=content>\n{body}\n</parameter>\n</function>"
+    )
+
+    assert find_call(text, TOOLS) == TextCall("", "Write", {"path": "f.py", "content": body})
+
+
+def test_whichever_form_comes_first_is_the_call() -> None:
+    text = (
+        '{"name": "Glob", "arguments": {"pattern": "*.py"}}\n'
+        "<function=Read>\n<parameter=path>\na.py\n</parameter>\n</function>"
+    )
+
+    assert find_call(text, TOOLS) == TextCall("", "Glob", {"pattern": "*.py"})
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "<function=RunTests>\n</function>",  # not offered
+        "<function=Read>\n<parameter=path>\na.py\n</parameter>\n",  # cut off
+    ],
+)
+def test_qwen3_coder_text_that_isnt_a_whole_offered_call_stays_text(text: str) -> None:
+    assert find_call(text, TOOLS) is None
+
+
 def chunks(text: str) -> list[dict[str, Any]]:
     return [delta(content=text[i : i + 7]) for i in range(0, len(text), 7)]
 
@@ -105,3 +184,19 @@ def test_a_reply_with_real_calls_is_left_as_it_is() -> None:
 
     assert [type(block) for block in response.content] == [TextBlock, ToolUseBlock]
     assert response.content[1].input == {"path": "y", "content": ""}
+
+
+def test_the_provider_sends_a_call_in_qwen3_coders_form_as_a_real_one() -> None:
+    text = (
+        "Writing it now.\n\n<function=Write>\n<parameter=path>\nout.txt\n</parameter>\n"
+        "<parameter=content>\nhi\n</parameter>\n</function>\n</tool_call>"
+    )
+    server = Server(sse(*chunks(text), finish("stop")))
+
+    response = stream_all(server.provider(), [user("Write hi to out.txt")])[-1]
+
+    text_block, tool_block = response.content
+    assert text_block == TextBlock(text="Writing it now.")
+    assert isinstance(tool_block, ToolUseBlock)
+    assert (tool_block.name, tool_block.input) == ("Write", {"path": "out.txt", "content": "hi"})
+    assert response.stop_reason == "tool_use"

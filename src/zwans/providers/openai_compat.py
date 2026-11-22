@@ -19,7 +19,7 @@ import asyncio
 import json
 import re
 import secrets
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -147,7 +147,7 @@ class OpenAICompatProvider:
                 raise ProviderError(
                     f"The connection to {self.endpoint.name} kept dropping mid-reply ({exc!r})."
                 ) from exc
-            response = reply.response(self.label, [tool.name for tool in tools])
+            response = reply.response(self.label, {tool.name: input_schema(tool) for tool in tools})
             broken = reply.broken + _misfits(response, tools, reply.broken)
             unfixed = [b for b in broken if not await self._repair(request, response, b, tools)]
             not_json = [b for b in unfixed if b.kind == "json"]
@@ -380,9 +380,11 @@ class _Reply:
         self.started = self.started or bool(items)
         return items
 
-    def response(self, label: str, tools: Sequence[str] = ()) -> ModelResponse:
+    def response(
+        self, label: str, tools: Mapping[str, Mapping[str, Any]] | None = None
+    ) -> ModelResponse:
         content: list[TextBlock | ToolUseBlock | RawBlock] = []
-        written = None if self.calls else find_call(self.text, tools)
+        written = None if self.calls else find_call(self.text, tools or {})
         if written is not None:
             # A call written in the text: what came before it stays text, the call becomes
             # a real one, and what followed (written without its result) is dropped.
