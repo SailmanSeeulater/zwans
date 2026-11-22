@@ -106,6 +106,10 @@ class Config(BaseModel):
     subagents: bool = True  # offer the Task tool
     checkpoints: bool = True  # snapshot the workspace before each turn, so /undo works
     todos: bool = True  # offer TodoWrite, a checklist the model keeps for long tasks
+    # After a session's first turn, ask a model for a few words to title it (titles.py).
+    titles: bool = True
+    # The model that writes titles. Unset: Haiku for a Claude session, else the session's own.
+    title_model: str | None = None
     # Offer web search and fetch. The Claude API runs its own (see web.py); other models get
     # WebFetch, and WebSearch when web_search says where to search (see tools/web_local.py).
     web: bool = True

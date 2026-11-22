@@ -87,6 +87,7 @@ class OpenedSession:
     mcp: McpServers | None = None
     jobs: BackgroundJobs | None = None  # commands left running in the background
     checkpoints: Checkpoints | None = None  # the files before each turn, for /undo
+    recorder: SessionRecorder | None = None  # what saves it, which keeps its title
     instructions: list[Path] = field(default_factory=list)  # instruction files, for a new one
     chat: bool = False  # no project and no tools of Zwans's own
     resumed: bool = False
@@ -370,6 +371,7 @@ def open_session(
         mcp=mcp,
         jobs=jobs,
         checkpoints=checkpoints,
+        recorder=recorder,
         instructions=followed,
         chat=chat,
         resumed=resume is not None,

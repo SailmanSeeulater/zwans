@@ -157,6 +157,7 @@ export function buildTurns(events: RawEvent[]): Turn[] {
         break;
       }
       case "usage_updated": {
+        if (event.purpose === "title") break; // naming the session, not part of the turn
         const turn = current();
         turn.modelCalls += 1;
         turn.inputTokens +=

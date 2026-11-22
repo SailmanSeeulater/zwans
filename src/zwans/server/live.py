@@ -21,13 +21,14 @@ from zwans import demo as zwans_demo
 from zwans import usage
 from zwans.checkpoints import Change, CheckpointError
 from zwans.config import Config, ConfigError
-from zwans.events import Error, Event
-from zwans.messages import ImageBlock
+from zwans.events import Error, Event, TurnEnded
+from zwans.messages import ImageBlock, TextBlock
 from zwans.policy.engine import Approval, PermissionRequest
 from zwans.providers.catalog import canonical
-from zwans.providers.router import ModelRouter
+from zwans.providers.router import ModelRouter, helper
 from zwans.runtime import OpenedSession, ProviderFactory, is_chat, open_session
 from zwans.store import SessionError, SessionStore
+from zwans.titles import title_model, write_title
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ class LiveSession:
         # The model's question to the person, while it waits for an answer; one at a time.
         self.question: asyncio.Future[str] | None = None
         self._one_question = asyncio.Lock()
+        self._titling: asyncio.Task[None] | None = None  # writing its title, after turn one
         opened.session.listeners.append(self._on_event)
         if opened.session.permissions is not None:
             opened.session.permissions.approver = self.approve
@@ -207,6 +209,9 @@ class LiveSession:
         return True
 
     async def close(self) -> None:
+        if self._titling is not None:
+            self._titling.cancel()
+            await asyncio.gather(self._titling, return_exceptions=True)
         self.interrupt()
         if self.turn is not None:
             await asyncio.gather(self.turn, return_exceptions=True)
@@ -229,6 +234,48 @@ class LiveSession:
         message = {"time": time, **event.model_dump(mode="json")}
         self.events.append(message)
         self._broadcast(message)
+        if isinstance(event, TurnEnded) and self._wants_title(event):
+            self._titling = asyncio.get_running_loop().create_task(self._write_title())
+
+    def _wants_title(self, event: TurnEnded) -> bool:
+        """After the first turn of a real session that finished, once, unless the person has
+        named it. A scripted model would spend its script on it, so only a routed one."""
+        opened = self.opened
+        return (
+            opened.config.titles
+            and not self.demo
+            and self._titling is None
+            and opened.session.turn == 1
+            and event.stop_reason == "end_turn"
+            and not opened.info.name
+            and isinstance(opened.session.provider, ModelRouter)
+        )
+
+    async def _write_title(self) -> None:
+        opened = self.opened
+        session = opened.session
+        reply = ""
+        for message in reversed(session.messages):
+            if message.role == "assistant":
+                reply = "".join(b.text for b in message.content if isinstance(b, TextBlock))
+                if reply:
+                    break
+        try:
+            model = title_model(opened.config.title_model, opened.model)
+            provider = helper(session.provider, model)
+            title, response = await write_title(provider, session.prompt_of(1), reply)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # a title is a nicety: the first prompt stays the title
+            log.warning("couldn't write a title for session %s", self.id, exc_info=True)
+            return
+        if title and not opened.info.name and opened.recorder is not None:
+            opened.recorder.title = title  # the recorder writes it with every update
+            opened.info.title = title
+            opened.store.set_title(self.id, title)
+        if response is not None:
+            session.emit(response.usage_event().model_copy(update={"purpose": "title"}))
+        self._broadcast(self.status())
 
     def _broadcast(self, message: Message) -> None:
         for queue in list(self.clients):

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { ShortcutHelp } from "@/components/Actions";
+import { Notifier } from "@/components/Notifier";
 import { Palette } from "@/components/Palette";
 import { Sidebar } from "@/components/Sidebar";
 import { PREFS_SCRIPT } from "@/lib/prefs";
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </div>
         <Suspense>
           <Palette />
+          <Notifier />
         </Suspense>
         <ShortcutHelp />
       </body>

@@ -711,3 +711,36 @@ def test_renaming_refuses_a_session_that_isnt_there_or_only_starts_alike(server:
     missing = server.client.patch("/api/sessions/20200101-0000-0000/saved", json=body, headers=AUTH)
     prefix = server.client.patch(f"/api/sessions/{session_id[:6]}/saved", json=body, headers=AUTH)
     assert (missing.status_code, prefix.status_code) == (404, 404)
+
+
+def test_after_its_first_turn_a_session_gets_a_title_from_haiku(
+    server: Server, tmp_path: Path
+) -> None:
+    said = ModelResponse(content=[TextBlock(text="Hi.")], stop_reason="end_turn")
+    named = ModelResponse(
+        content=[TextBlock(text='"Saying hello."')], stop_reason="end_turn", input_tokens=30
+    )
+    backends = [FakeProvider([said]), FakeProvider([named])]  # the session's, then the title's
+    asked: list[str] = []
+
+    def make_backend(resolved: Any) -> FakeProvider:
+        asked.append(resolved.name)
+        return backends.pop(0)
+
+    env = {"ANTHROPIC_API_KEY": "sk-ant-test"}
+    config = Config(home=tmp_path / "home")
+    router = ModelRouter(config, env, "claude-opus-5-5", make_backend)  # type: ignore[arg-type]
+    session_id = server.new_session(router)  # type: ignore[arg-type]
+    with connect(server, session_id) as ws:
+        handshake(ws)
+        ws.send_json({"type": "prompt", "text": "Hello there, how are you doing today?"})
+        until(ws, "turn_ended")
+        seen: list[dict[str, Any]] = []
+        while not any(m["type"] == "status" and m["title"] == "Saying hello" for m in seen):
+            seen.append(ws.receive_json())
+
+    assert asked == ["claude-opus-5-5", "claude-haiku-5-5"]
+    usage = [m for m in seen if m["type"] == "usage_updated"]
+    assert [(u["purpose"], u["input_tokens"]) for u in usage] == [("title", 30)]
+    saved = server.client.get("/api/sessions", headers=AUTH).json()["saved"]
+    assert [(s["title"], s["named"]) for s in saved] == [("Saying hello", False)]

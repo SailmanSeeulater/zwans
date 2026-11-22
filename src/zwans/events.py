@@ -152,6 +152,9 @@ class UsageUpdated(_Event):
     cache_write_tokens: int = 0
     model: str = ""
     web_searches: int = 0  # charged per search, apart from tokens
+    # "title" for the small call that names a session (titles.py): counted in what it cost,
+    # but not one of a turn's model calls.
+    purpose: Literal["turn", "title"] = "turn"
 
 
 class TurnEnded(_Event):

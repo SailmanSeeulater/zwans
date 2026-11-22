@@ -165,6 +165,11 @@ class SessionStore:
                     "UPDATE sessions SET pinned = ? WHERE id = ?", (int(pinned), session_id)
                 )
 
+    def set_title(self, session_id: str, title: str) -> None:
+        """A better title than the first prompt, written once its first turn is done."""
+        with self._db:
+            self._db.execute("UPDATE sessions SET title = ? WHERE id = ?", (title, session_id))
+
     def set_model(self, session_id: str, model: str) -> None:
         """Record a /model switch, so resuming the session uses the new model."""
         with self._db:
