@@ -4,6 +4,7 @@ import { FolderOpen, MessageCircle, Play, ScrollText } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { ModelPicker } from "@/components/ModelPicker";
 import { Ticks } from "@/components/Ticks";
 import { TokenMissing, useApi, useHasToken } from "@/components/useApi";
 import {
@@ -46,6 +47,8 @@ export default function HomePage() {
   const [problem, setProblem] = useState<string | null>(null);
   const [canPick, setCanPick] = useState(false);
   const [kind, setKind] = useState<Kind>("folder");
+  const [picked, setPicked] = useState<string | null>(null); // a model other than the config's
+  const model = picked ?? demo?.model ?? "";
   const chat = kind === "chat";
   const ready = chat || Boolean(workspace.trim());
 
@@ -78,7 +81,8 @@ export default function HomePage() {
     try {
       const status = await api<SessionStatus>("/api/sessions", {
         method: "POST",
-        body: JSON.stringify(chat ? { chat: true } : { workspace, mode }),
+        // Without a pick, the server uses the config's model, as it always has.
+        body: JSON.stringify({ ...(chat ? { chat: true } : { workspace, mode }), ...(picked ? { model: picked } : {}) }),
       });
       if (task.trim()) rememberFirstPrompt(status.id, task.trim());
       go(status.id);
@@ -193,6 +197,7 @@ export default function HomePage() {
               </div>
             </>
           )}
+          {model && <ModelPicker model={model} onChoose={setPicked} onError={setProblem} />}
           <button
             className="button button-primary"
             disabled={busy !== null || !ready}

@@ -130,6 +130,8 @@ export interface DemoInfo {
   has_credential: boolean;
   /** Why the configured model can't be used yet, in the server's words; null when it can. */
   credential_problem: string | null;
+  /** The model a new session or chat starts with unless another is chosen. */
+  model: string;
 }
 
 /** The last request a session sent, exactly as the API got it (never the credential). */

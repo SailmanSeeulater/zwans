@@ -46,7 +46,7 @@ from zwans.executor.docker import DockerError
 from zwans.images import ImageError, image_block
 from zwans.messages import ImageBlock
 from zwans.policy.rules import Mode, PolicyError
-from zwans.providers.catalog import list_all, resolve
+from zwans.providers.catalog import canonical, list_all, resolve
 from zwans.runtime import is_chat
 from zwans.server import evals
 from zwans.server.live import Busy, HubSettings, LiveSession, Message, RewindError, SessionHub
@@ -243,13 +243,16 @@ def create_app(settings: ServerSettings) -> FastAPI:
 
     @api.get("/demo")
     def demo_prompts() -> dict[str, Any]:
-        """What the demo's turns are scripted for, so the UI can offer them."""
+        """What the home screen needs before anything is started: what the demo's turns
+        are scripted for, the model a new session gets, and why that model can't be used yet
+        if it can't."""
         problem = _credential_problem(settings)
         return {
             "prompts": list(zwans_demo.PROMPTS),
             "note": zwans_demo.NOTE,
             "has_credential": problem is None,  # whether one is set; it may still be refused
             "credential_problem": problem,
+            "model": canonical(settings.config.model),  # what a new session starts with
         }
 
     @api.get("/evals")

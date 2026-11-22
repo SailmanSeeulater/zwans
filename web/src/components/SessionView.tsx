@@ -280,10 +280,13 @@ export function SessionView() {
               )}
               {!status.demo && (
                 <ModelPicker
-                  sessionId={id}
                   model={status.model}
                   disabled={running || connection !== "open"}
-                  onSwitched={(next) => {
+                  onChoose={async (name) => {
+                    const next = await api<SessionStatus>(`/api/sessions/${encodeURIComponent(id)}/model`, {
+                      method: "POST",
+                      body: JSON.stringify({ name }),
+                    });
                     setStatus(next);
                     setNotice(`Switched to ${next.model}. The next message goes to it.`);
                   }}

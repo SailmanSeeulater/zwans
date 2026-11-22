@@ -135,12 +135,13 @@ def test_a_chat_has_no_folder_or_tools_and_is_still_one_when_resumed(
 ) -> None:
     first, second = FakeProvider([say("Hi.")]), FakeProvider([say("Still here.")])
     server.scripts += [first, second]
-    created = server.client.post("/api/sessions", json={"chat": True}, headers=AUTH)
+    body = {"chat": True, "model": "claude-haiku-5-5"}  # the home screen's pick, not the config's
+    created = server.client.post("/api/sessions", json=body, headers=AUTH)
     assert created.status_code == 201, created.text
     status = created.json()
     url = f"/api/sessions/{status['id']}"
     folder = Path(status["workspace"])
-    assert status["chat"] is True
+    assert (status["chat"], status["model"]) == (True, "claude-haiku-5-5")
     assert folder.parent == (tmp_path / "home" / "chats").resolve()
     assert list(folder.iterdir()) == []
 
@@ -526,6 +527,7 @@ def test_the_demo_info_says_why_the_model_cant_be_used_yet(tmp_path: Path) -> No
     missing = info("claude-haiku-5-5", {})
     assert missing["has_credential"] is False
     assert "ANTHROPIC_API_KEY is not set" in missing["credential_problem"]
+    assert missing["model"] == "claude-haiku-5-5"  # what the home screen's picker starts on
 
     with_key = info("claude-haiku-5-5", {"ANTHROPIC_API_KEY": "test-key"})
     assert (with_key["has_credential"], with_key["credential_problem"]) == (True, None)

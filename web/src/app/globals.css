@@ -668,6 +668,9 @@ html[data-desktop] .session-head a {
   left: auto;
   right: 0;
 }
+.model-menu > .input {
+  width: 100%; /* room for a whole provider/model name */
+}
 .model-group {
   margin-top: 10px;
 }
@@ -1702,6 +1705,8 @@ td.wf-time {
   padding-top: max(40px, 8vh);
 }
 .home-start {
+  position: relative;
+  z-index: 5; /* above the panels below it, for the model menu */
   padding: 22px 24px;
   display: flex;
   flex-direction: column;

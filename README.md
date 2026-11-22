@@ -93,7 +93,9 @@ zwans --model openrouter/qwen/qwen3-coder      # a hosted open model
 
 In a session, `/model ollama/qwen2.5-coder:7b` switches to it, and `/model claude-opus-5-5`
 switches back; the conversation carries over both ways. In the web UI, the model name in a
-session's header opens a menu that does the same.
+session's header opens a menu that does the same, and the same menu on the home screen
+chooses the model before a session or chat starts. It lists Claude's models, whatever your
+local servers have, and takes any `<provider>/<model ID>` you type.
 
 | Provider | Where | Key |
 |---|---|---|

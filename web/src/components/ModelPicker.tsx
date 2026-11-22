@@ -2,20 +2,21 @@
 
 import { ChevronDown, Cpu } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api, type ModelListing, type SessionStatus } from "@/lib/api";
+import { api, type ModelListing } from "@/lib/api";
 
 interface Props {
-  sessionId: string;
   model: string;
   /** While a turn runs, or for the demo's scripted model. */
-  disabled: boolean;
-  onSwitched: (status: SessionStatus) => void;
+  disabled?: boolean;
+  /** Take the model that was picked. If it throws, the menu stays open and says why. */
+  onChoose: (name: string) => void | Promise<void>;
   onError: (message: string) => void;
 }
 
-/** The session's model, and a menu to switch it: Claude, models on local servers, or any
- * provider's model typed as provider/model. */
-export function ModelPicker({ sessionId, model, disabled, onSwitched, onError }: Props) {
+/** A model's name, and a menu to pick another: Claude, models on local servers, or any
+ * provider's model typed as provider/model. A session uses it to switch models, and the
+ * home screen to choose one before starting. */
+export function ModelPicker({ model, disabled = false, onChoose, onError }: Props) {
   const [open, setOpen] = useState(false);
   const [listings, setListings] = useState<ModelListing[] | null>(null);
   const [typed, setTyped] = useState("");
@@ -46,11 +47,7 @@ export function ModelPicker({ sessionId, model, disabled, onSwitched, onError }:
     if (!name.trim() || name === model) return setOpen(false);
     setBusy(true);
     try {
-      const status = await api<SessionStatus>(`/api/sessions/${encodeURIComponent(sessionId)}/model`, {
-        method: "POST",
-        body: JSON.stringify({ name: name.trim() }),
-      });
-      onSwitched(status);
+      await onChoose(name.trim());
       setTyped("");
       setOpen(false);
     } catch (error) {
@@ -76,6 +73,7 @@ export function ModelPicker({ sessionId, model, disabled, onSwitched, onError }:
   return (
     <div className="model-picker" ref={box}>
       <button
+        type="button"
         className="pill pill-quiet model-button mono"
         onClick={(e) => {
           const left = e.currentTarget.getBoundingClientRect().left;
@@ -85,8 +83,8 @@ export function ModelPicker({ sessionId, model, disabled, onSwitched, onError }:
         disabled={disabled}
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label={`Model: ${model}. Switch it`}
-        title={disabled ? "Switch models between turns" : "Switch the model"}
+        aria-label={`Model: ${model}. Choose another`}
+        title={disabled ? "Switch models between turns" : "Choose the model"}
       >
         <Cpu size={12} aria-hidden="true" />
         {model}
@@ -94,22 +92,21 @@ export function ModelPicker({ sessionId, model, disabled, onSwitched, onError }:
       </button>
       {open && (
         <div className={`model-menu glass ${alignRight ? "model-menu-right" : ""}`} role="dialog" aria-label="Choose a model">
-          <form
-            onSubmit={(e) => {
+          {/* Not a form of its own: on the home screen the picker sits inside one. */}
+          <input
+            className="input mono"
+            autoFocus
+            placeholder="provider/model, as ollama/qwen3:8b"
+            aria-label="Model name"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
               e.preventDefault();
               void choose(typed);
             }}
-          >
-            <input
-              className="input mono"
-              autoFocus
-              placeholder="provider/model, as ollama/qwen3:8b"
-              aria-label="Model name"
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              disabled={busy}
-            />
-          </form>
+            disabled={busy}
+          />
           {listings === null && <p className="muted small">Asking the providers…</p>}
           {ready.map((listing) => (
             <div key={listing.provider} className="model-group">
@@ -119,6 +116,7 @@ export function ModelPicker({ sessionId, model, disabled, onSwitched, onError }:
               {listing.models.map((name) => (
                 <button
                   key={name}
+                  type="button"
                   className={`model-option mono ${name === model ? "model-current" : ""}`}
                   onClick={() => void choose(name)}
                   disabled={busy}
@@ -127,7 +125,7 @@ export function ModelPicker({ sessionId, model, disabled, onSwitched, onError }:
                 </button>
               ))}
               {listing.models.length === 0 && !listing.local && (
-                <button className="button button-quiet small" onClick={() => void listMore(listing.provider)}>
+                <button type="button" className="button button-quiet small" onClick={() => void listMore(listing.provider)}>
                   List its models
                 </button>
               )}
