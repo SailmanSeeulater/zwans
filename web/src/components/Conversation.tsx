@@ -11,6 +11,7 @@ import {
   type Turn,
 } from "@/lib/events";
 import { lastLine } from "@/lib/format";
+import { usePrefs } from "@/lib/usePrefs";
 import { replyText } from "@/lib/reply";
 import { TODO_TOOL, todosOf } from "@/lib/todos";
 import { ActionButton, CopyButton } from "./Actions";
@@ -165,8 +166,9 @@ function ItemView({ item, onAnswer, streaming }: { item: Item; onAnswer?: Props[
  * streams; opening it shows all of it. */
 function Thinking({ text, live }: { text: string; live: boolean }) {
   const latest = lastLine(text);
+  const { thinking } = usePrefs();
   return (
-    <details className="thinking">
+    <details className="thinking" open={thinking === "open" || undefined}>
       <summary>
         <span className={`thinking-label ${live ? "shimmer" : ""}`}>{live ? "Thinking" : "Thought"}</span>
         <span className="thinking-latest">{latest}</span>

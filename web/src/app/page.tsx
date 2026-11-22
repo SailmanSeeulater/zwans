@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ModelPicker } from "@/components/ModelPicker";
+import { savePrefs } from "@/lib/prefs";
+import { usePrefs } from "@/lib/usePrefs";
 import { Ticks } from "@/components/Ticks";
 import { TokenMissing, useApi, useHasToken } from "@/components/useApi";
 import {
@@ -42,13 +44,15 @@ export default function HomePage() {
   const { data: runs } = useApi<RunListing[]>(hasToken ? "/api/evals" : null);
   const [task, setTask] = useState("");
   const [workspace, setWorkspace] = useState("");
-  const [mode, setMode] = useState<Mode>("ask");
+  const prefs = usePrefs();
+  const [chosenMode, setMode] = useState<Mode | null>(null);
+  const mode: Mode = chosenMode ?? prefs.newMode;
   const [busy, setBusy] = useState<"start" | "demo" | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [canPick, setCanPick] = useState(false);
   const [kind, setKind] = useState<Kind>("folder");
   const [picked, setPicked] = useState<string | null>(null); // a model other than the config's
-  const model = picked ?? demo?.model ?? "";
+  const model = picked ?? (prefs.newModel || demo?.model) ?? "";
   const chat = kind === "chat";
   const ready = chat || Boolean(workspace.trim());
 
@@ -197,7 +201,16 @@ export default function HomePage() {
               </div>
             </>
           )}
-          {model && <ModelPicker model={model} onChoose={setPicked} onError={setProblem} />}
+          {model && (
+            <ModelPicker
+              model={model}
+              onChoose={(name) => {
+                setPicked(name);
+                savePrefs({ newModel: name === demo?.model ? "" : name });
+              }}
+              onError={setProblem}
+            />
+          )}
           <button
             className="button button-primary"
             disabled={busy !== null || !ready}

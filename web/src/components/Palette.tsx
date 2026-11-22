@@ -79,6 +79,7 @@ function Dialog({ close }: { close: () => void }) {
       { group: "Go to", label: "Task matrix", hint: "Tasks × configs, pass counts", run: go("/evals/matrix/") },
       { group: "Go to", label: "Leaderboard", hint: "Pass rate against cost, for everything run", run: go("/evals/leaderboard/") },
       { group: "Go to", label: "Usage", hint: "Tokens and cost by day, week, month and year", run: go("/usage/") },
+      { group: "Go to", label: "Settings", hint: "Theme, accent, text size, motion, notifications", run: go("/settings/") },
       { group: "Help", label: "Wtf is Zwans", hint: "What it is, what it has, its tools", run: go("/about/") },
       {
         group: "Help",

@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { ShortcutHelp } from "@/components/Actions";
 import { Palette } from "@/components/Palette";
 import { Sidebar } from "@/components/Sidebar";
+import { PREFS_SCRIPT } from "@/lib/prefs";
 import { THEME_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
@@ -16,7 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // The theme script sets data-theme before React hydrates.
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT + PREFS_SCRIPT }} />
       </head>
       <body>
         <div className="wallpaper" aria-hidden="true" />

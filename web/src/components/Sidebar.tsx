@@ -1,6 +1,6 @@
 "use client";
 
-import { ChartColumn, Check, Command, Gauge, Monitor, Palette, Pencil, Pin, PinOff, Plus, Search, Trash2, Users } from "lucide-react";
+import { ChartColumn, Check, Command, Gauge, Monitor, Palette, Pencil, Pin, PinOff, Plus, Search, Settings, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -270,6 +270,10 @@ export function Sidebar() {
       <Link href="/usage/" className="sidebar-link" aria-current={path.startsWith("/usage") ? "page" : undefined}>
         <Gauge size={16} aria-hidden="true" />
         Usage
+      </Link>
+      <Link href="/settings/" className="sidebar-link" aria-current={path.startsWith("/settings") ? "page" : undefined}>
+        <Settings size={16} aria-hidden="true" />
+        Settings
       </Link>
 
       <div className="sidebar-spacer" />
