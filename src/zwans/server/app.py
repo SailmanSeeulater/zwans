@@ -41,12 +41,12 @@ from starlette.websockets import WebSocketDisconnect
 
 from zwans import __version__
 from zwans import demo as zwans_demo
-from zwans.config import ConfigError, load_credential
+from zwans.config import ConfigError
 from zwans.executor.docker import DockerError
 from zwans.images import ImageError, image_block
 from zwans.messages import ImageBlock
 from zwans.policy.rules import Mode, PolicyError
-from zwans.providers.catalog import list_all
+from zwans.providers.catalog import list_all, resolve
 from zwans.server import evals
 from zwans.server.live import Busy, HubSettings, LiveSession, Message, RewindError, SessionHub
 from zwans.store import SessionError, SessionStore
@@ -239,15 +239,12 @@ def create_app(settings: ServerSettings) -> FastAPI:
     @api.get("/demo")
     def demo_prompts() -> dict[str, Any]:
         """What the demo's turns are scripted for, so the UI can offer them."""
-        try:
-            load_credential(settings.config, settings.env)
-            has_credential = True
-        except ConfigError:
-            has_credential = False
+        problem = _credential_problem(settings)
         return {
             "prompts": list(zwans_demo.PROMPTS),
             "note": zwans_demo.NOTE,
-            "has_credential": has_credential,  # whether one is set; it may still be refused
+            "has_credential": problem is None,  # whether one is set; it may still be refused
+            "credential_problem": problem,
         }
 
     @api.get("/evals")
@@ -259,14 +256,14 @@ def create_app(settings: ServerSettings) -> FastAPI:
         try:
             return evals.compare_runs(settings.reports, a, b)
         except evals.ReportNotFound as exc:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"No report {exc}") from exc
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"No report is named {exc}.") from exc
 
     @api.get("/evals/{name}")
     def get_run(name: str) -> dict[str, Any]:
         try:
             return evals.get_run(settings.reports, name)
         except evals.ReportNotFound as exc:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"No report {exc}") from exc
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"No report is named {exc}.") from exc
 
     @api.get("/evals/{name}/transcripts/{file}")
     def get_transcript(name: str, file: str) -> list[dict[str, Any]]:
@@ -327,6 +324,15 @@ def create_app(settings: ServerSettings) -> FastAPI:
             return NO_UI
 
     return app
+
+
+def _credential_problem(settings: ServerSettings) -> str | None:
+    """Why the configured model can't be used yet, or None when the key it needs is set."""
+    try:
+        resolve(settings.config.model, settings.config, settings.env)
+    except ConfigError as exc:
+        return str(exc)
+    return None
 
 
 def _live(hub: SessionHub, session_id: str) -> LiveSession:

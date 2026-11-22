@@ -4,13 +4,14 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { TokenMissing, useApi, useHasToken } from "@/components/useApi";
 import type { RunListing } from "@/lib/api";
+import { pct, plural, spent } from "@/lib/format";
 
-/** Runs of the same task set belong on one line of the chart. */
+/** Runs of the same task set belong on one line of the chart. A set is named by its size
+ * and its first task. */
 function suiteOf(run: RunListing): string {
-  return `${run.tasks.length} tasks · ${run.tasks[0] ?? ""}`;
+  const more = run.tasks.length > 1 ? ", …" : "";
+  return `${plural(run.tasks.length, "task")}: ${run.tasks[0] ?? ""}${more}`;
 }
-
-const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 export default function RunsPage() {
   const hasToken = useHasToken();
@@ -39,6 +40,7 @@ export default function RunsPage() {
         Runs from <code>evals/reports/</code>. Tick two to compare them, or several for a task matrix.
       </p>
       {error && <div className="notice notice-bad">{error}</div>}
+      {!runs && !error && <p className="muted">Loading…</p>}
       {runs && runs.length === 0 && <p className="muted">No reports yet. Run <code>zwans eval run</code>.</p>}
       {runs && runs.length > 0 && (
         <>
@@ -49,6 +51,7 @@ export default function RunsPage() {
               className={`button button-primary ${a && b ? "" : "disabled"}`}
               href={a && b ? `/evals/compare/?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}` : "#"}
               aria-disabled={!(a && b)}
+              title={a && b ? undefined : "Tick exactly two runs in the table first"}
               onClick={(e) => {
                 if (!(a && b)) e.preventDefault();
               }}
@@ -107,7 +110,7 @@ export default function RunsPage() {
                   <td className="num">
                     {run.summary.passed}/{run.summary.attempts} ({pct(run.summary.pass_rate)})
                   </td>
-                  <td className="num">${run.summary.dollars.toFixed(2)}</td>
+                  <td className="num">{spent(run.summary.dollars)}</td>
                   <td className="num">{run.summary.mean_model_calls.toFixed(1)}</td>
                   <td className="num">{run.summary.mean_seconds.toFixed(0)}</td>
                 </tr>
@@ -120,7 +123,9 @@ export default function RunsPage() {
   );
 }
 
-const SERIES_COLORS = ["var(--accent)", "var(--ok)", "var(--warn)", "var(--bad)", "var(--ink-2)"];
+// The last two are fixed mid-tones that read on every theme, so six or seven task sets
+// each get a colour of their own.
+const SERIES_COLORS = ["var(--accent)", "var(--ok)", "var(--warn)", "var(--bad)", "var(--ink-2)", "#a06cd5", "#2aa3a3"];
 
 function History({ runs }: { runs: RunListing[] }) {
   const width = 1000;

@@ -7,6 +7,8 @@
  */
 
 const TOKEN_KEY = "zwans-token";
+/** Sent on `window` when the stored token changes, so pages check again whether they have one. */
+export const TOKEN_EVENT = "zwans:token";
 
 declare global {
   interface Window {
@@ -38,6 +40,17 @@ export function readToken(): string | null {
   }
 }
 
+/** Forget a token the server refused: it makes a new one each time it starts. Pages then
+ * ask for the link again instead of showing nothing. */
+function forgetToken(refused: string | null) {
+  try {
+    if (refused && localStorage.getItem(TOKEN_KEY) === refused) localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Storage is blocked, so there was nothing kept to forget.
+  }
+  window.dispatchEvent(new Event(TOKEN_EVENT));
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -48,14 +61,16 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const token = readToken();
   const response = await fetch(API_BASE + path, {
     ...init,
     headers: {
-      Authorization: `Bearer ${readToken() ?? ""}`,
+      Authorization: `Bearer ${token ?? ""}`,
       "Content-Type": "application/json",
       ...init.headers,
     },
   });
+  if (response.status === 401) forgetToken(token);
   if (!response.ok) {
     let detail = response.statusText;
     try {
@@ -111,6 +126,8 @@ export interface DemoInfo {
   note: string;
   /** Whether the server has a credential set. It may still be refused. */
   has_credential: boolean;
+  /** Why the configured model can't be used yet, in the server's words; null when it can. */
+  credential_problem: string | null;
 }
 
 /** The last request a session sent, exactly as the API got it (never the credential). */

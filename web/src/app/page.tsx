@@ -4,6 +4,7 @@ import { FolderOpen, Play, ScrollText } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { Ticks } from "@/components/Ticks";
 import { TokenMissing, useApi, useHasToken } from "@/components/useApi";
 import {
   api,
@@ -15,6 +16,7 @@ import {
   type SessionList,
   type SessionStatus,
 } from "@/lib/api";
+import { useIsMac } from "@/lib/platform";
 
 const MODES: { id: Mode; label: string; about: string }[] = [
   { id: "read-only", label: "Read-only", about: "Reads and searches; changes nothing" },
@@ -25,6 +27,7 @@ const MODES: { id: Mode; label: string; about: string }[] = [
 /** Draft 19: start a task, or watch the demo with no key at all. */
 export default function HomePage() {
   const hasToken = useHasToken();
+  const mac = useIsMac();
   const router = useRouter();
   const { data: sessions } = useApi<SessionList>(hasToken ? "/api/sessions" : null);
   const { data: demo } = useApi<DemoInfo>(hasToken ? "/api/demo" : null);
@@ -102,11 +105,10 @@ export default function HomePage() {
 
   return (
     <main className="page home">
-      {demo && !demo.has_credential && (
+      {demo?.credential_problem && (
         <div className="callout callout-warn">
-          <div className="callout-title">No API key is set</div>
-          Put one in <code>.env</code> as <code>ANTHROPIC_API_KEY</code> and restart <code>zwans serve</code>, or try the
-          demo below, which needs none.
+          <div className="callout-title">Zwans can&apos;t reach a model yet</div>
+          <Ticks text={demo.credential_problem} /> Then restart <code>zwans serve</code>. The demo below needs no key.
         </div>
       )}
 
@@ -163,11 +165,17 @@ export default function HomePage() {
               </button>
             ))}
           </div>
-          <button className="button button-primary" disabled={busy !== null || !workspace.trim()}>
+          <button
+            className="button button-primary"
+            disabled={busy !== null || !workspace.trim()}
+            title={workspace.trim() ? undefined : "Give it a folder to work in first"}
+          >
             {busy === "start" ? "Starting…" : "Start"}
           </button>
         </div>
-        <p className="muted small">{MODES.find((m) => m.id === mode)?.about}. ⌘↵ starts.</p>
+        <p className="muted small">
+          {MODES.find((m) => m.id === mode)?.about}. {mac ? "⌘↵" : "Ctrl+Enter"} starts.
+        </p>
         <datalist id="recent-folders">
           {folders.map(([path]) => (
             <option key={path} value={path} />

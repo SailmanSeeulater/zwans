@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api, type SessionList, type SessionStatus } from "@/lib/api";
+import { shortcut, useIsMac } from "@/lib/platform";
 import { chooseTheme, readChoice, THEMES, type ThemeChoice } from "@/lib/theme";
 import { useApi, useHasToken } from "./useApi";
 
@@ -17,13 +18,18 @@ export function Sidebar() {
   const currentId = useSearchParams().get("id");
   const router = useRouter();
   const hasToken = useHasToken();
+  const mac = useIsMac();
   const { data } = useApi<SessionList>(hasToken ? "/api/sessions" : null, REFRESH_MS);
 
   const live = data?.live ?? [];
   const recent = (data?.saved ?? []).filter((s) => !s.live).slice(0, RECENT);
 
   const resume = async (id: string) => {
-    await api<SessionStatus>(`/api/sessions/${encodeURIComponent(id)}/open`, { method: "POST" });
+    try {
+      await api<SessionStatus>(`/api/sessions/${encodeURIComponent(id)}/open`, { method: "POST" });
+    } catch {
+      // The session's page tries once more and says why it can't be resumed.
+    }
     router.push(`/session/?id=${encodeURIComponent(id)}`);
   };
 
@@ -38,11 +44,12 @@ export function Sidebar() {
         className="sidebar-link button-quiet"
         style={{ border: 0, background: "transparent", font: "inherit", cursor: "pointer", textAlign: "left" }}
         onClick={() => window.dispatchEvent(new Event("zwans:palette"))}
+        title="Search sessions, views and commands"
       >
         <Search size={16} aria-hidden="true" />
-        Search and commands
+        Search
         <span className="kbd" style={{ marginLeft: "auto" }}>
-          ⌘K
+          {shortcut(mac, "K")}
         </span>
       </button>
 
@@ -134,10 +141,10 @@ function ThemeMenu() {
   };
 
   const options: { id: ThemeChoice; name: string; about: string }[] = [
-    { id: "system", name: "Follow macOS", about: "Paper by day, Graphite by night" },
+    { id: "system", name: "Match system", about: "Paper by day, Graphite by night" },
     ...THEMES,
   ];
-  const current = options.find((o) => o.id === choice)?.name ?? "Follow macOS";
+  const current = options.find((o) => o.id === choice)?.name ?? "Match system";
 
   return (
     <div ref={box} style={{ position: "relative" }}>

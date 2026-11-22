@@ -381,6 +381,23 @@ def test_the_last_request_is_shown_as_the_api_got_it(server: Server) -> None:
     assert {tool["name"] for tool in request["tools"]} >= {"Read", "Bash"}
 
 
+def test_the_demo_info_says_why_the_model_cant_be_used_yet(tmp_path: Path) -> None:
+    def info(model: str, env: dict[str, str]) -> dict[str, Any]:
+        config = Config(home=tmp_path / "home", model=model)
+        with TestClient(create_app(ServerSettings(config=config, env=env, token=TOKEN))) as client:
+            found: dict[str, Any] = client.get("/api/demo", headers=AUTH).json()
+            return found
+
+    missing = info("claude-haiku-5-5", {})
+    assert missing["has_credential"] is False
+    assert "ANTHROPIC_API_KEY is not set" in missing["credential_problem"]
+
+    with_key = info("claude-haiku-5-5", {"ANTHROPIC_API_KEY": "test-key"})
+    assert (with_key["has_credential"], with_key["credential_problem"]) == (True, None)
+    # A model on this machine needs no key at all.
+    assert info("ollama/qwen3-coder", {})["credential_problem"] is None
+
+
 def test_the_demo_fixes_its_project_and_compacts_on_the_second_turn(tmp_path: Path) -> None:
     settings = ServerSettings(
         config=Config(home=tmp_path / "home", subagents=False),

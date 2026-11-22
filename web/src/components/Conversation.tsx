@@ -13,6 +13,7 @@ import {
 import { TODO_TOOL, todosOf } from "@/lib/todos";
 import { DiffBody } from "./DiffBody";
 import { Markdown } from "./Markdown";
+import { Ticks } from "./Ticks";
 import { TodoList } from "./TodoList";
 
 export type Answer = "once" | "always" | "no";
@@ -161,7 +162,7 @@ export function ToolCard({ call, onAnswer }: { call: ToolCall; onAnswer?: Props[
         <div className="tool-body">
           {call.permission && call.permission.state !== "asking" && (
             <p className="muted">
-              {call.permission.reason} ({call.permission.state})
+              <Ticks text={call.permission.reason} /> ({call.permission.state})
             </p>
           )}
           {call.hooks.map((hook, i) => (
@@ -207,7 +208,9 @@ export function AskBar({ call, onAnswer }: { call: ToolCall; onAnswer?: Props["o
   const always = call.permission?.rules.join(", ") ?? "";
   return (
     <div className="ask" role="group" aria-label="Permission request">
-      <div className="ask-reason">{call.permission?.reason}</div>
+      <div className="ask-reason">
+        <Ticks text={call.permission?.reason ?? ""} />
+      </div>
       {onAnswer ? (
         <div className="row">
           <button className="button button-primary" onClick={() => onAnswer(call.id, "once")}>
@@ -215,7 +218,7 @@ export function AskBar({ call, onAnswer }: { call: ToolCall; onAnswer?: Props["o
           </button>
           {canAlwaysAllow(call) && (
             <button className="button" onClick={() => onAnswer(call.id, "always")} title={always}>
-              Always allow ({always})
+              Always allow <span className="mono">{always}</span>
             </button>
           )}
           <button className="button button-danger" onClick={() => onAnswer(call.id, "no")}>

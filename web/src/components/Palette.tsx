@@ -4,6 +4,7 @@ import { Search } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { api, rememberFirstPrompt, type DemoInfo, type SessionList, type SessionStatus } from "@/lib/api";
+import { shortcut, useIsMac } from "@/lib/platform";
 import { chooseTheme, THEMES } from "@/lib/theme";
 import { TABS } from "./inspector/Inspector";
 import { useApi, useHasToken } from "./useApi";
@@ -40,6 +41,7 @@ export function Palette() {
 
 /** The open palette. It mounts fresh each time, so the search starts empty. */
 function Dialog({ close }: { close: () => void }) {
+  const mac = useIsMac();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [problem, setProblem] = useState<string | null>(null);
@@ -107,7 +109,7 @@ function Dialog({ close }: { close: () => void }) {
         router.push(`/session/?id=${encodeURIComponent(status.id)}`);
       },
     });
-    list.push({ group: "Theme", label: "Theme: follow macOS", run: () => chooseTheme("system") });
+    list.push({ group: "Theme", label: "Theme: match system", run: () => chooseTheme("system") });
     for (const t of THEMES) list.push({ group: "Theme", label: `Theme: ${t.name}`, hint: t.about, run: () => chooseTheme(t.id) });
     return list;
   }, [router, sessionId, sessions]);
@@ -203,7 +205,7 @@ function Dialog({ close }: { close: () => void }) {
             <span className="kbd">↵</span> run
           </span>
           <span>
-            <span className="kbd">⌘K</span> anywhere
+            <span className="kbd">{shortcut(mac, "K")}</span> anywhere
           </span>
         </div>
       </div>

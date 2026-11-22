@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, readToken } from "@/lib/api";
+import { api, readToken, TOKEN_EVENT } from "@/lib/api";
 
 /** Load one API path, with a way to load it again. `null` waits without loading. With
  * `everyMs`, it loads again on that interval while the page is visible. */
@@ -47,10 +47,15 @@ export function useHasToken(): boolean | null {
     // Reads the URL and localStorage, which only exist in the browser.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setHas(Boolean(readToken()));
-    // The link pasted into a tab that's already open changes only the hash.
-    const onHash = () => setHas(Boolean(readToken()));
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    // The link pasted into a tab that's already open changes only the hash, and a token
+    // the server refused is forgotten.
+    const check = () => setHas(Boolean(readToken()));
+    window.addEventListener("hashchange", check);
+    window.addEventListener(TOKEN_EVENT, check);
+    return () => {
+      window.removeEventListener("hashchange", check);
+      window.removeEventListener(TOKEN_EVENT, check);
+    };
   }, []);
   return has;
 }
@@ -58,8 +63,8 @@ export function useHasToken(): boolean | null {
 export function TokenMissing() {
   return (
     <div className="notice notice-warn">
-      This browser doesn&apos;t have the server&apos;s token yet. Open the link <code>zwans serve</code>{" "}
-      printed (the part after <code>#token=</code> is the token).
+      This browser doesn&apos;t have the server&apos;s current token. <code>zwans serve</code> makes a new one each
+      time it starts: open the link it printed (the part after <code>#token=</code> is the token).
     </div>
   );
 }

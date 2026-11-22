@@ -31,7 +31,9 @@ export function UnderTheHood({ data, status, onOpen }: Props) {
     <aside className="inspector glass" aria-label="Under the hood">
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h2>Under the hood</h2>
-        <span className={status?.demo ? "pill" : "pill pill-quiet"}>{status?.demo ? "Scripted model" : status?.model}</span>
+        {status && (
+          <span className={status.demo ? "pill" : "pill pill-quiet"}>{status.demo ? "Scripted model" : status.model}</span>
+        )}
       </div>
 
       <button className="hood-card" onClick={() => onOpen("context")} aria-label="Open the context map">
@@ -70,13 +72,11 @@ export function UnderTheHood({ data, status, onOpen }: Props) {
         {thisTurn.map((c) => (
           <div key={c.n} className="call-row">
             <span className="mono muted">#{c.n}</span>
-            <span style={{ minWidth: 0 }}>
-              <span className={c.toolError ? "status-failed" : ""}>{askedFor(c)}</span>
-              <span className="call-row-sub">
-                in {tokens(c.input + c.cacheWrite)} · cached {tokens(c.cacheRead)} · out {tokens(c.output)}
-              </span>
-            </span>
+            <span className={`call-row-name ${c.toolError ? "status-failed" : ""}`}>{askedFor(c)}</span>
             <span className="mono muted">{seconds(c.seconds)}</span>
+            <span className="call-row-sub">
+              in {tokens(c.input + c.cacheWrite)} · cached {tokens(c.cacheRead)} · out {tokens(c.output)}
+            </span>
           </div>
         ))}
       </button>
