@@ -314,28 +314,29 @@ def _terminal_input(stream: TextIO, out: TextIO, echo: bool) -> Iterator[None]:
     if sys.platform == "win32" or not stream.isatty():
         yield
         return
-    fd = stream.fileno()
-    saved = termios.tcgetattr(fd)
-    hidden = not saved[3] & termios.ECHO  # asked inside Composer.typing_ahead()
-    changed = [*saved[:6], list(saved[6])]  # a copy of the control characters too
-    flags = termios.ECHO | termios.ICANON
-    if echo:
-        termios.tcflush(fd, termios.TCIFLUSH)
-        changed[0] |= termios.ICRNL
-        changed[3] |= flags
-    else:
-        changed[0] &= ~termios.ICRNL
-        changed[3] &= ~flags
-        changed[6][termios.VMIN], changed[6][termios.VTIME] = 1, 0
-    termios.tcsetattr(fd, termios.TCSANOW, changed)
-    if hidden or not echo:
-        _mark_pastes(out, not echo)
-    try:
-        yield
-    finally:
-        termios.tcsetattr(fd, termios.TCSANOW, saved)
+    if sys.platform != "win32":  # always, by now; it tells type checkers on Windows
+        fd = stream.fileno()
+        saved = termios.tcgetattr(fd)
+        hidden = not saved[3] & termios.ECHO  # asked inside Composer.typing_ahead()
+        changed = [*saved[:6], list(saved[6])]  # a copy of the control characters too
+        flags = termios.ECHO | termios.ICANON
+        if echo:
+            termios.tcflush(fd, termios.TCIFLUSH)
+            changed[0] |= termios.ICRNL
+            changed[3] |= flags
+        else:
+            changed[0] &= ~termios.ICRNL
+            changed[3] &= ~flags
+            changed[6][termios.VMIN], changed[6][termios.VTIME] = 1, 0
+        termios.tcsetattr(fd, termios.TCSANOW, changed)
         if hidden or not echo:
-            _mark_pastes(out, echo)
+            _mark_pastes(out, not echo)
+        try:
+            yield
+        finally:
+            termios.tcsetattr(fd, termios.TCSANOW, saved)
+            if hidden or not echo:
+                _mark_pastes(out, echo)
 
 
 def _mark_pastes(out: TextIO, on: bool) -> None:

@@ -14,7 +14,9 @@ from types import FrameType
 from typing import Any, Self
 
 # Python's own handlers can only be set from the main thread, and Windows has neither signal.
-STOP_SIGNALS = () if sys.platform == "win32" else (signal.SIGTERM, signal.SIGHUP)
+STOP_SIGNALS: tuple[signal.Signals, ...] = ()
+if sys.platform != "win32":
+    STOP_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 
 _Handler = Callable[[int, FrameType | None], Any] | int | None
 

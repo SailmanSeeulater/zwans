@@ -139,6 +139,8 @@ def test_lines_typed_ahead_are_sent_one_at_a_time(workspace: Path) -> None:
 def test_typing_during_a_turn_waits_unechoed_and_a_question_takes_only_later_typing(
     workspace: Path,
 ) -> None:
+    if sys.platform == "win32":  # skipped there already; this tells type checkers
+        pytest.skip("POSIX only")
     import termios
 
     leader, follower = os.openpty()
@@ -194,6 +196,8 @@ def test_typing_during_a_turn_waits_unechoed_and_a_question_takes_only_later_typ
 def test_a_question_drops_what_was_typed_before_it_and_keeps_what_follows(
     workspace: Path,
 ) -> None:
+    if sys.platform == "win32":  # skipped there already; this tells type checkers
+        pytest.skip("POSIX only")
     leader, follower = os.openpty()
 
     async def go() -> tuple[bool, bool, list[str]]:

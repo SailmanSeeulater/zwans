@@ -16,7 +16,8 @@ from zwans.executor.shutdown import SessionRunner
 from zwans.messages import TextBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse
 
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="SIGTERM and SIGHUP are POSIX")
+if sys.platform == "win32":
+    pytest.skip("SIGTERM and SIGHUP are POSIX", allow_module_level=True)
 
 
 def test_sigterm_cancels_what_is_running_and_lets_cleanup_run() -> None:

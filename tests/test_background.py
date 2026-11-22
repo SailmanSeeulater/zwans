@@ -156,6 +156,8 @@ def test_killing_a_job_closes_output_held_by_something_that_left_its_group(
 
     read = asyncio.run(go())
     pid = next(int(line) for line in read.splitlines() if line.isdigit())
+    if sys.platform == "win32":  # skipped there already; this tells type checkers
+        pytest.skip("POSIX only")
     os.kill(pid, signal.SIGKILL)  # it left the group, so it's still there
     gc.collect()  # what would otherwise be closed after the event loop, and complain
 
