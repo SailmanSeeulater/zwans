@@ -1,5 +1,6 @@
 import asyncio
 import json
+import shlex
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -445,7 +446,7 @@ def test_model_and_clear_in_an_empty_chat_dont_name_the_session_that_goes(
     used = _chat(tmp_path, "Say hi\n/model claude-custom-9\nexit\n")
 
     assert empty.exit_code == 0, empty.output
-    workspace = (tmp_path / "work").resolve()
+    workspace = shlex.quote(str((tmp_path / "work").resolve()))  # Windows: quoted
     assert f"start a new session: zwans -w {workspace} --model claude-custom-9" in empty.output
     assert "--resume" not in empty.output and "Left " not in empty.output
     assert used.exit_code == 0, used.output

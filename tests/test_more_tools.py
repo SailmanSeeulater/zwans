@@ -24,6 +24,7 @@ from zwans.runtime import open_session
 from zwans.tools.ask_user import AskUserInput, AskUserTool
 from zwans.tools.base import ToolContext, ToolError, ToolOutput
 from zwans.tools.docs import DocsInput, DocsTool
+from zwans.tools.hints import says_missing
 from zwans.tools.memory import MemoryInput, MemoryTool, read_notes
 from zwans.tools.outline import OutlineInput, OutlineTool, outline
 from zwans.tools.python_session import PythonInput, PythonTool
@@ -284,6 +285,16 @@ def test_references_and_rename_cover_every_file(tmp_path: Path, ctx: ToolContext
     )
 
 
+def test_a_missing_path_is_recognised_as_each_system_words_it() -> None:
+    assert says_missing("rg: tests: No such file or directory (os error 2)")
+    assert says_missing(
+        "rg: tests: IO error for operation on tests: The system cannot find the file "
+        "specified. (os error 2)"
+    )
+    assert says_missing("rg: a\\b: The system cannot find the path specified. (os error 3)")
+    assert not says_missing("rg: regex parse error: unclosed group")
+
+
 @needs_rg
 def test_rename_refuses_what_isnt_a_name_or_isnt_there(tmp_path: Path, ctx: ToolContext) -> None:
     write(tmp_path, {"calc.py": CALC})
@@ -352,7 +363,8 @@ def test_show_changes_is_everything_since_the_session_began(
         "deleted gone.py\nchanged keep.py\nadded   new.py"
     )
     assert changed.content.startswith(names.content + "\n\ndiff --git")
-    assert "-a = 1\n+a = 10" in changed.content and "+c = 3" in changed.content
+    diff = changed.content.replace("\r\n", "\n")  # write_text writes \r\n on Windows
+    assert "-a = 1\n+a = 10" in diff and "+c = 3" in diff
 
 
 def test_show_changes_says_so_without_checkpoints(ctx: ToolContext) -> None:

@@ -387,7 +387,8 @@ def test_edit_rules_cover_the_files_commands_write(tmp_path: Path) -> None:
     perms = permissions(tmp_path, "auto", deny=["Edit(secrets/**)"])
     assert decide(perms, BashTool(), command="cp x secrets/a") == Decision.DENY
     assert decide(perms, BashTool(), command="rm -rf secrets") == Decision.DENY
-    assert decide(perms, BashTool(), command=f"touch {tmp_path}/secrets/b") == Decision.DENY
+    touch = f"touch {tmp_path.as_posix()}/secrets/b"  # bash eats a backslash
+    assert decide(perms, BashTool(), command=touch) == Decision.DENY
     assert decide(perms, BashTool(), command="cp secrets.txt x") == Decision.ALLOW
 
 

@@ -1,6 +1,7 @@
 import asyncio
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -170,6 +171,7 @@ def test_undo_reverts_the_files_and_the_turn(
     asyncio.run(reopened.close())
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows file names can't hold control codes")
 def test_rewind_and_undo_print_names_and_prompts_as_text(
     workspace: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

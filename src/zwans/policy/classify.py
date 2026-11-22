@@ -1713,7 +1713,7 @@ def _allowed_path(path: str, inside: Inside) -> bool:
         return False
     # Resolved first, so /tmp/../etc/passwd isn't taken as a file in /tmp.
     real = os.path.realpath(path) if path.startswith("/") else ""
-    if any(real == d or real.startswith(d + "/") for d in REAL_SCRATCH_DIRS):
+    if any(real == d or real.startswith(os.path.join(d, "")) for d in REAL_SCRATCH_DIRS):
         return True
     return inside(path)
 

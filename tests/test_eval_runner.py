@@ -211,7 +211,7 @@ def test_the_stop_check_config_sends_the_agent_back_while_the_tests_fail(tmp_pat
     report = asyncio.run(run_suite([BUGGY_CALC], agent, settings, config, tmp_path))
 
     [attempt] = report.attempts
-    assert attempt.status == "passed"
+    assert attempt.status == "passed", (attempt.errors, attempt.check_output)
     assert attempt.model_calls == 4
     transcript = Path(attempt.transcript).read_text(encoding="utf-8")
     assert "The tests still fail" in transcript

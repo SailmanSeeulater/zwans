@@ -140,11 +140,19 @@ def workspace_root(ctx: ToolContext) -> Path | None:
     return Path(root) if root is not None else None
 
 
+def says_missing(output: str) -> bool:
+    """Whether a command's error says a path isn't there: "No such file or directory", or
+    on Windows "The system cannot find the file (or path) specified. (os error 2)"."""
+    return "No such file or directory" in output or any(
+        f"(os error {code})" in output for code in (2, 3)
+    )
+
+
 def raise_if_missing(ctx: ToolContext, path: str, output: str) -> None:
     """After a search command failed: if that's because `path` isn't there, raise the
     FileNotFoundError a read of it would have, so the model is told where to look instead."""
     root = workspace_root(ctx)
-    if root is None or "No such file or directory" not in output:
+    if root is None or not says_missing(output):
         return
     try:
         missing = root / ctx.executor.relative(path)

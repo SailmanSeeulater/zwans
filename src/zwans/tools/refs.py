@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from zwans.tools.base import ToolContext, ToolError, ToolOutput
 from zwans.tools.grep import skipped
+from zwans.tools.hints import says_missing
 from zwans.tools.text import TextFile, unified_diff
 
 IDENTIFIER = re.compile(r"^[A-Za-z_$][\w$]*$")
@@ -186,7 +187,7 @@ async def _mentioning(symbol: str, path: str, ctx: ToolContext) -> list[str]:
 def search_problem(who: str, path: str, output: str) -> str:
     """Why ripgrep couldn't look in `path`, for the model: most often a path that isn't
     there, which it should hear plainly rather than as ripgrep's own words."""
-    if "No such file or directory" in output:
+    if says_missing(output):
         return (
             f'There\'s no file or folder called {path!r} in the workspace. Use "." for the '
             "whole workspace, or Glob to find the path."

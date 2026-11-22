@@ -98,9 +98,13 @@ def test_a_codex_attempt_that_runs_too_long_times_out(
 def codex_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    shim = bin_dir / "codex"
-    shim.write_text(f'#!/bin/sh\nexec "{FAKE_CODEX[0]}" "{FAKE_CODEX[1]}" "$@"\n', "utf-8")
-    shim.chmod(0o755)
+    if sys.platform == "win32":  # where npm installs codex as codex.cmd
+        shim = bin_dir / "codex.cmd"
+        shim.write_text(f'@"{FAKE_CODEX[0]}" "{FAKE_CODEX[1]}" %*\r\n', "utf-8")
+    else:
+        shim = bin_dir / "codex"
+        shim.write_text(f'#!/bin/sh\nexec "{FAKE_CODEX[0]}" "{FAKE_CODEX[1]}" "$@"\n', "utf-8")
+        shim.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     # register_prices() fills a module-level table; start each test without earlier prices.
     monkeypatch.setattr(pricing, "EXTRA_PRICES", {})

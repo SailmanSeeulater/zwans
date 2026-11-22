@@ -16,7 +16,7 @@ from zwans.config import Config
 from zwans.eval.claude_code import parse_stream as parse_claude_code
 from zwans.eval.codex import parse_stream as parse_codex
 from zwans.eval.compare import compare
-from zwans.eval.guard import answer_markers
+from zwans.eval.guard import answer_markers, peeks_at
 from zwans.eval.runner import (
     AgentRun,
     AttemptResult,
@@ -47,6 +47,15 @@ def test_the_markers_are_the_suite_folder_and_the_tasks_path_in_the_repository()
 
     assert str(ROOT / "evals" / "tasks") in markers
     assert "tasks/buggy-calc" in markers
+
+
+def test_a_windows_path_to_the_answer_is_noticed_however_its_slashes_go() -> None:
+    markers = ["tasks/buggy-calc"]
+    windows = r"type D:\a\zwans\evals\tasks\buggy-calc\solution\calc.py"
+
+    assert peeks_at({"command": windows}, markers)
+    assert peeks_at({"path": "D:/a/zwans/evals/tasks/buggy-calc/hidden/test_calc.py"}, markers)
+    assert peeks_at({"command": "pytest -q tests/test_calc.py"}, markers) is None
 
 
 @needs_bash

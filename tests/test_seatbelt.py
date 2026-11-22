@@ -46,6 +46,7 @@ def sandbox() -> Iterator[SeatbeltExecutor]:
         shutil.rmtree(base, ignore_errors=True)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Seatbelt profiles name POSIX paths")
 def test_the_profile_names_the_workspace_and_the_credential_folders(tmp_path: Path) -> None:
     rules = profile(tmp_path / 'my "work"', tmp_path / "home")
 

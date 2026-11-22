@@ -13,6 +13,7 @@ it's only part of the defence.
 """
 
 import json
+import sys
 from collections.abc import Callable, Iterable
 from typing import Any
 
@@ -34,9 +35,28 @@ def answer_markers(task: Task) -> list[str]:
 def peeks_at(call: dict[str, Any], markers: Iterable[str]) -> str | None:
     """The call, as JSON for the report, when it names one of `markers`; otherwise None."""
     text = json.dumps(call, ensure_ascii=False)
-    if any(marker in text for marker in markers):
+    # Looked for in the values themselves, since JSON doubles a backslash, with \ and / taken
+    # alike: a Windows path may be written either way.
+    said = _comparable(" ".join(_strings(call)))
+    if any(_comparable(marker) in said for marker in markers):
         return text[:MAX_SHOWN]
     return None
+
+
+def _strings(value: object) -> Iterable[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _strings(item)
+    elif isinstance(value, list | tuple):
+        for item in value:
+            yield from _strings(item)
+
+
+def _comparable(text: str) -> str:
+    text = text.replace("\\", "/")
+    return text.casefold() if sys.platform == "win32" else text  # its paths ignore case
 
 
 class AnswerGuard:
