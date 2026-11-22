@@ -2,6 +2,7 @@
 
 import signal
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import typer
@@ -42,6 +43,19 @@ async def terminal_approver(request: PermissionRequest) -> Approval:
     always = printable(", ".join(_cut(rule) for rule in request.rules))
     answer = _prompt(f"  Allow it? [y]es / [a]lways ({always}) / [N]o: ")
     return ANSWERS.get(answer.strip().lower(), Approval.NO)
+
+
+def terminal_question(question: str, options: Sequence[str]) -> str | None:
+    """Put the model's question to the person in the terminal. A number picks an option,
+    anything else is the answer, and nothing at all is no answer."""
+    typer.secho(f"  ? {printable(question)}", fg="yellow")
+    for number, option in enumerate(options, 1):
+        typer.echo(f"    {number}. {printable(option)}")
+    hint = f"  Answer (1-{len(options)}, or your own words): " if options else "  Answer: "
+    answer = _prompt(hint).strip()
+    if answer.isdigit() and 1 <= int(answer) <= len(options):
+        return options[int(answer) - 1]
+    return answer or None
 
 
 def _cut(text: str, limit: int = 80) -> str:

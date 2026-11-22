@@ -23,7 +23,7 @@ from zwans.executor.background import BackgroundJobs
 from zwans.executor.docker import SANDBOX_OS, DockerExecutor
 from zwans.executor.jail import JAIL_OS, JailExecutor
 from zwans.executor.local import LocalExecutor, find_bash
-from zwans.executor.seatbelt import SEATBELT_OS, SeatbeltExecutor
+from zwans.executor.seatbelt import SEATBELT_OS, SeatbeltError, SeatbeltExecutor
 from zwans.ext.hooks import Hooks
 from zwans.ext.skills import find_skills, skill_folders
 from zwans.mcp.tools import McpServers, McpTool
@@ -38,14 +38,22 @@ from zwans.providers.fake import FakeProvider
 from zwans.providers.router import ModelRouter
 from zwans.session import Session
 from zwans.store import SessionError, SessionInfo, SessionRecorder, SessionStore, load_session
-from zwans.tools.base import Tool, ToolContext
+from zwans.tools.ask_user import AskUserTool
+from zwans.tools.base import Asker, Tool, ToolContext
 from zwans.tools.bash import BashOutputTool, BashTool, KillBashTool
 from zwans.tools.diagnostics import DiagnosticsTool
+from zwans.tools.docs import DocsTool
 from zwans.tools.edit import EditTool
 from zwans.tools.glob import GlobTool
 from zwans.tools.grep import GrepTool
+from zwans.tools.memory import MemoryTool, read_notes
 from zwans.tools.multi_edit import MultiEditTool
+from zwans.tools.outline import OutlineTool
+from zwans.tools.python_session import PythonTool
 from zwans.tools.read import ReadTool
+from zwans.tools.refs import ReferencesTool, RenameTool
+from zwans.tools.run_tests import RunTestsTool
+from zwans.tools.show_changes import ShowChangesTool
 from zwans.tools.skill import SkillTool
 from zwans.tools.task import TaskTool
 from zwans.tools.todo import TodoWriteTool
@@ -108,6 +116,10 @@ class OpenedSession:
     async def close(self) -> None:
         if self.jobs is not None:
             await self.jobs.close()
+        for tool in self.session.tools:  # a tool with something left running, as Python has
+            stop = getattr(tool, "aclose", None)
+            if callable(stop):
+                await stop()
         if self.mcp is not None:
             await self.mcp.close()
         if isinstance(self.executor, DockerExecutor):
@@ -137,10 +149,15 @@ def open_session(
     make_provider: ProviderFactory | None = None,
     fake_script: Path | None = None,
     chat: bool = False,
+    asker: Asker | None = None,
+    ask_later: bool = False,
 ) -> OpenedSession:
     """A new session in `workspace`, a new chat (`chat`, which ignores `workspace`), or the
     saved one `resume` names. Raises ConfigError (JailError among them), SessionError or
-    PolicyError. Call `start()` before the first turn."""
+    PolicyError. Call `start()` before the first turn.
+
+    `asker` puts the model's questions to the person, which gives it the AskUser tool.
+    `ask_later` gives it the tool with the asker still to come, as the server's is."""
     model = canonical(model) if model else None
     store = SessionStore(config.home / "sessions.db")
     messages: list[Message] = []
@@ -180,18 +197,25 @@ def open_session(
         skills = find_skills(skill_folders(root, config.home))
         instructions = load_instructions(root, config.home)  # for a chat, only the user's own
         followed = [path for path, _ in instructions]
+        notes = read_notes(config.home, root) if "Memory" not in config.disabled_tools else []
         if chat:
             system = chat_prompt(instructions, config.web)
         elif config.executor == "docker":
-            system = system_prompt(root, "bash", instructions, SANDBOX_OS, skills, config.web)
+            system = system_prompt(
+                root, "bash", instructions, SANDBOX_OS, skills, config.web, notes
+            )
         elif config.executor == "jail":
-            system = system_prompt(root, "bash", instructions, JAIL_OS, skills, config.web)
+            system = system_prompt(root, "bash", instructions, JAIL_OS, skills, config.web, notes)
         elif config.executor == "seatbelt":
             shell = describe_shell(config.shell)
-            system = system_prompt(root, shell, instructions, SEATBELT_OS, skills, config.web)
+            system = system_prompt(
+                root, shell, instructions, SEATBELT_OS, skills, config.web, notes
+            )
         else:
             shell = describe_shell(config.shell)
-            system = system_prompt(root, shell, instructions, skills=skills, web=config.web)
+            system = system_prompt(
+                root, shell, instructions, skills=skills, web=config.web, notes=notes
+            )
         info = SessionInfo(
             id=session_id, workspace=str(root), model=model or config.model, system=system
         )
@@ -244,6 +268,7 @@ def open_session(
         root=executor.root,
     )
     tools: list[Tool[Any]] = []
+    changes: ShowChangesTool | None = None
     if not chat:
         tools = [
             ReadTool(),
@@ -251,15 +276,28 @@ def open_session(
             EditTool(),
             GlobTool(),
             GrepTool(hidden=policy.hidden_from_search),
+            OutlineTool(hidden=policy.hidden_from_search),
+            ReferencesTool(),
+            RenameTool(root),
             BashTool(),
             BashOutputTool(),
             KillBashTool(),
+            RunTestsTool(root, config.test_commands),
         ]
         if config.multi_edit:
             tools.insert(3, MultiEditTool())  # next to Edit
         if config.diagnostics:
             own = config.diagnostics if isinstance(config.diagnostics, list) else ()
             tools.append(DiagnosticsTool(root, own))
+        tools.append(DocsTool())
+        if executor.interactive:
+            tools.append(PythonTool())
+        if config.checkpoints:
+            changes = ShowChangesTool(None)  # given the checkpoints once they exist, below
+            tools.append(changes)
+        tools.append(MemoryTool(config.home, root))
+        if asker is not None or ask_later:
+            tools.append(AskUserTool())
         if config.todos:
             tools.append(TodoWriteTool())
         if skills:
@@ -273,10 +311,15 @@ def open_session(
         search = config.web_search
         if search is not None and WebSearchTool.problem(search, env) is None:
             tools.append(WebSearchTool(search, env))
+    if chat:
+        # A chat can run Python only where there's a sandbox to hold it: on a Mac.
+        with contextlib.suppress(SeatbeltError):
+            tools.append(PythonTool(sandbox=SeatbeltExecutor(root, spill_dir=spill_dir)))
+    tools = [tool for tool in tools if tool.name not in config.disabled_tools]
     session = Session(
         provider=provider,
         tools=tools,
-        ctx=ToolContext(executor=executor, jobs=jobs),
+        ctx=ToolContext(executor=executor, jobs=jobs, ask=asker),
         system=info.system,  # a resumed session keeps the exact prompt it started with
         listeners=[*listeners, transcript.on_event, meter.on_event],
         max_steps=config.max_steps,
@@ -291,6 +334,8 @@ def open_session(
     if config.checkpoints and not chat:  # a chat has no files to put back
         checkpoints = Checkpoints(root, config.home, info.id)
         session.before_turn = checkpoints.save
+        if changes is not None:
+            changes.checkpoints = checkpoints
     saved = len(messages) - (1 if repaired else 0)
     recorder = SessionRecorder(store, info.id, session, meter, saved=saved, title=info.title)
     session.listeners.append(recorder.on_event)

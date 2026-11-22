@@ -6,6 +6,7 @@ that only half fits never leaves the files in between.
 """
 
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -42,6 +43,15 @@ class MultiEditTool:
     )
     input_model = MultiEditInput
     read_only = False
+
+    def edited_paths(self, args: dict[str, Any]) -> list[str]:
+        """The files a call names, from its raw input, for the policy to judge each one.
+        Input that isn't shaped right names none; the call then fails when it's validated."""
+        edits = args.get("edits")
+        if not isinstance(edits, list):
+            return []
+        paths = [e.get("path") for e in edits if isinstance(e, dict)]
+        return list(dict.fromkeys(p for p in paths if isinstance(p, str)))
 
     async def run(self, args: MultiEditInput, ctx: ToolContext) -> ToolOutput:
         planned = await _plan(args, ctx)

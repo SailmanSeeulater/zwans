@@ -114,6 +114,11 @@ class Config(BaseModel):
     # Offer Diagnostics, which runs the project's linters and type checkers: true finds them
     # from the project's files, and a list of commands runs those instead.
     diagnostics: bool | list[str] = True
+    # Commands for RunTests to run instead of the test runners it finds.
+    test_commands: list[str] = []
+    # Tools not to offer, by name, as ["Python", "Memory"]: for a model that does better
+    # with fewer, or a project where one doesn't belong.
+    disabled_tools: list[str] = []
     subagent_max_steps: int = 30  # model calls allowed in one subagent's task
     compact_at: int = 200_000  # estimated context tokens that trigger a compaction
     keep_messages: int = 8  # recent messages kept word for word when compacting

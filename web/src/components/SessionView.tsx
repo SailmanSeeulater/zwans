@@ -23,7 +23,7 @@ import {
   type Attachment,
 } from "@/lib/attachments";
 import { buildCalls } from "@/lib/calls";
-import { buildTurns, waitingCalls, type RawEvent } from "@/lib/events";
+import { buildTurns, pendingQuestion, waitingCalls, type RawEvent } from "@/lib/events";
 import { currentTodos } from "@/lib/todos";
 import { AskBar, Conversation, type Answer } from "./Conversation";
 import { Inspector, isTab, type InspectorTab } from "./inspector/Inspector";
@@ -153,6 +153,8 @@ export function SessionView() {
   }, [id, hasToken, idle, turnCount, generation]);
   const hood = useMemo(() => buildCalls(events), [events]);
   const waiting = waitingCalls(turns);
+  // The model's own question, which the composer answers while it's waiting.
+  const question = connection === "open" ? pendingQuestion(turns) : null;
   const todos = currentTodos(turns);
 
   useLayoutEffect(() => {
@@ -178,6 +180,13 @@ export function SessionView() {
     send(message);
     setDraft("");
     setImages([]);
+  };
+
+  const answerQuestion = (text: string) => {
+    if (!text.trim()) return;
+    pinned.current = true;
+    send({ type: "answer", text: text.trim() });
+    setDraft("");
   };
 
   const attach = async (files: Iterable<File>) => {
@@ -331,7 +340,7 @@ export function SessionView() {
                 onUndo={connection === "open" ? setUndoing : undefined}
               />
             )}
-            {running && waiting.length === 0 && (
+            {running && waiting.length === 0 && !question && (
               <p className="muted small pulse" aria-live="polite">
                 Working…
               </p>
@@ -379,16 +388,41 @@ export function SessionView() {
           )}
           {/* The plan stays in view while it's being worked through, but gives way to a
               question, so the buttons to answer it always fit. */}
-          {running && waiting.length === 0 && todos && todos.length > 0 && <TodoList todos={todos} />}
+          {running && waiting.length === 0 && !question && todos && todos.length > 0 && (
+            <TodoList todos={todos} />
+          )}
           {connection === "open" &&
             waiting.map((call) => <AskBar key={call.id} call={call} onAnswer={answer} />)}
+          {question && waiting.length === 0 && (
+            <div className="ask" role="group" aria-label="Question from Zwans">
+              <div className="ask-reason">{question.question}</div>
+              {question.options.length > 0 && (
+                <div className="row">
+                  {question.options.map((option, i) => (
+                    <button
+                      key={option}
+                      className={i === 0 ? "button button-primary" : "button"}
+                      onClick={() => answerQuestion(option)}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="muted small" style={{ margin: "8px 0 0" }}>
+                {question.options.length > 0 ? "Or type your own answer below." : "Type your answer below."}
+              </p>
+            </div>
+          )}
           <textarea
             className="textarea"
             rows={1}
             placeholder={
-              waiting.length
-                ? "Answer the question above first."
-                : running
+              question && waiting.length === 0
+                ? "Type your answer. Enter sends it."
+                : waiting.length
+                  ? "Answer the question above first."
+                  : running
                   ? "Zwans is working. You can write the next task meanwhile."
                   : status?.chat
                     ? "Ask Zwans anything. Enter sends, Shift+Enter adds a line."
@@ -406,7 +440,8 @@ export function SessionView() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
-                if (!running) prompt(draft);
+                if (question && waiting.length === 0) answerQuestion(draft);
+                else if (!running) prompt(draft);
               }
             }}
             disabled={connection !== "open"}
@@ -454,7 +489,7 @@ export function SessionView() {
               {connection === "connecting"
                 ? "Connecting…"
                 : running
-                  ? waiting.length
+                  ? waiting.length || question
                     ? "Waiting for your answer."
                     : "Working…"
                   : connection === "open"

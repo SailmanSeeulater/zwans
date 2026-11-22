@@ -332,6 +332,40 @@ other `ZWANS_*` variables. Add `--executor jail` on Linux to run commands in zwa
 The dated entries behind the sections above, newest first, as written at the time. Later
 entries sometimes correct earlier ones.
 
+### 2026-11-21: a 7B local model passes none of ten starter tasks, new tools or not
+
+Ten starter tasks, once each, with `ollama/qwen2.5:latest` (7B) on this Mac, with every tool
+and again with `evals/configs/no-new-tools.toml`, which then turned off MultiEdit and
+Diagnostics. It cost nothing, and it measured nothing about the tools:
+
+| Config | Passed | Model calls | Tool calls | Tool calls that failed | Seconds |
+|---|---|---|---|---|---|
+| no-new-tools | 0/10 | 5.5 | 5.0 | 40% | 67 |
+| default | 0/10 | 7.1 | 7.8 | 29% | 84 |
+
+`compare` finds no difference on any measure. Ten attempts could only have shown a large
+one, and there is none to show at 0 against 0.
+
+Why it fails, from the transcripts: on `buggy-calc`, a one-line fix, it looked for
+`tests/test_buggy_calc.py`, which doesn't exist, then wrote that file twice with tests for
+functions that don't exist either, and never ran the real tests. A third of its tool calls
+fail on their arguments, such as `offset: 0` to Read. `qwen2.5-coder:7b` doesn't get that
+far: it writes its tool calls out as text.
+
+Two things to take from it:
+
+- The invented file name came from the scratch folder, which is named after the task
+  (`zwans-eval-buggy-calc-...`) and shows in every command's path. On the hard suite the
+  task names describe the bug (`feed-cursor-skips`, `scheduler-dst-shift`), so every agent
+  is given a hint. The folders should have neutral names.
+- By hand, the same model does better when the tool does the work. Asked to rename a
+  function across three files with MultiEdit and then fix what Diagnostics reported, it
+  ended by overwriting a file with `echo` and left the project broken. Asked the same with Rename, RunTests and ShowChanges
+  available, in the Seatbelt sandbox, it made one Rename call, the tests passed, and it
+  stopped. That is one task run twice by hand, not a measurement.
+
+A suite a 7B model can pass some of is needed before tools can be compared on one.
+
 ### 2026-11-20: a stop hook on the visible tests never fires on the hard suite
 
 `evals/configs/stop-check.toml` adds a stop hook that runs `python -m pytest -q` when the

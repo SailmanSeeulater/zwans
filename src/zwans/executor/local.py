@@ -29,6 +29,9 @@ class OutsideWorkspaceError(PermissionError):
 
 
 class LocalExecutor:
+    # Whether a program it starts can be written to while it runs, as a Python session is.
+    interactive = True
+
     def __init__(
         self,
         root: Path,
@@ -101,7 +104,7 @@ class LocalExecutor:
         return CommandResult(output=output.text(), exit_code=exit_code, timed_out=timed_out)
 
     async def _spawn(
-        self, argv: Sequence[str], background: bool = False
+        self, argv: Sequence[str], background: bool = False, stdin: int = asyncio.subprocess.DEVNULL
     ) -> asyncio.subprocess.Process:
         """Start a program with its output piped, in its own process group. `background` says
         it's a background job, whose leftover processes may keep running after it exits."""
@@ -110,7 +113,7 @@ class LocalExecutor:
             *argv[1:],
             cwd=self.root,
             env=command_env(),
-            stdin=asyncio.subprocess.DEVNULL,
+            stdin=stdin,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             **own_process_group(),
@@ -126,10 +129,15 @@ class LocalExecutor:
         """How to run a command with the shell, wherever this executor runs commands."""
         return [self._shell or find_bash(), "-c", command]
 
-    async def start_process(self, argv: Sequence[str]) -> asyncio.subprocess.Process:
+    async def start_process(
+        self, argv: Sequence[str], stdin: bool = False
+    ) -> asyncio.subprocess.Process:
         """Start a program and leave it running, its output piped, for background jobs.
-        Stop it with `stop_process`."""
-        return await self._spawn(argv, background=True)
+        `stdin` gives it a pipe to be written to as well, where the executor is
+        `interactive`. Stop it with `stop_process`."""
+        if not stdin:
+            return await self._spawn(argv, background=True)
+        return await self._spawn(argv, background=True, stdin=asyncio.subprocess.PIPE)
 
     async def stop_process(self, process: asyncio.subprocess.Process) -> None:
         """Stop a program `start_process` started, and everything it started."""

@@ -356,12 +356,22 @@ def test_a_session_gets_the_new_tools_unless_the_config_turns_them_off(tmp_path:
     home = tmp_path / "home"
     full = names(Config(home=home, subagents=False, todos=False))
     assert full == [
-        "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep",
-        "Bash", "BashOutput", "KillBash", "Diagnostics", "WebFetch",
+        "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "Outline", "References",
+        "Rename", "Bash", "BashOutput", "KillBash", "RunTests", "Diagnostics", "Docs",
+        "Python", "ShowChanges", "Memory", "WebFetch",
     ]  # fmt: skip
+    # AskUser is there only when someone can be asked.
+    assert "AskUser" not in full
+    off = ["Outline", "References", "Rename", "RunTests", "Docs", "Python", "ShowChanges", "Memory"]
     bare = names(
         Config(
-            home=home, subagents=False, todos=False, multi_edit=False, diagnostics=False, web=False
+            home=home,
+            subagents=False,
+            todos=False,
+            multi_edit=False,
+            diagnostics=False,
+            web=False,
+            disabled_tools=off,
         )
     )
     assert bare == ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "BashOutput", "KillBash"]

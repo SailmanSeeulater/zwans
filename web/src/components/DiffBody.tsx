@@ -1,11 +1,13 @@
 "use client";
 
 /**
- * One file's unified diff in react-diff-view, as an Edit or Write reports it. Colors come
- * from globals.css (.diff-table); the library's own stylesheet isn't used.
+ * A unified diff in react-diff-view: one file's, as an Edit or Write reports it, or several
+ * files' in a row, as MultiEdit and Rename do. Colors come from globals.css (.diff-table);
+ * the library's own stylesheet isn't used.
  */
 import { useMemo } from "react";
 import { Decoration, Diff, Hunk, markEdits, parseDiff, tokenize, type FileData, type HunkTokens } from "react-diff-view";
+import { splitDiff } from "@/lib/diff";
 
 /** Word-level edit marks cost a diff per changed block; skip them on very long files. */
 const MARK_EDITS_MAX_LINES = 800;
@@ -29,7 +31,23 @@ function editTokens(file: FileData): HunkTokens | null {
   }
 }
 
+/** A tool's diff: one file's, or several files' one after another, each under its name. */
 export function DiffBody({ text }: { text: string }) {
+  const files = useMemo(() => splitDiff(text), [text]);
+  if (files.length < 2) return <OneFile text={text} />;
+  return (
+    <>
+      {files.map((file, i) => (
+        <div key={i} className="diff-file">
+          <div className="diff-file-name mono">{file.path}</div>
+          <OneFile text={file.text} />
+        </div>
+      ))}
+    </>
+  );
+}
+
+function OneFile({ text }: { text: string }) {
   const file = useMemo(() => parseOne(text), [text]);
   const tokens = useMemo(() => (file ? editTokens(file) : null), [file]);
 

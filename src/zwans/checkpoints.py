@@ -104,6 +104,18 @@ class Checkpoints:
         after = turns[min(later)] if later else await self._snapshot()
         return await self._diff(turns[turn], after)
 
+    async def since_start(self) -> tuple[list[Change], str]:
+        """Everything the session has changed so far: from its earliest checkpoint to the
+        files as they are now. Returns the changes and a unified diff of them."""
+        turns = await self.turns()
+        if not turns:
+            return [], ""
+        first = turns[min(turns)]
+        now = await self._snapshot()
+        changes = await self._diff(first, now)
+        diff = await self._git("diff", "--no-renames", "--no-color", first, now, strip=False)
+        return changes, diff
+
     async def restore(self, turn: int) -> list[Change]:
         """Put the files back as they were before `turn`. Returns what that changed. The files
         as they were until now are snapshotted first, on the same ref."""

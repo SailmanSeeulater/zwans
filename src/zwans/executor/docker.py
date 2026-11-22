@@ -113,6 +113,8 @@ class DockerExecutor(LocalExecutor):
     """Use as `async with DockerExecutor(root) as executor:`, which starts and removes the
     container."""
 
+    interactive = False  # `docker exec` is started without a way to write to the command
+
     def __init__(
         self,
         root: Path,
@@ -184,8 +186,9 @@ class DockerExecutor(LocalExecutor):
         return ["bash", "-c", command]
 
     async def _spawn(
-        self, argv: Sequence[str], background: bool = False
+        self, argv: Sequence[str], background: bool = False, stdin: int = asyncio.subprocess.DEVNULL
     ) -> asyncio.subprocess.Process:
+        # `stdin` is never asked for here: this executor isn't `interactive`.
         token = secrets.token_hex(6)
         process = await asyncio.create_subprocess_exec(
             "docker",

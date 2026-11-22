@@ -18,6 +18,7 @@ from typing import Any, Protocol
 from zwans.policy.classify import Action, Kind, analyze
 from zwans.policy.rules import (
     FILE_CHANGE_TOOLS,
+    SEARCH_TOOLS,
     Decision,
     Policy,
     Rule,
@@ -35,6 +36,12 @@ UNTRUSTED_OUTPUT = frozenset(
         "Bash",
         "BashOutput",
         "Diagnostics",
+        "RunTests",
+        "Python",
+        "Docs",
+        "Outline",
+        "References",
+        "ShowChanges",
         "web_search",
         "web_fetch",
         "WebSearch",
@@ -45,6 +52,7 @@ UNTRUSTED_OUTPUT = frozenset(
 )
 MCP_PREFIX = "mcp__"
 MAX_GLOB_NAMES = 1000  # the files of a command's glob looked at for links out of the workspace
+MAX_ALWAYS = 5  # files a call may change and still be offered "always", which names each one
 
 
 class Approval(StrEnum):
@@ -99,18 +107,22 @@ class Permissions:
     def check(self, tool: _ToolLike, args: dict[str, Any]) -> Verdict:
         commands = getattr(tool, "commands", None)
         host = getattr(tool, "host", None)
+        edited = getattr(tool, "edited_paths", None)
         if tool.name == "Bash" and isinstance(args.get("command"), str):
             verdict = self._check_command(args["command"])
         elif callable(commands):
-            # A tool that runs programs (Diagnostics) is judged by each command it would
-            # run, exactly as if Bash ran it, so the rules about commands cover it too.
+            # A tool that runs programs (Diagnostics, RunTests) is judged by each command it
+            # would run, exactly as if Bash ran it, so the rules about commands cover it too.
             verdict = _combine([self._check_command(command) for command in commands(args)])
         elif callable(host):
             verdict = self._check_network(tool, str(host(args)))
-        elif tool.name == "MultiEdit":
-            # Each file is judged as an Edit of it would be; one refusal refuses the call.
-            paths: Sequence[str | None] = _edited_paths(args) or [None]
+        elif callable(edited):
+            # A tool that changes several files (MultiEdit, Rename): each is judged as an
+            # Edit of it would be, and one refusal refuses the call.
+            paths: Sequence[str | None] = edited(args) or [None]
             verdict = _combine([self._check_tool(tool, path) for path in paths])
+            if len(paths) > MAX_ALWAYS:
+                verdict = Verdict(verdict.decision, verdict.reason)
         else:
             path = args.get("path")
             verdict = self._check_tool(tool, path if isinstance(path, str) else None)
@@ -145,7 +157,8 @@ class Permissions:
             except OSError:
                 relative = None  # outside the workspace: the executor refuses it anyway
         # A Grep through a folder that holds covered files is judged like reading them.
-        matched = self._match(tool.name, _matches_path(relative, folder=tool.name == "Grep"))
+        searching = tool.name in SEARCH_TOOLS
+        matched = self._match(tool.name, _matches_path(relative, folder=searching))
         what = f"{tool.name} {relative}" if relative else tool.name
         # An MCP tool reaches whatever its server does, so after untrusted content it's
         # judged like a network command: it could carry what was read somewhere else.
@@ -355,16 +368,6 @@ def _combine(verdicts: Sequence[Verdict]) -> Verdict:
     if all(v.rules for v in asked):
         rules = tuple(dict.fromkeys(r for v in asked for r in v.rules))
     return Verdict(worst, reason, rules)
-
-
-def _edited_paths(args: dict[str, Any]) -> list[str]:
-    """The files a MultiEdit names, from its raw input. Input that isn't shaped right names
-    none; the call then fails when it's validated."""
-    edits = args.get("edits")
-    if not isinstance(edits, list):
-        return []
-    paths = [e.get("path") for e in edits if isinstance(e, dict)]
-    return list(dict.fromkeys(p for p in paths if isinstance(p, str)))
 
 
 def _allows(rule: Rule, action: Action) -> bool:

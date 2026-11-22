@@ -90,7 +90,7 @@ class DiagnosticsTool:
 
     def checks(self, paths: Sequence[str] = ()) -> list[Check]:
         if self.configured:
-            return [Check(_first_word(command), command) for command in self.configured]
+            return [Check(first_word(command), command) for command in self.configured]
         return find_checks(self.root, paths)
 
     def commands(self, args: dict[str, Any]) -> list[str]:
@@ -130,18 +130,23 @@ def find_checks(root: Path, paths: Sequence[str] = ()) -> list[Check]:
     """The checkers this project is set up for, in its root and the folders just inside it,
     which is where a repository with a Python back end and a web front end keeps them.
     `paths` (relative to the root) narrows them to the checkers for those files."""
-    folders = [""]
+    return [check for folder in project_folders(root) for check in _checks_in(root, folder, paths)]
+
+
+def project_folders(root: Path) -> list[str]:
+    """Where a project's tools may be set up: the root (""), then the folders just inside
+    it, without hidden ones or ones that hold installed packages or build output."""
     try:
         inside = sorted(p.name for p in root.iterdir() if p.is_dir())
     except OSError:
         inside = []
-    folders += [n for n in inside if not n.startswith(".") and n not in SKIPPED][:MAX_SUBFOLDERS]
-    return [check for folder in folders for check in _checks_in(root, folder, paths)]
+    kept = [n for n in inside if not n.startswith(".") and n not in SKIPPED]
+    return ["", *kept[:MAX_SUBFOLDERS]]
 
 
 def _checks_in(root: Path, folder: str, paths: Sequence[str]) -> list[Check]:
     here = root / folder
-    project = _toml(here / "pyproject.toml").get("tool", {})
+    project = read_toml(here / "pyproject.toml").get("tool", {})
     python = any((here / f).is_file() for f in ("pyproject.toml", "setup.py", "setup.cfg"))
     mypy_ini = _ini(here / "mypy.ini") or _ini(here / ".mypy.ini")
     mypy = "mypy" in project or "mypy" in mypy_ini or "mypy" in _ini(here / "setup.cfg")
@@ -168,7 +173,7 @@ def _checks_in(root: Path, folder: str, paths: Sequence[str]) -> list[Check]:
     checks = []
     for each in found:
         name, command = each.name, each.command
-        wanted = _within(root, folder, paths, each.suffixes) if paths else None
+        wanted = within(root, folder, paths, each.suffixes) if paths else None
         if wanted == []:
             continue  # paths were given, and none is this checker's
         if each.whole is not None:  # it takes paths: the ones asked for, or all of the folder
@@ -182,7 +187,7 @@ def _checks_in(root: Path, folder: str, paths: Sequence[str]) -> list[Check]:
     return checks
 
 
-def _within(root: Path, folder: str, paths: Sequence[str], suffixes: tuple[str, ...]) -> list[str]:
+def within(root: Path, folder: str, paths: Sequence[str], suffixes: tuple[str, ...]) -> list[str]:
     """Of `paths`, the ones a checker in `folder` would look at, relative to that folder. A
     folder that holds the checker's folder counts as all of it ("."), and any other folder
     counts only when it holds files the checker checks: mypy has nothing to say about web/."""
@@ -243,12 +248,12 @@ def _shorten(output: str) -> str:
     return f"{output[:MAX_OUTPUT_CHARS]}\n[... {rest:,} more characters; name paths to narrow it]"
 
 
-def _first_word(command: str) -> str:
+def first_word(command: str) -> str:
     words = command.split()
     return PurePosixPath(words[0]).name if words else command
 
 
-def _toml(path: Path) -> dict[str, Any]:
+def read_toml(path: Path) -> dict[str, Any]:
     try:
         with path.open("rb") as f:
             return tomllib.load(f)

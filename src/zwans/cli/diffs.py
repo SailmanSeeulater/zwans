@@ -10,6 +10,8 @@ from zwans.cli.terminal_text import printable
 
 MAX_LINES = 40  # longer changes are cut, with a note of how much is left out
 INDENT = "    "
+FILE_MARK = "== "  # starts the line that names a file, in a diff of several
+FILE_TOOLS = ("Edit", "Write", "MultiEdit", "Rename")  # the tools whose diff is previewed
 
 
 def show_diff(diff: str, limit: int = MAX_LINES) -> None:
@@ -20,7 +22,7 @@ def show_diff(diff: str, limit: int = MAX_LINES) -> None:
 def show_change(tool: str, args: dict[str, Any], preview: str | None = None) -> None:
     """What a call is about to change, so the user doesn't approve it blind. `preview` is the
     diff against the file as it is now, when the loop could work it out."""
-    if preview is not None and tool in ("Edit", "Write"):
+    if preview is not None and tool in FILE_TOOLS:
         show_preview(tool, preview)
     elif tool == "Edit":
         _show(edit_lines(args), MAX_LINES)
@@ -68,8 +70,20 @@ def describe_write(preview: str) -> str:
 
 
 def _body(diff: str) -> list[str]:
-    """A unified diff's lines without its file headers."""
-    return [line for line in diff.splitlines() if not line.startswith(("--- ", "+++ "))]
+    """A unified diff's lines without its file headers. A diff of several files, as MultiEdit
+    and Rename report, keeps one line per file naming it, since the call line can't."""
+    lines = diff.splitlines()
+    several = sum(line.startswith("+++ ") for line in lines) > 1
+    body = []
+    for line in lines:
+        if line.startswith("--- "):
+            continue
+        if line.startswith("+++ "):
+            if several:
+                body.append(f"{FILE_MARK}{line[4:].removeprefix('b/')}")
+            continue
+        body.append(line)
+    return body
 
 
 def edit_lines(args: dict[str, Any]) -> list[str]:
@@ -101,6 +115,8 @@ def _show(lines: list[str], limit: int) -> None:
 
 
 def _style(line: str) -> dict[str, Any]:
+    if line.startswith(FILE_MARK):
+        return {"bold": True}
     if line.startswith("+"):
         return {"fg": "green"}
     if line.startswith("-"):

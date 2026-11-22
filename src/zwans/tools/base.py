@@ -1,5 +1,6 @@
 """The interface every tool implements."""
 
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -16,11 +17,17 @@ class ToolError(Exception):
     """A problem the model should hear about and can fix, such as an Edit with no match."""
 
 
+# Puts a question and its suggested answers to the person, and returns what they said, or
+# None when they gave no answer.
+type Asker = Callable[[str, Sequence[str]], Awaitable[str | None]]
+
+
 @dataclass(frozen=True)
 class ToolContext:
     # What a tool can use while it runs. The policy decision joins it in Phase 4.
     executor: Executor
     jobs: "BackgroundJobs | None" = None  # the session's background commands, if it has any
+    ask: Asker | None = None  # how to ask the person something; None when nobody is there
 
 
 @dataclass(frozen=True)

@@ -32,7 +32,10 @@ from zwans.events import (
 
 # The argument most worth showing for each tool, so a call fits on one line. A Grep or Glob
 # shows its pattern rather than the folder it searches.
-KEY_ARGS = ("command", "pattern", "path", "query", "url", "description", "name", "job_id", "ticket")
+KEY_ARGS = (
+    "command", "pattern", "symbol", "path", "query", "url", "question", "description",
+    "name", "job_id", "ticket", "code", "text",
+)  # fmt: skip
 TODO_MARKS = {"completed": "✓", "in_progress": "▸", "pending": "○"}
 SHELL_TOOLS = frozenset({"Bash", "BashOutput"})
 QUIET_OUTPUT = frozenset({"(no output)", "(no new output)"})  # said by the exit code alone
@@ -320,9 +323,12 @@ def _summarize(name: str, args: dict[str, Any]) -> str:
     if name == "MultiEdit" and isinstance(edits, list):
         files = list(dict.fromkeys(str(e.get("path", "")) for e in edits if isinstance(e, dict)))
         return _clip(f"{_count(len(edits), 'edit')} in {', '.join(files)}")
-    if name == "Diagnostics":
+    if name in ("Diagnostics", "RunTests"):
         named = [str(p) for p in paths] if isinstance(paths, list) else []
-        return _clip(" ".join(named)) if named else "the whole project"
+        only = f" matching {args['filter']}" if args.get("filter") else ""
+        return _clip((" ".join(named) if named else "the whole project") + only)
+    if name == "Rename":
+        return _clip(f"{args.get('old', '')} to {args.get('new', '')}")
     key = next((k for k in KEY_ARGS if k in args), None)
     if key is None:
         return ""
