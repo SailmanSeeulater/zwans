@@ -163,6 +163,14 @@ class TurnEnded(_Event):
     detail: str = ""
 
 
+class Steered(_Event):
+    """Something the user sent while the turn was running, passed to the model at its next
+    step so it can change course without being stopped."""
+
+    type: Literal["steered"] = "steered"
+    text: str
+
+
 class Error(_Event):
     type: Literal["error"] = "error"
     message: str
@@ -183,6 +191,7 @@ type Event = (
     | UsageUpdated
     | ModelCalled
     | TurnEnded
+    | Steered
     | Rewound
     | Error
 )

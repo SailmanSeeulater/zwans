@@ -2,6 +2,20 @@ import { describe, expect, it } from "vitest";
 import { buildTurns, canAlwaysAllow, diffOf, waitingCalls, writeKind, type RawEvent, type ToolCall } from "./events";
 
 describe("buildTurns", () => {
+  it("puts what was sent mid-turn where the model read it", () => {
+    const [turn] = buildTurns([
+      { type: "turn_started", prompt: "Write it." },
+      { type: "text_delta", text: "Writing." },
+      { type: "steered", text: "Use tabs." },
+      { type: "text_delta", text: "With tabs." },
+    ]);
+    expect(turn?.items).toEqual([
+      { kind: "text", text: "Writing." },
+      { kind: "steer", text: "Use tabs." },
+      { kind: "text", text: "With tabs." },
+    ]);
+  });
+
   it("groups text, calls, results, diffs and questions into turns", () => {
     const events: RawEvent[] = [
       { type: "turn_started", prompt: "Fix the bug." },

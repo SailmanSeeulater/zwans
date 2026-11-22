@@ -68,6 +68,7 @@ class LiveSession:
         self.question: asyncio.Future[str] | None = None
         self._one_question = asyncio.Lock()
         self._titling: asyncio.Task[None] | None = None  # writing its title, after turn one
+        self._closing = False  # set by close(), so a steer left unread starts nothing
         opened.session.listeners.append(self._on_event)
         if opened.session.permissions is not None:
             opened.session.permissions.approver = self.approve
@@ -93,6 +94,7 @@ class LiveSession:
             "mode": opened.policy.policy.mode,
             "executor": opened.config.executor,
             "running": self.running,
+            "queued": list(opened.session.steering),  # sent mid-turn, not yet read
             "turns": opened.session.turn,
             "dollars": opened.meter.session_dollars,
             "context_tokens": opened.session.context_tokens(),
@@ -122,8 +124,14 @@ class LiveSession:
         self.clients.discard(queue)
 
     def prompt(self, text: str, images: list[ImageBlock] | None = None) -> None:
+        """Start a turn, or, while one runs, steer it: the text goes to the model at its next
+        step. Anything still unread when the turn ends starts the next one."""
         if self.running:
-            raise Busy("A turn is already running. Wait for it, or interrupt it.")
+            if images:
+                raise Busy("Images can't be added to a running turn. Wait for it to finish.")
+            self.opened.session.steering.append(text)
+            self._broadcast(self.status())
+            return
         self.turn = asyncio.create_task(self._run(text, images or []))
         self._broadcast(self.status())
 
@@ -227,6 +235,7 @@ class LiveSession:
         return True
 
     async def close(self) -> None:
+        self._closing = True
         if self._titling is not None:
             self._titling.cancel()
             await asyncio.gather(self._titling, return_exceptions=True)
@@ -245,7 +254,14 @@ class LiveSession:
             self._on_event(Error(message=f"Zwans failed: {exc}"))
         finally:
             self.turn = None
-            self._broadcast(self.status())
+            unread = self.opened.session.steering
+            if unread and not self._closing:
+                # The turn ended before reading them (it errored or was stopped), so they
+                # start the next one, as if sent just after it.
+                self.opened.session.steering = []
+                self.prompt("\n\n".join(unread))
+            else:
+                self._broadcast(self.status())
 
     def _on_event(self, event: Event) -> None:
         time = datetime.now(UTC).isoformat(timespec="milliseconds")

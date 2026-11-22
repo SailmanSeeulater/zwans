@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, ImagePlus, Maximize2, PanelRightOpen, RotateCcw, Square, X } from "lucide-react";
+import { ArrowUp, CornerDownRight, ImagePlus, Maximize2, PanelRightOpen, RotateCcw, Square, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -515,6 +515,17 @@ export function SessionView() {
           }}
         >
           {notice && <div className="notice notice-warn">{notice}</div>}
+          {running && (status?.queued?.length ?? 0) > 0 && (
+            <ul className="queued" aria-label="Sent, waiting for Zwans's next step">
+              {status?.queued?.map((text, i) => (
+                <li key={i} className="queued-item">
+                  <span className="queued-dot" aria-hidden="true" />
+                  <span className="queued-text">{text}</span>
+                  <span className="muted small">at the next step</span>
+                </li>
+              ))}
+            </ul>
+          )}
           {undoing !== null && !running && (
             <UndoConfirm
               turn={undoing}
@@ -562,7 +573,7 @@ export function SessionView() {
                 : waiting.length
                   ? "Answer the question above first."
                   : running
-                  ? "Zwans is working. You can write the next task meanwhile."
+                  ? "Steer Zwans: what you send now reaches it at its next step."
                   : status?.chat
                     ? "Ask Zwans anything. Enter sends, Shift+Enter adds a line."
                     : "Message Zwans. Enter sends, Shift+Enter adds a line."
@@ -581,6 +592,7 @@ export function SessionView() {
                 e.preventDefault();
                 if (question && waiting.length === 0) answerQuestion(draft);
                 else if (!running) prompt(draft);
+                else if (waiting.length === 0 && images.length === 0) prompt(draft); // steers the turn
               }
             }}
             disabled={connection !== "open"}
@@ -641,6 +653,17 @@ export function SessionView() {
               </button>
             )}
             <span style={{ flex: 1 }} />
+            {running && draft.trim() && waiting.length === 0 && !question && images.length === 0 && (
+              <button
+                className="button button-primary steer-send"
+                onClick={() => prompt(draft)}
+                disabled={connection !== "open"}
+                title="Send it to Zwans now: it reads it at its next step, without stopping"
+              >
+                <CornerDownRight size={13} aria-hidden="true" />
+                Steer
+              </button>
+            )}
             {running ? (
               <button className="button button-danger" onClick={() => send({ type: "interrupt" })}>
                 <Square size={12} aria-hidden="true" />

@@ -49,12 +49,18 @@ class Session:
         self.follow_through = follow_through
         self.messages: list[Message] = []
         self.turn = 0  # how many user turns the session has had
+        # What the user has sent during the running turn, for the model's next step.
+        self.steering: list[str] = []
         # Awaited with the turn's number before it starts, as checkpoints.py snapshots files.
         self.before_turn: Callable[[int], Awaitable[None]] | None = None
         for tool in self.tools:
             if isinstance(tool, TaskTool):
                 tool.parent = self
         self._measure_overhead()
+
+    def _take_steering(self) -> list[str]:
+        taken, self.steering = self.steering, []
+        return taken
 
     def context_tokens(self) -> int:
         """About how many tokens the next request will send."""
@@ -109,6 +115,7 @@ class Session:
             permissions=self.permissions,
             hooks=self.hooks,
             follow_through=self.follow_through() if self.follow_through else 0,
+            steer=self._take_steering,
         )
         try:
             async for event in turn:

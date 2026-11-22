@@ -258,6 +258,28 @@ def test_approvals_go_back_over_the_websocket(server: Server) -> None:
     assert refused["is_error"] is True
 
 
+def test_a_prompt_sent_mid_turn_steers_it(server: Server) -> None:
+    provider = FakeProvider([write("a.txt", "1"), say("Done, with tabs.")])
+    session_id = server.new_session(provider, mode="ask")
+
+    with connect(server, session_id) as ws:
+        handshake(ws)
+        ws.send_json({"type": "prompt", "text": "Write a."})
+        asked = until(ws, "permission_requested")[-1]
+        ws.send_json({"type": "prompt", "text": "Use tabs."})
+        queued = until(ws, "status")[-1]
+        while not queued.get("queued"):  # a status sent before the steer may come first
+            queued = until(ws, "status")[-1]
+        ws.send_json({"type": "approve", "call_id": asked["call_id"], "answer": "once"})
+        steered = until(ws, "steered")[-1]
+        until(ws, "turn_ended")
+
+    assert queued["running"] is True and queued["queued"] == ["Use tabs."]
+    assert steered["text"] == "Use tabs."
+    sent = provider.requests[1][-1].content
+    assert any(isinstance(b, TextBlock) and b.text.endswith("Use tabs.") for b in sent)
+
+
 def test_a_second_client_gets_the_backlog_and_follows_along(server: Server) -> None:
     session_id = server.new_session(FakeProvider([say("First."), say("Second.")]))
 
@@ -277,20 +299,27 @@ def test_a_second_client_gets_the_backlog_and_follows_along(server: Server) -> N
     assert prompts == ["Two."]
 
 
-def test_a_busy_session_refuses_another_prompt_and_can_be_interrupted(server: Server) -> None:
-    session_id = server.new_session(SlowProvider([say("Too slow.")], delay=5))
+def test_a_stopped_turn_hands_what_was_sent_during_it_to_the_next(server: Server) -> None:
+    provider = SlowProvider([say("Too slow."), say("On it.")], delay=5)
+    session_id = server.new_session(provider)
+    image = {"name": "shot.png", "data": base64.b64encode(PNG).decode()}
 
     with connect(server, session_id) as ws:
         handshake(ws)
         ws.send_json({"type": "prompt", "text": "Take your time."})
         until(ws, "turn_started")
-        ws.send_json({"type": "prompt", "text": "And another."})
+        ws.send_json({"type": "prompt", "text": "Look", "images": [image]})
         refused = until(ws, "server_error")[-1]
+        ws.send_json({"type": "prompt", "text": "And another."})
+        provider.delay = 0
         ws.send_json({"type": "interrupt"})
         ended = until(ws, "turn_ended")[-1]
+        started = until(ws, "turn_started")[-1]
+        until(ws, "turn_ended")
 
-    assert "already running" in refused["message"]
+    assert "can't be added to a running turn" in refused["message"]
     assert ended["stop_reason"] == "interrupted"
+    assert started["prompt"] == "And another."
 
 
 def test_websockets_need_the_token_an_open_session_and_this_origin(server: Server) -> None:

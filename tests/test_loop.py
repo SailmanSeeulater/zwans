@@ -9,6 +9,7 @@ from zwans.events import (
     Error,
     Event,
     ModelCalled,
+    Steered,
     TextDelta,
     ToolCallRequested,
     ToolResult,
@@ -295,3 +296,28 @@ def test_running_out_of_steps_ends_the_turn_with_max_steps(ctx: ToolContext) -> 
         stop_reason="max_steps", detail="2 model calls without finishing"
     )
     assert not any(isinstance(e, Error) for e in events)
+
+
+def test_what_the_user_sends_mid_turn_reaches_the_model_at_its_next_step(
+    ctx: ToolContext,
+) -> None:
+    echo = ModelResponse(
+        content=[ToolUseBlock(id="call_1", name="echo", input={"text": "hi"})],
+        stop_reason="tool_use",
+    )
+    done = ModelResponse(content=[TextBlock(text="Done.")], stop_reason="end_turn")
+    provider = FakeProvider([echo, done, done])
+    sent = [["use tabs"], ["and add a test"], []]
+
+    events = asyncio.run(
+        collect(run_turn(provider, [EchoTool()], [user("Echo hi")], ctx, steer=lambda: sent.pop(0)))
+    )
+
+    assert [e.text for e in events if isinstance(e, Steered)] == ["use tabs", "and add a test"]
+    after_tools = provider.requests[1][-1].content
+    assert isinstance(after_tools[0], ToolResultBlock)
+    assert isinstance(after_tools[1], TextBlock) and after_tools[1].text.endswith("use tabs")
+    # A turn about to end carries on to answer what came in during its last reply.
+    last = provider.requests[2][-1].content[0]
+    assert isinstance(last, TextBlock) and last.text.endswith("and add a test")
+    assert isinstance(events[-1], TurnEnded) and len(provider.requests) == 3

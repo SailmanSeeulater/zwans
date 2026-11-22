@@ -9,7 +9,7 @@ session's status, then {"type": "backlog", "events": [...]} with everything so f
 each new event as it happens, plus a fresh status whenever the session starts or stops
 running or waits for an answer. A client may send:
 
-    {"type": "prompt", "text": "..."}
+    {"type": "prompt", "text": "..."}     (while a turn runs, steers it instead)
     {"type": "approve", "call_id": "...", "answer": "once" | "always" | "no"}
     {"type": "interrupt"}
 

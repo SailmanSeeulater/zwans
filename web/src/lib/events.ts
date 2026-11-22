@@ -29,6 +29,8 @@ export interface ToolCall {
 export type Item =
   | { kind: "text"; text: string }
   | { kind: "note"; text: string }
+  /** Something the user sent while the turn ran, which the model read at its next step. */
+  | { kind: "steer"; text: string }
   | { kind: "tool"; call: ToolCall }
   | { kind: "error"; message: string }
   | { kind: "compacted"; before: number; after: number; summary: string }
@@ -174,6 +176,9 @@ export function buildTurns(events: RawEvent[]): Turn[] {
             summary: str(event.summary),
           });
         }
+        break;
+      case "steered":
+        if (items) items.push({ kind: "steer", text: str(event.text) });
         break;
       case "turn_ended":
         if (!parent) current().stop = { reason: str(event.stop_reason), detail: str(event.detail) };

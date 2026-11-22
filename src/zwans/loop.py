@@ -2,7 +2,7 @@
 
 import asyncio
 from collections import Counter
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,7 @@ from zwans.events import (
     PermissionDenied,
     PermissionRequested,
     PermissionResolved,
+    Steered,
     TextDelta,
     ToolCallRequested,
     ToolResult,
@@ -44,6 +45,7 @@ from zwans.web import web_calls, web_results
 INTERRUPTED = "Interrupted by the user before this finished."
 STOPPED = "Zwans stopped before this finished, so it may or may not have run."
 CUT_OFF = "[The user interrupted this reply here.]"
+STEER = "The user sent this while you were working. Take it into account from here on:\n"
 
 
 async def run_turn(
@@ -58,6 +60,7 @@ async def run_turn(
     permissions: Permissions | None = None,
     hooks: Hooks | None = None,
     follow_through: int = 0,
+    steer: Callable[[], list[str]] | None = None,
 ) -> AsyncIterator[Event]:
     """Run one user turn and yield events as they happen.
 
@@ -68,6 +71,10 @@ async def run_turn(
     `follow_through` is how many times a turn may send the model back when its final reply
     says what it will do next, or only shows the code, without having done it (see
     followthrough.py). 0 never does.
+
+    `steer` is asked after each round of tool calls, and before the turn ends, for what the
+    user has sent since it started. Each is added to the conversation for the model's next
+    step, and a turn about to end carries on to answer them.
 
     `messages` must end with the user's message. The loop only ever appends to it: the
     model's replies, then the tool results. Earlier turns are never edited, which the API
@@ -148,6 +155,13 @@ async def run_turn(
                     said = "\n\n".join(failure.message for failure in retry)
                     note = f"A stop hook says the task isn't finished yet:\n{said}"
                     messages.append(Message(role="user", content=[TextBlock(text=note)]))
+                    continue
+                said_since = steer() if steer is not None else []
+                if said_since:
+                    blocks = [TextBlock(text=STEER + text) for text in said_since]
+                    messages.append(Message(role="user", content=list(blocks)))
+                    for text in said_since:
+                        yield Steered(text=text)
                     continue
                 undone = None
                 if tools and sent_back < follow_through:
@@ -232,6 +246,11 @@ async def run_turn(
             # and the session can carry on.
             interrupted = ToolOutput(INTERRUPTED, is_error=True)
             messages.append(_results_message(calls, outputs, default=interrupted))
+
+        # What the user sent while the tools ran goes after their results, in the same message.
+        for text in steer() if steer is not None else []:
+            messages[-1].content.append(TextBlock(text=STEER + text))
+            yield Steered(text=text)
 
     # A limit the agent ran into, not something that went wrong, so it ends the turn normally.
     yield TurnEnded(stop_reason="max_steps", detail=f"{max_steps} model calls without finishing")

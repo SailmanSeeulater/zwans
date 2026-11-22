@@ -1,6 +1,6 @@
 "use client";
 
-import { ImageIcon, RefreshCw, RotateCcw } from "lucide-react";
+import { CornerDownRight, ImageIcon, RefreshCw, RotateCcw } from "lucide-react";
 import {
   canAlwaysAllow,
   diffOf,
@@ -135,6 +135,13 @@ function ItemView({ item, onAnswer, streaming }: { item: Item; onAnswer?: Props[
       );
     case "note":
       return <Thinking text={item.text} live={streaming} />;
+    case "steer":
+      return (
+        <div className="steer" aria-label="You, during the turn">
+          <CornerDownRight size={13} aria-hidden="true" />
+          <span className="steer-text">{item.text}</span>
+        </div>
+      );
     case "tool":
       if (item.call.name === TODO_TOOL && !item.call.result?.isError) return <TodoCard call={item.call} />;
       return <ToolCard call={item.call} onAnswer={onAnswer} />;

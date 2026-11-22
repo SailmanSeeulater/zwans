@@ -124,6 +124,8 @@ export interface SessionStatus {
   context_tokens: number;
   waiting_for: string[];
   warnings: string[];
+  /** What was sent during the running turn that the model hasn't read yet. */
+  queued?: string[];
   /** The scripted replay: no API calls. */
   demo?: boolean;
   /** A conversation with no project folder and none of Zwans's tools. */
