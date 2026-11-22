@@ -27,12 +27,13 @@ import { buildCalls } from "@/lib/calls";
 import { buildTurns, pendingQuestion, waitingCalls, type RawEvent } from "@/lib/events";
 import { CHANGES, DEFAULT_PANE, readPane, savePane, tabLabel, withNewPage, type PaneState } from "@/lib/pane";
 import { fileChanges, latestServer } from "@/lib/preview";
+import { handoffPrompt, modelName, stuckReason } from "@/lib/handoff";
 import { currentTodos } from "@/lib/todos";
 import { livenessOf, phaseOf, tabTitle, turnStartedAt } from "@/lib/working";
 import { AskBar, Conversation, type Answer } from "./Conversation";
 import { JumpToLatest, typing } from "./Actions";
 import { ActivityStrip, ContextMeter } from "./Glance";
-import { WorkingLine } from "./Working";
+import { Spark, WorkingLine } from "./Working";
 import { Inspector, isTab, type InspectorTab } from "./inspector/Inspector";
 import { ModelPicker } from "./ModelPicker";
 import { TodoList } from "./TodoList";
@@ -322,6 +323,33 @@ export function SessionView() {
   );
   const closeInspector = useCallback(() => openTab(null), [openTab]);
 
+  // Local first: when a turn on a model on this machine gets stuck, offer to hand the task
+  // to the stronger model the config names. Nothing is sent until the person says so.
+  const lastTurn = turns.at(-1);
+  const stuck = status?.local && status.handoff_model && !status.running ? stuckReason(lastTurn) : null;
+  const [handoffDismissed, setHandoffDismissed] = useState<number | null>(null);
+  const [handingOff, setHandingOff] = useState(false);
+  const offerHandoff = stuck !== null && connection === "open" && handoffDismissed !== lastTurn?.number;
+  const handOff = async () => {
+    if (!status?.handoff_model || !stuck) return;
+    const from = modelName(status.model);
+    setHandingOff(true);
+    try {
+      const next = await api<SessionStatus>(`/api/sessions/${encodeURIComponent(id)}/model`, {
+        method: "POST",
+        body: JSON.stringify({ name: status.handoff_model }),
+      });
+      setStatus(next);
+      setNotice(null);
+      pinned.current = true;
+      send({ type: "prompt", text: handoffPrompt(from, stuck) });
+    } catch (error) {
+      setNotice(`Couldn't hand off: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setHandingOff(false);
+    }
+  };
+
   // Live preview: a dev server the session's commands started is offered beside the
   // conversation, once, and pages set to live reload when files change.
   const server = useMemo(() => latestServer(turns), [turns]);
@@ -486,6 +514,24 @@ export function SessionView() {
                 animate={animate}
                 onRetry={connection === "open" && !running ? (turn) => void undo(turn, true) : undefined}
               />
+            )}
+            {offerHandoff && status?.handoff_model && (
+              <div className="handoff" role="group" aria-label="Hand off">
+                <Spark size={16} still />
+                <div className="handoff-text">
+                  <strong>{modelName(status.model)} seems stuck.</strong> It {stuck}. Hand the task to{" "}
+                  {modelName(status.handoff_model)}? It picks up with the whole conversation so far, and its calls
+                  cost money.
+                </div>
+                <div className="handoff-actions">
+                  <button className="button button-primary button-small" onClick={() => void handOff()} disabled={handingOff}>
+                    {handingOff ? "Handing off…" : `Hand off to ${modelName(status.handoff_model).replace(/^Claude /, "")}`}
+                  </button>
+                  <button className="button button-quiet button-small" onClick={() => setHandoffDismissed(lastTurn?.number ?? 0)}>
+                    Keep going here
+                  </button>
+                </div>
+              </div>
             )}
             {running && waiting.length === 0 && !question && (
               <WorkingLine

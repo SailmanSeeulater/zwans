@@ -124,6 +124,10 @@ export interface SessionStatus {
   context_tokens: number;
   waiting_for: string[];
   warnings: string[];
+  /** The model runs on this machine. */
+  local?: boolean;
+  /** Who a stuck local session can hand its task to; null when no one. */
+  handoff_model?: string | null;
   /** What was sent during the running turn that the model hasn't read yet. */
   queued?: string[];
   /** The scripted replay: no API calls. */

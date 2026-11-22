@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from zwans import demo as zwans_demo
-from zwans import usage
+from zwans import pricing, usage
 from zwans.checkpoints import Change, CheckpointError
 from zwans.config import Config, ConfigError
 from zwans.events import Error, Event, TurnEnded
@@ -104,8 +104,14 @@ class LiveSession:
             "warnings": self.warnings,
             "demo": self.demo,
             "chat": opened.chat,  # no project and no tools: only a conversation
+            "local": self._local(),  # the model runs on this machine, for free
+            # Who a stuck local session can hand its task to, when anyone.
+            "handoff_model": opened.config.handoff_model if self._local() else None,
             "compact_at": opened.session.compact_at(opened.config.compact_at),
         }
+
+    def _local(self) -> bool:
+        return self.opened.model.partition("/")[0] in pricing.FREE_PROVIDERS
 
     def _first_prompt(self) -> str:
         for event in self.events:

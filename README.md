@@ -928,6 +928,9 @@ environment variables:
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
 | `subagent_model` | the session's | The model subagents run on |
 | `follow_through` | `2` local, `0` other | Times a turn sends the model back when its final reply only announced the next step or showed code without writing it |
+| `titles` | `true` | After a session's first turn, ask a model for a few words to title it |
+| `title_model` | Haiku for Claude, else the session's | The model that writes titles |
+| `handoff_model` | `claude-sonnet-5-5` | The model the web UI offers a stuck local session to hand its task to; unset never offers |
 | `compact_at` | `200000` | Estimated context tokens that trigger a compaction |
 | `keep_messages` | `8` | Recent messages kept word for word when compacting |
 | `compact_model` | the session's | The model that writes the handoff notes when compacting |

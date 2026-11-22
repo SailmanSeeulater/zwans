@@ -4086,3 +4086,30 @@ td.wf-time {
 .calendar-legend .muted {
   margin: 0 4px;
 }
+
+/* -- handing a stuck local session to Claude */
+.handoff {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 10px;
+  margin: 10px 0 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  background: linear-gradient(135deg, var(--accent-soft), transparent 70%);
+  font-size: 13.5px;
+  animation: changes-open 0.25s ease-out;
+}
+.handoff > .spark {
+  margin-top: 2px;
+  color: var(--accent);
+}
+.handoff-text {
+  line-height: 1.5;
+}
+.handoff-actions {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

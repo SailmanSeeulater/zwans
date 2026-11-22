@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from zwans import pricing
 from zwans.config import Config
 from zwans.eval.runner import AttemptResult, EvalConfig, Report, Summary
 from zwans.executor.seatbelt import SANDBOX_EXEC
@@ -452,6 +453,21 @@ def test_the_changes_panel_gets_everything_the_session_changed(server: Server) -
         ("changed", "keep.txt"),
     ]
     assert "-old" in body["diff"] and "+new" in body["diff"] and "+++ b/b.txt" in body["diff"]
+
+
+def test_only_a_local_session_offers_to_hand_off(
+    server: Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session_id = server.new_session(FakeProvider([]))
+    status = server.client.get("/api/sessions", headers=AUTH).json()["live"]
+    hosted = next(s for s in status if s["id"] == session_id)
+    # As if its provider were one on this machine, such as Ollama.
+    monkeypatch.setattr(pricing, "FREE_PROVIDERS", {hosted["model"].partition("/")[0]})
+    with connect(server, session_id) as ws:
+        local, _ = handshake(ws)
+
+    assert hosted["local"] is False and hosted["handoff_model"] is None
+    assert local["local"] is True and local["handoff_model"] == "claude-sonnet-5-5"
 
 
 def test_a_new_session_needs_a_real_folder(server: Server, tmp_path: Path) -> None:
