@@ -487,6 +487,18 @@ html[data-desktop] body {
 html[data-desktop] .wallpaper {
   display: none;
 }
+/* Except under the themes whose point is a white page: seen through, white takes on
+   whatever is behind the window, so there the page stays solid. */
+html[data-desktop]:is(
+    [data-theme="chalk"],
+    [data-theme="lagoon"],
+    [data-theme="orchid"],
+    [data-theme="ember"],
+    [data-theme="fern"]
+  )
+  body {
+  background: var(--base);
+}
 
 a {
   color: var(--accent);
