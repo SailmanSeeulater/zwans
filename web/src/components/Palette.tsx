@@ -77,6 +77,7 @@ function Dialog({ close }: { close: () => void }) {
       { group: "Go to", label: "Eval runs", hint: "Every report in evals/reports", run: go("/evals/") },
       { group: "Go to", label: "Task matrix", hint: "Tasks × configs, pass counts", run: go("/evals/matrix/") },
       { group: "Go to", label: "Leaderboard", hint: "Pass rate against cost, for everything run", run: go("/evals/leaderboard/") },
+      { group: "Help", label: "Wtf is Zwans", hint: "What it is, what it has, its tools", run: go("/about/") },
     );
     for (const s of sessions?.live ?? []) {
       list.push({
