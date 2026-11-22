@@ -25,7 +25,7 @@ th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: lef
   vertical-align: top; white-space: nowrap; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .passed { color: var(--pass); font-weight: 600; } .failed { color: var(--fail); font-weight: 600; }
-.stopped { color: var(--stop); font-weight: 600; }
+.stopped, .errored { color: var(--stop); font-weight: 600; }
 pre { background: var(--code); padding: 8px; border-radius: 6px; max-width: 70vw;
   overflow-x: auto; white-space: pre-wrap; font-size: 12px; }
 a { color: inherit; }
@@ -39,12 +39,16 @@ def render_html(report: Report, out_dir: Path) -> str:
         f"{escape(report.agent)} &middot; {escape(report.model)}, effort "
         f"{escape(report.effort)} &middot; started {escape(report.started_at)} &middot; "
         f"{report.repeats} repeats &middot; budget {budget}"
+        + (f" &middot; {escape(report.split)} half" if report.split else "")
     )
-    warning = (
-        '<p class="stopped">The budget ran out before every attempt finished.</p>'
-        if report.out_of_budget
-        else ""
-    )
+    warnings = []
+    if report.out_of_budget:
+        warnings.append("The budget ran out before every attempt finished.")
+    if s.errored:
+        warnings.append(f"{s.errored} attempts ended in an error and weren't checked or counted.")
+    if s.peeks:
+        warnings.append(f"{s.peeks} attempts reached for the task's answer and failed.")
+    warning = "".join(f'<p class="stopped">{escape(text)}</p>' for text in warnings)
     tiles = "".join(
         f'<div class="tile"><b>{value}</b><span>{label}</span></div>'
         for value, label in [
@@ -118,7 +122,7 @@ def _attempt_row(a: AttemptResult, out_dir: Path) -> str:
         f"<td class='num'>{a.tool_errors}</td><td class='num'>{a.seconds:.1f}s</td>"
         f"<td>{link}</td></tr>"
     )
-    details = [*a.errors]
+    details = [*a.errors, *(f"Reached for the answer: {peek}" for peek in a.peeks)]
     if a.status == "failed" and a.check_output:
         details.append(f"Check exited {a.check_exit}:\n{a.check_output}")
     if details:

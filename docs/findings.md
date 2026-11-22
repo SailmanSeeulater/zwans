@@ -332,6 +332,23 @@ other `ZWANS_*` variables. Add `--executor jail` on Linux to run commands in zwa
 The dated entries behind the sections above, newest first, as written at the time. Later
 entries sometimes correct earlier ones.
 
+### 2026-11-22: evals could be passed by reading the answer
+
+Prompted by Harness² (google-research/harness2), whose guide reports a Codex run fetching
+its task's grading rubric from the web unasked. Zwans's suites are in a public repository
+with every task's `solution/` and `hidden/` tests, and eval agents had Bash on this machine
+and, on Claude, the web tools (`web` defaults to on). None of the 15,128 tool calls in the
+54 saved reports reached for an answer, but nothing stopped one. Changed:
+
+- Evals run with `web` off unless a config turns it on, and a tool call naming the task's
+  suite folder or its repository path stops and fails the attempt (`eval/guard.py`).
+- `--executor seatbelt` was accepted for evals but never used: attempts ran on the local
+  executor. They now run under Seatbelt, which has no network.
+- Scratch folders no longer carry the task's name, which on the hard suite described the
+  bug (see the 2026-11-21 entry).
+- An attempt that ends in an error is `errored`, left out of the pass rate and of `compare`,
+  instead of a failure. Earlier reports counted those as failures.
+
 ### 2026-11-22: local models now act on their replies, and still mostly fail
 
 The same ten starter tasks, once each, before (345913b) and after the fixes for what the

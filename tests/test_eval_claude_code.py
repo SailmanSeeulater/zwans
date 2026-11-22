@@ -46,11 +46,14 @@ def test_claude_code_attempts_are_checked_and_counted(
 def test_a_crash_is_reported_with_claude_codes_error_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    [attempt] = run(BUGGY_CALC, tmp_path, "crash", monkeypatch).attempts
+    report = run(BUGGY_CALC, tmp_path, "crash", monkeypatch)
+    [attempt] = report.attempts
 
-    assert attempt.status == "failed"
+    # Claude Code never worked on the task, so its attempt says nothing about it.
+    assert attempt.status == "errored"
     assert attempt.stop_reason == "error"
     assert "boom" in attempt.errors[0]
+    assert (report.summary.attempts, report.summary.errored) == (0, 1)
 
 
 def test_a_slow_claude_code_times_out(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

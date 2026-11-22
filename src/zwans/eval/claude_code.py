@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from zwans.config import Config
+from zwans.eval.guard import answer_markers, peeks_at
 from zwans.eval.runner import AgentRun, Budget
 from zwans.eval.task import Task
 from zwans.executor.local import kill_tree, own_process_group
@@ -79,7 +80,7 @@ class ClaudeCodeAgent:
                 await kill_tree(process)  # also after a cancel, so nothing is left running
 
         lines = transcript.read_text(encoding="utf-8", errors="replace").splitlines()
-        run = parse_stream(lines)
+        run = parse_stream(lines, answer_markers(task))
         budget.spent += run.dollars  # charged at the end: Claude Code doesn't report as it goes
         if timed_out:
             run.stop_reason = "timeout"
@@ -89,8 +90,9 @@ class ClaudeCodeAgent:
         return run
 
 
-def parse_stream(lines: Iterable[str]) -> AgentRun:
-    """Read Claude Code's stream-json output into the numbers the report needs."""
+def parse_stream(lines: Iterable[str], markers: Sequence[str] = ()) -> AgentRun:
+    """Read Claude Code's stream-json output into the numbers the report needs, and the tool
+    calls that named one of `markers` (eval/guard.py)."""
     run = AgentRun(stop_reason="error")  # until a result line says otherwise
     messages: set[str] = set()
     calls: set[str] = set()
@@ -105,7 +107,14 @@ def parse_stream(lines: Iterable[str]) -> AgentRun:
         content: list[dict[str, Any]] = raw if isinstance(raw, list) else []
         if kind == "assistant":
             messages.add(message.get("id", str(len(messages))))
-            calls.update(b.get("id", "") for b in content if b.get("type") == "tool_use")
+            for block in content:
+                if block.get("type") != "tool_use" or block.get("id", "") in calls:
+                    continue
+                calls.add(block.get("id", ""))
+                tool = {"tool": block.get("name", ""), **(block.get("input") or {})}
+                peek = peeks_at(tool, markers)
+                if peek is not None:
+                    run.peeks.append(peek)
         elif kind == "user":
             run.tool_errors += sum(
                 1 for b in content if b.get("type") == "tool_result" and b.get("is_error")

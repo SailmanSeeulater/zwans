@@ -14,7 +14,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from statistics import NormalDist
 
-from zwans.eval.runner import AttemptResult, Report, cache_hit_rate
+from zwans.eval.runner import NOT_COUNTED, AttemptResult, Report, cache_hit_rate
 
 RESAMPLES = 5_000
 CONFIDENCE = 0.95
@@ -113,7 +113,7 @@ def wilson(passed: int, attempts: int) -> tuple[float, float]:
 def _counted_by_task(attempts: Sequence[AttemptResult]) -> dict[str, list[AttemptResult]]:
     grouped: dict[str, list[AttemptResult]] = {}
     for attempt in attempts:
-        if attempt.status != "stopped":
+        if attempt.status not in NOT_COUNTED:
             grouped.setdefault(attempt.task, []).append(attempt)
     return grouped
 

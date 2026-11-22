@@ -1,8 +1,8 @@
 """Runs eval tasks: each attempt gets a fresh copy of a task's repo, the agent works on it,
 then the task's check decides whether it passed.
 
-Attempts run on this machine in a temporary folder for now. The Docker executor (Phase 4)
-will give each one its own container.
+Each attempt works in its own temporary folder, named so it says nothing about the task;
+the executor decides where its commands run (this machine, Docker, the jail or Seatbelt).
 """
 
 import asyncio
@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from zwans.config import Config
 from zwans.context.compaction import Compactor
 from zwans.context.instructions import load_instructions
+from zwans.eval.guard import AnswerGuard, answer_markers
 from zwans.eval.injection import CarefulUser, PlantedActions
 from zwans.eval.task import Injection, Task, apply_solution, prepare_workspace, run_check
 from zwans.events import (
@@ -35,6 +36,7 @@ from zwans.events import (
 from zwans.executor.docker import SANDBOX_OS, DockerError, DockerExecutor
 from zwans.executor.jail import JAIL_OS, JailExecutor
 from zwans.executor.local import LocalExecutor, find_bash
+from zwans.executor.seatbelt import SEATBELT_OS, SeatbeltExecutor
 from zwans.ext.hooks import Hooks, HookSpec
 from zwans.followthrough import follow_through_for
 from zwans.policy import Permissions, Policy
@@ -56,7 +58,13 @@ from zwans.transcript import TranscriptWriter
 CHECK_OUTPUT_CHARS = 2_000  # the end of the check's output, kept in the report
 
 type ProviderFactory = Callable[[Task, Config], Provider]
-type Status = Literal["passed", "failed", "stopped"]
+# "stopped": the run's budget ran out first. "errored": the agent couldn't work (the API
+# refused, the sandbox wouldn't start), so its work wasn't checked. Neither counts.
+type Status = Literal["passed", "failed", "stopped", "errored"]
+NOT_COUNTED = ("stopped", "errored")
+# Settings every eval starts from, under the config's own. The tasks' answers are public, so
+# the web tools are off unless a config turns them back on.
+EVAL_DEFAULTS: dict[str, Any] = {"web": False}
 
 
 class EvalConfigError(Exception):
@@ -71,6 +79,7 @@ class EvalConfig(BaseModel):
     [[hooks]] entries, written as in a policy file (see ext/hooks.py), run during every
     attempt, such as a stop hook that runs the task's visible tests before the agent may
     finish. They run on this machine in the attempt's folder, whatever the executor.
+    Settings start from EVAL_DEFAULTS, then yours, then the config's.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -82,7 +91,7 @@ class EvalConfig(BaseModel):
 
     def apply(self, base: Config) -> Config:
         try:
-            return Config.model_validate({**base.model_dump(), **self.settings})
+            return Config.model_validate({**base.model_dump(), **EVAL_DEFAULTS, **self.settings})
         except ValidationError as exc:
             raise EvalConfigError(f"Config {self.name}: {exc}") from exc
 
@@ -126,8 +135,7 @@ class AttemptResult(BaseModel):
     task: str
     category: str
     repeat: int  # 1, 2, ... for repeats of the same task
-    # "stopped" means the suite's budget ran out first; such attempts count for nothing.
-    status: Status
+    status: Status  # "stopped" and "errored" attempts count for nothing
     stop_reason: str  # why the agent's turn ended: "end_turn", "timeout", "over_budget", ...
     dollars: float = 0.0
     model_calls: int = 0
@@ -147,10 +155,11 @@ class AttemptResult(BaseModel):
     # Injection tasks only: tool calls carrying a planted instruction's canary.
     planted_attempts: list[str] = []  # the agent tried them
     planted_runs: list[str] = []  # they ran; any of these fails the attempt
+    peeks: list[str] = []  # tool calls that reached for the task's answer (eval/guard.py)
 
 
 class Summary(BaseModel):
-    attempts: int  # attempts that count: every one that wasn't stopped
+    attempts: int  # attempts that count: every one that wasn't stopped or errored
     passed: int
     pass_rate: float
     dollars: float  # in total, stopped attempts included
@@ -163,10 +172,12 @@ class Summary(BaseModel):
     mean_compactions: float = 0.0
     planted_attempts: int = 0
     planted_runs: int = 0
+    errored: int = 0  # attempts that ended in an error, left out of everything but dollars
+    peeks: int = 0  # attempts that reached for the answer
 
     @classmethod
     def of(cls, results: Sequence[AttemptResult]) -> "Summary":
-        counted = [r for r in results if r.status != "stopped"]
+        counted = [r for r in results if r.status not in NOT_COUNTED]
         n = len(counted)
         tool_calls = sum(r.tool_calls for r in counted)
 
@@ -188,6 +199,8 @@ class Summary(BaseModel):
             mean_compactions=mean([r.compactions for r in counted]),
             planted_attempts=sum(len(r.planted_attempts) for r in counted),
             planted_runs=sum(len(r.planted_runs) for r in counted),
+            errored=sum(r.status == "errored" for r in results),
+            peeks=sum(bool(r.peeks) for r in counted),
         )
 
 
@@ -206,6 +219,7 @@ class Report(BaseModel):
     started_at: str
     repeats: int
     budget: float | None  # dollars for the whole run
+    split: str = ""  # the part of the suite that ran, as "train, seed 0", when it was split
     out_of_budget: bool  # the run stopped early because the budget ran out
     summary: Summary
     tasks: dict[str, Summary]
@@ -241,6 +255,7 @@ class AgentRun:
     errors: list[str] = field(default_factory=list)
     planted_attempts: list[str] = field(default_factory=list)
     planted_runs: list[str] = field(default_factory=list)
+    peeks: list[str] = field(default_factory=list)
 
 
 class Agent(Protocol):
@@ -282,6 +297,8 @@ class ZwansAgent:
                 yield executor
         elif self.config.executor == "jail":
             yield JailExecutor(workspace, spill_dir=spill)
+        elif self.config.executor == "seatbelt":
+            yield SeatbeltExecutor(workspace, shell=self.config.shell, spill_dir=spill)
         else:
             yield LocalExecutor(workspace, shell=self.config.shell, spill_dir=spill)
 
@@ -296,11 +313,13 @@ class ZwansAgent:
         watch = _Watch(task, budget)
         writer = TranscriptWriter(transcript)
         planted = PlantedActions(task.injection.canaries if task.injection else [])
+        guard = AnswerGuard(answer_markers(task), lambda: watch.stop("answer_peek"))
         provider = self.make_provider(task, self.config)
         listeners: list[Callable[[Event], None]] = [
             watch.on_event,
             writer.on_event,
             planted.on_event,
+            guard.on_event,
         ]
         session = self._session(workspace, provider, executor, listeners)
         if task.injection is not None:
@@ -331,6 +350,7 @@ class ZwansAgent:
             errors=watch.errors,
             planted_attempts=planted.attempted,
             planted_runs=planted.ran,
+            peeks=guard.peeks,
         )
 
     def _session(
@@ -347,6 +367,9 @@ class ZwansAgent:
             system = system_prompt(workspace, "bash", instructions, SANDBOX_OS, web=web)
         elif isinstance(executor, JailExecutor):
             system = system_prompt(workspace, "bash", instructions, JAIL_OS, web=web)
+        elif isinstance(executor, SeatbeltExecutor):
+            shell = self.config.shell or _find_bash()
+            system = system_prompt(workspace, shell, instructions, SEATBELT_OS, web=web)
         else:
             system = system_prompt(
                 workspace, self.config.shell or _find_bash(), instructions, web=web
@@ -382,7 +405,8 @@ class _Watch:
     output_tokens: int = 0
     compactions: int = 0
     errors: list[str] = field(default_factory=list)
-    stopped_by: str = ""  # "over_budget" (this attempt's) or "suite_budget" (the run's)
+    # "over_budget" (this attempt's), "suite_budget" (the run's) or "answer_peek"
+    stopped_by: str = ""
 
     def on_event(self, event: Event) -> None:
         if isinstance(event, UsageUpdated):
@@ -395,9 +419,9 @@ class _Watch:
             self.dollars += dollars
             self.budget.spent += dollars
             if self.dollars > self.task.max_cost:
-                self._stop("over_budget")
+                self.stop("over_budget")
             elif self.budget.exhausted:
-                self._stop("suite_budget")
+                self.stop("suite_budget")
             return
         event = unwrap(event)  # a subagent's calls count like the agent's own
         if isinstance(event, ToolCallRequested):
@@ -409,7 +433,7 @@ class _Watch:
         elif isinstance(event, Error):
             self.errors.append(event.message)
 
-    def _stop(self, reason: str) -> None:
+    def stop(self, reason: str) -> None:
         if not self.stopped_by and self.turn is not None:
             self.stopped_by = reason
             self.turn.cancel()
@@ -441,7 +465,9 @@ async def run_attempt(
     )
     if budget.exhausted:
         return result
-    with tempfile.TemporaryDirectory(prefix=f"zwans-eval-{task.name}-") as temp:
+    # The folder's name shows in every path the agent sees, so it doesn't name the task: on
+    # the hard suite the names describe the bug.
+    with tempfile.TemporaryDirectory(prefix="zwans-eval-") as temp:
         workspace = Path(temp) / "work"
         prepare_workspace(task, workspace)
         started = time.monotonic()
@@ -461,11 +487,19 @@ async def run_attempt(
         result.transcript = str(transcript)
         result.planted_attempts = run.planted_attempts
         result.planted_runs = run.planted_runs
+        result.peeks = run.peeks
         if run.stop_reason == "suite_budget":
             return result  # stays "stopped"
         result.status = "failed"
-        if run.planted_runs:
-            return result  # a planted action ran, so the attempt fails whatever the check says
+        if run.planted_runs or run.peeks:
+            # A planted action ran, or the agent looked at the answer: it fails whatever the
+            # check says.
+            return result
+        if run.stop_reason == "error":
+            # The agent couldn't work (the API refused it, the sandbox didn't start), so a
+            # failed check would say nothing about it: report it, but don't count it.
+            result.status = "errored"
+            return result
         if run.stop_reason not in ("timeout", "over_budget"):  # running out of limits is a fail
             executor = LocalExecutor(workspace, shell=shell, spill_dir=Path(temp) / "output")
             check = await run_check(task, executor)
@@ -483,7 +517,7 @@ async def check_the_checks(tasks: Sequence[Task], shell: str | None) -> str | No
     task = next((t for t in tasks if t.solution.is_dir()), None)
     if task is None:
         return None
-    with tempfile.TemporaryDirectory(prefix=f"zwans-eval-preflight-{task.name}-") as temp:
+    with tempfile.TemporaryDirectory(prefix="zwans-eval-preflight-") as temp:
         workspace = Path(temp) / "work"
         prepare_workspace(task, workspace)
         apply_solution(task, workspace)
@@ -510,6 +544,7 @@ async def run_suite(
     repeats: int = 1,
     parallel: int = 4,
     budget: float | None = None,
+    split: str = "",
     on_result: Callable[[AttemptResult], None] | None = None,
 ) -> Report:
     """Run every task `repeats` times, up to `parallel` attempts at once, and save
@@ -539,6 +574,7 @@ async def run_suite(
         started_at=started_at,
         repeats=repeats,
         budget=budget,
+        split=split,
         out_of_budget=any(r.status == "stopped" for r in results),
         summary=Summary.of(results),
         tasks={t.name: Summary.of([r for r in results if r.task == t.name]) for t in tasks},

@@ -27,7 +27,7 @@ from zwans.eval.runner import (
     load_eval_config,
     run_suite,
 )
-from zwans.eval.task import Task, TaskError, load_suite
+from zwans.eval.task import Task, TaskError, load_suite, split_suite
 from zwans.executor.docker import DockerError, ensure_sandbox_network
 from zwans.executor.jail import find_jail
 from zwans.executor.seatbelt import find_sandbox
@@ -39,7 +39,7 @@ from zwans.providers.router import ModelRouter
 
 eval_app = typer.Typer(no_args_is_help=True, help="Run eval tasks and report the results.")
 
-STATUS_MARKS = {"passed": "PASS", "failed": "FAIL", "stopped": "STOP"}
+STATUS_MARKS = {"passed": "PASS", "failed": "FAIL", "stopped": "STOP", "errored": "ERR "}
 
 
 class ExecutorName(StrEnum):
@@ -47,6 +47,11 @@ class ExecutorName(StrEnum):
     docker = "docker"
     jail = "jail"
     seatbelt = "seatbelt"
+
+
+class SplitPart(StrEnum):
+    train = "train"
+    test = "test"
 
 
 class AgentName(StrEnum):
@@ -79,6 +84,14 @@ def run_command(
         ExecutorName | None,
         typer.Option(help="Where Zwans runs commands. Default: the `executor` setting."),
     ] = None,
+    split: Annotated[
+        SplitPart | None,
+        typer.Option(help="Run one half of the suite: train to tune on, test to check it on."),
+    ] = None,
+    seed: Annotated[int, typer.Option(help="Which halves --split makes.")] = 0,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="List what would run, without running it.")
+    ] = False,
     repeats: Annotated[int, typer.Option(min=1, help="Attempts per task.")] = 1,
     parallel: Annotated[int, typer.Option(min=1, help="Attempts running at once.")] = 4,
     budget: Annotated[
@@ -100,7 +113,14 @@ def run_command(
         config = eval_config.apply(base)
         if executor is not None:
             config = config.model_copy(update={"executor": executor.value})
+        if split is not None and only:
+            raise TaskError("Use --split or --only, not both.")
         tasks = _select(load_suite(tasks_dir), only)
+        if split is not None:
+            tasks = split_suite(tasks, split.value, seed)
+        if dry_run:
+            _print_plan(tasks, repeats, agent_name, config, eval_config, budget)
+            return
         agent = _agent(agent_name, config, eval_config, env, fake_scripts)
         if config.executor == "docker" and agent_name is AgentName.zwans:
             asyncio.run(ensure_sandbox_network())  # fail now rather than in every attempt
@@ -118,10 +138,11 @@ def run_command(
     out = out or Path("evals/reports") / f"{datetime.now():%Y%m%d-%H%M%S}-{eval_config.name}"
     attempts = len(tasks) * repeats
     limit = f", budget ${budget:.2f}" if budget is not None else ""
+    part = f" | {split.value} half, seed {seed}" if split is not None else ""
     typer.secho(
         f"{_count(len(tasks), 'task')} x {repeats} = {attempts} attempts | "
         f"{agent.name} ({config.executor}) | config {eval_config.name} | {config.model}, "
-        f"effort {config.effort}{limit}",
+        f"effort {config.effort}{limit}{part}",
         dim=True,
     )
     report = asyncio.run(
@@ -134,18 +155,28 @@ def run_command(
             repeats=repeats,
             parallel=parallel,
             budget=budget,
+            split=f"{split.value}, seed {seed}" if split is not None else "",
             on_result=_print_attempt,
         )
     )
     _print_report(report)
     (out / "report.html").write_text(render_html(report, out), encoding="utf-8")
     typer.secho(f"Report: {out / 'report.html'} (and report.json)", dim=True)
-    broken = [a for a in report.attempts if a.stop_reason == "error" and a.errors]
+    broken = [a for a in report.attempts if a.status == "errored"]
     if broken:
         # Usually the API refusing the request, which says nothing about the agent's skill.
+        first = next((a.errors[0] for a in broken if a.errors), "no message")
         typer.secho(
-            f"{_count(len(broken), 'attempt')} ended with an error, so their failures may not "
-            f"be the agent's. First one: {broken[0].errors[0]}",
+            f"{_count(len(broken), 'attempt')} ended with an error and "
+            f"{'was' if len(broken) == 1 else 'were'} neither checked nor counted. "
+            f"First error: {first}",
+            fg="yellow",
+        )
+    peeked = [a for a in report.attempts if a.peeks]
+    if peeked:
+        typer.secho(
+            f"{_count(len(peeked), 'attempt')} reached for the task's answer and failed. "
+            f"First call: {peeked[0].peeks[0]}",
             fg="yellow",
         )
     if report.out_of_budget:
@@ -218,6 +249,29 @@ def _difference_line(diff: Difference) -> str:
 
 def _count(n: int, noun: str) -> str:
     return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def _print_plan(
+    tasks: list[Task],
+    repeats: int,
+    agent: AgentName,
+    config: Config,
+    eval_config: EvalConfig,
+    budget: float | None,
+) -> None:
+    """What a run would do, for --dry-run: nothing is run, checked or charged."""
+    most = sum(task.max_cost for task in tasks) * repeats
+    if budget is not None:
+        most = min(most, budget)
+    typer.echo(
+        f"{_count(len(tasks), 'task')} x {repeats} = {len(tasks) * repeats} attempts | "
+        f"{agent.value} ({config.executor}) | config {eval_config.name} | {config.model}, "
+        f"effort {config.effort}"
+    )
+    width = max([len(task.name) for task in tasks] + [4])
+    for task in tasks:
+        typer.echo(f"  {task.name:<{width}}  {task.category:<10}  up to ${task.max_cost:.2f}")
+    typer.echo(f"At most ${most:.2f} in all, from the tasks' max_cost and the budget.")
 
 
 def _select(tasks: list[Task], only: list[str] | None) -> list[Task]:
@@ -305,6 +359,8 @@ def _print_attempt(result: AttemptResult) -> None:
     detail = f"{result.model_calls} model calls, ${result.dollars:.4f}, {result.seconds:.1f}s"
     if result.stop_reason != "end_turn":
         detail += f", stopped: {result.stop_reason}"
+    if result.peeks:
+        detail += ", reached for the answer"
     if result.planted_attempts:
         ran = len(result.planted_runs)
         detail += f", tried {len(result.planted_attempts)} planted actions, {ran} ran"
@@ -320,7 +376,10 @@ def _print_report(report: Report) -> None:
             f"{s.mean_model_calls:5.1f}  {s.mean_tool_calls:5.1f}  {s.tool_error_rate:6.0%}"
         )
     s = report.summary
-    typer.echo(f"\nPass rate {s.pass_rate:.0%} ({s.passed}/{s.attempts}), spent ${s.dollars:.4f}")
+    errored = f", {s.errored} errored and not counted" if s.errored else ""
+    typer.echo(
+        f"\nPass rate {s.pass_rate:.0%} ({s.passed}/{s.attempts}){errored}, spent ${s.dollars:.4f}"
+    )
     typer.echo(f"Cache hits {s.cache_hit_rate:.0%} of input tokens", nl=False)
     typer.echo(f", {s.mean_compactions:.1f} compactions per attempt" if s.mean_compactions else "")
     if any(r.planted_attempts for r in report.attempts):

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from zwans.config import Config
+from zwans.eval.guard import answer_markers, peeks_at
 from zwans.eval.runner import AgentRun, Budget
 from zwans.eval.task import Task
 from zwans.executor.local import kill_tree, own_process_group
@@ -38,6 +39,7 @@ EFFORTS = {"low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "
 
 # Item types that are the agent using a tool, as opposed to talking or thinking.
 TOOL_ITEMS = {"command_execution", "file_change", "mcp_tool_call", "web_search"}
+OUTPUT_KEYS = {"aggregated_output", "output", "result", "exit_code", "status"}  # not the request
 
 
 class CodexAgent:
@@ -110,7 +112,7 @@ class CodexAgent:
                 await kill_tree(process)  # also after a cancel, so nothing is left running
 
         lines = transcript.read_text(encoding="utf-8", errors="replace").splitlines()
-        run = parse_stream(lines, self.price)
+        run = parse_stream(lines, self.price, answer_markers(task))
         budget.spent += run.dollars  # charged at the end: Codex doesn't report as it goes
         if timed_out:
             run.stop_reason = "timeout"
@@ -122,13 +124,15 @@ class CodexAgent:
         return run
 
 
-def parse_stream(lines: Iterable[str], price: Price) -> AgentRun:
+def parse_stream(lines: Iterable[str], price: Price, markers: Sequence[str] = ()) -> AgentRun:
     """Read `codex exec --json` output into the numbers the report needs.
 
     Codex doesn't say how many model calls it made, so model_calls stays 0. A tool call is a
     finished command, file change, MCP call or web search; it's an error when its status is
     "failed" or "declined". Usage follows OpenAI's convention: input_tokens includes the
-    cached ones, and output_tokens includes the reasoning.
+    cached ones, and output_tokens includes the reasoning. A call that names one of `markers`
+    (eval/guard.py) is a peek at the answer; only what it was asked to do is read, not its
+    output.
     """
     run = AgentRun(stop_reason="error")  # until a turn.completed says otherwise
     calls: set[str] = set()
@@ -147,6 +151,10 @@ def parse_stream(lines: Iterable[str], price: Price) -> AgentRun:
             item_id = str(item.get("id", len(calls)))
             if item.get("type") in TOOL_ITEMS:
                 calls.add(item_id)
+                asked = {k: v for k, v in item.items() if k not in OUTPUT_KEYS}
+                peek = peeks_at({"tool": item.get("type"), **asked}, markers)
+                if peek is not None:
+                    run.peeks.append(peek)
                 if item.get("status") in ("failed", "declined"):
                     errors.add(item_id)
             elif item.get("type") == "error" and item.get("message"):

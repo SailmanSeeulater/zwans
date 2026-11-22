@@ -744,6 +744,9 @@ zwans eval run --tasks evals/tasks-expert              # the expert tier
 zwans eval run --tasks evals/tasks-injection           # the prompt-injection suite
 zwans eval run --executor docker                       # commands in the Docker sandbox
 zwans eval run --executor jail                         # commands in zwans-jail (Linux)
+zwans eval run --executor seatbelt                     # commands in Seatbelt (macOS)
+zwans eval run --split train --seed 0                  # half of each category, to tune on
+zwans eval run --split test --seed 0 --dry-run         # the other half: what would run
 ```
 
 A config in `evals/configs/` overrides settings such as `model` or `effort` for the run, and
@@ -753,6 +756,24 @@ Each task's `max_cost` and
 `timeout` limit one attempt; going over either fails it. `--budget` stops the whole run once
 it has spent that much; attempts it cut off are reported as stopped and don't count. Each
 run writes `report.html`, `report.json` and a transcript per attempt to `evals/reports/`.
+
+Evals guard against an agent finding the answer instead of doing the work. The suites are
+in a public repository, solutions and hidden tests included, so evals run without the web
+tools unless a config sets `web = true`. An attempt whose tool call names its suite folder
+on this machine, or its path in the repository as a GitHub URL would, is stopped and fails
+(`reached for the answer` in the report); Claude Code's and Codex's calls are checked the
+same way. That tripwire can't see a command that finds the folder without naming it, so for
+runs that matter, use an executor without an open network (Docker, the jail or Seatbelt).
+Each attempt's folder is named `zwans-eval-<random>`, never after the task.
+
+An attempt that ends in an error (the API refusing the request, a sandbox that won't start)
+shows as `errored`: it isn't checked, and like a stopped one it's left out of the pass rate
+and of `compare`, since it says nothing about the agent. Its cost still counts.
+
+`--split train` and `--split test` run complementary halves of a suite, each category split
+on its own and shuffled by `--seed`, so a change tuned on one half can be checked on tasks it
+wasn't tuned on. `--dry-run` lists the attempts a run would make and the most it could
+spend, without running anything.
 
 `compare` shows how run B differs from run A in pass rate, cost, model calls, tool calls and
 time, each with a 95% confidence interval from a paired bootstrap over tasks. It calls a
