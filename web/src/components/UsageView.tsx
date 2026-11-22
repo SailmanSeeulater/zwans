@@ -13,6 +13,7 @@ import {
   type UsageBucket,
   type UsageTotal,
 } from "@/lib/usage";
+import { UsageCalendar } from "./UsageCalendar";
 import { TokenMissing, useApi, useHasToken } from "./useApi";
 
 type Measure = "tokens" | "dollars";
@@ -87,6 +88,13 @@ export function UsageView() {
           </div>
 
           <Bars buckets={buckets} period={period} measure={measure} />
+
+          {data.calendar && (
+            <>
+              <h2>The past year, day by day</h2>
+              <UsageCalendar data={data.calendar} measure={measure} />
+            </>
+          )}
 
           <h2>What the tokens were, {chosen.current.toLowerCase()}</h2>
           <Split total={data.totals[period]} />

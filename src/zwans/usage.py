@@ -29,6 +29,7 @@ type Period = Literal["day", "week", "month", "year"]
 PERIODS: tuple[Period, ...] = ("day", "week", "month", "year")
 # How many of each the series goes back; years go back to the first call.
 SPANS: dict[Period, int] = {"day": 30, "week": 12, "month": 12}
+CALENDAR_WEEKS = 53  # the calendar of days: a year, in whole weeks starting on Monday
 
 
 @dataclass(frozen=True)
@@ -167,6 +168,29 @@ def _step_back(start: date, period: Period) -> date:
     return bucket_start(start - timedelta(days=1), period)
 
 
+def _calendar(dated: list[tuple[date, Call]], today: date) -> dict[str, Any]:
+    """The last CALENDAR_WEEKS weeks, day by day, for a calendar of how much was used: where
+    it starts (a Monday) and the days with any use, oldest first."""
+    start = bucket_start(today, "week") - timedelta(weeks=CALENDAR_WEEKS - 1)
+    days: dict[date, Total] = {}
+    for day, call in dated:
+        if start <= day <= today:
+            days.setdefault(day, Total()).add(call)
+    used = []
+    for day in sorted(days):
+        total = days[day].as_json()
+        used.append(
+            {
+                "day": day.isoformat(),
+                "tokens": total["tokens"],
+                "dollars": total["dollars"],
+                "calls": total["calls"],
+                "sessions": total["sessions"],
+            }
+        )
+    return {"start": start.isoformat(), "end": today.isoformat(), "days": used}
+
+
 def summarize(calls: Iterable[Call], now: datetime) -> dict[str, Any]:
     """Totals for the current day, week, month and year and for all time, a series of
     buckets for each period, oldest first with empty ones included, and totals by model.
@@ -202,6 +226,7 @@ def summarize(calls: Iterable[Call], now: datetime) -> dict[str, Any]:
         by_model.setdefault(call.model or "unknown", Total()).add(call)
     models = sorted(by_model.items(), key=lambda item: -item[1].as_json()["tokens"])
     return {
+        "calendar": _calendar(dated, today),
         "now": now.isoformat(timespec="seconds"),
         "first": first.isoformat() if dated else None,
         "totals": {

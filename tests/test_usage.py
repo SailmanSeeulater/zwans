@@ -158,3 +158,21 @@ def test_with_nothing_used_everything_is_zero() -> None:
     assert found["first"] is None and found["models"] == []
     assert found["totals"]["all"]["tokens"] == 0
     assert [y["start"] for y in found["series"]["year"]] == ["2026-01-01"]
+
+
+def test_the_calendar_covers_a_year_of_weeks_with_the_days_that_had_use() -> None:
+    now = datetime(2026, 11, 22, 15, 0, tzinfo=UTC)  # a Sunday
+    calls = [
+        call(now - timedelta(hours=1), input_tokens=10, session="a"),
+        call(now - timedelta(hours=2), output_tokens=5, session="b"),
+        call(now - timedelta(days=3), input_tokens=20, session="a"),
+        call(now - timedelta(days=400), input_tokens=160, session="d"),  # before it starts
+    ]
+
+    calendar = summarize(calls, now)["calendar"]
+
+    assert calendar["start"] == "2025-11-17" and calendar["end"] == "2026-11-22"  # 53 weeks
+    assert [(d["day"], d["tokens"], d["calls"], d["sessions"]) for d in calendar["days"]] == [
+        ("2026-11-19", 20, 1, 1),
+        ("2026-11-22", 15, 2, 2),
+    ]

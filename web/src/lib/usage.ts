@@ -1,5 +1,7 @@
 /** What /api/usage returns, and how the Usage page labels and scales it. */
 
+import type { UsageCalendar } from "./calendar";
+
 export interface UsageTotal {
   calls: number;
   sessions: number;
@@ -21,6 +23,8 @@ export interface Usage {
   totals: Record<Period | "all", UsageTotal>;
   series: Record<Period, UsageBucket[]>; // oldest first, empty buckets included
   models: (UsageTotal & { model: string })[];
+  /** The past year day by day; missing from an older server. */
+  calendar?: UsageCalendar;
 }
 
 export const PERIODS: { id: Period; name: string; current: string; each: string }[] = [
