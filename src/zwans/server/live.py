@@ -37,6 +37,9 @@ type Message = dict[str, Any]
 ANSWERS = {"once": Approval.ONCE, "always": Approval.ALWAYS, "no": Approval.NO}
 
 
+DIFF_CHARS = 400_000  # what the Changes panel is sent of a session's diff
+
+
 class Busy(Exception):
     """The session is already running a turn."""
 
@@ -156,6 +159,21 @@ class LiveSession:
                 }
             )
         return turns
+
+    async def changes(self) -> dict[str, Any]:
+        """Every file the session has changed so far, from its first checkpoint to now, with
+        a unified diff of them; Bash's edits included. The diff is cut at DIFF_CHARS."""
+        checkpoints = self.opened.checkpoints
+        if self.demo or self.opened.chat or checkpoints is None or not checkpoints.available:
+            return {"changes": [], "diff": "", "cut": False, "problem": self.undo_problem()}
+        changes, diff = await checkpoints.since_start()
+        cut = len(diff) > DIFF_CHARS
+        return {
+            "changes": [{"status": c.status, "path": c.path} for c in changes],
+            "diff": diff[:DIFF_CHARS] if cut else diff,
+            "cut": cut,
+            "problem": None,
+        }
 
     def undo_problem(self) -> str | None:
         """Why turns can't be undone in this session at all, if they can't."""

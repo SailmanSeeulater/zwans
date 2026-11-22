@@ -3,6 +3,7 @@
 import { ExternalLink, Globe, PanelRightClose, Plus, RotateCw, X } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import {
+  CHANGES,
   clampWidth,
   DEFAULT_WIDTH,
   HOOD,
@@ -19,6 +20,9 @@ interface Props {
   state: PaneState;
   onChange: (next: PaneState) => void;
   hood: ReactNode;
+  changes: ReactNode;
+  /** How many files the session has changed, for the Changes tab's badge. */
+  changed?: number;
   /** Called in each frame of a drag, after the width is written, to keep the conversation's place. */
   onResizeFrame?: () => void;
 }
@@ -30,7 +34,7 @@ const KEY_STEP = 24; // pixels an arrow key moves the edge
  * hood" and any pages opened beside the conversation. Both elements are children of the
  * session's row, which holds the width as --pane-width.
  */
-export function SidePane({ state, onChange, hood, onResizeFrame }: Props) {
+export function SidePane({ state, onChange, hood, changes, changed = 0, onResizeFrame }: Props) {
   const handle = useRef<HTMLDivElement>(null);
   const drag = useRef<{ startX: number; from: number; next: number; frame: number } | null>(null);
   const tabs = useRef<HTMLDivElement>(null);
@@ -100,7 +104,7 @@ export function SidePane({ state, onChange, hood, onResizeFrame }: Props) {
 
   // Arrow keys move between tabs, as in any tab list.
   const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
-    const ids = [HOOD, ...state.pages.map((p) => p.id)];
+    const ids = [HOOD, CHANGES, ...state.pages.map((p) => p.id)];
     const move = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
     if (move === undefined) return;
     event.preventDefault();
@@ -140,6 +144,21 @@ export function SidePane({ state, onChange, hood, onResizeFrame }: Props) {
               onClick={() => show(HOOD)}
             >
               Under the hood
+            </button>
+            <button
+              role="tab"
+              className="pane-tab"
+              data-tab={CHANGES}
+              aria-selected={state.active === CHANGES}
+              tabIndex={state.active === CHANGES ? 0 : -1}
+              onClick={() => show(CHANGES)}
+            >
+              Changes
+              {changed > 0 && (
+                <span key={changed} className="pane-tab-badge" aria-label={`${changed} files`}>
+                  {changed}
+                </span>
+              )}
             </button>
             {state.pages.map((page) => (
               <span key={page.id} className="pane-tab-wrap" data-selected={state.active === page.id || undefined}>
@@ -185,6 +204,9 @@ export function SidePane({ state, onChange, hood, onResizeFrame }: Props) {
         </div>
         <div className="pane-body" role="tabpanel" aria-label="Under the hood" hidden={state.active !== HOOD}>
           {hood}
+        </div>
+        <div className="pane-body" role="tabpanel" aria-label="Changes" hidden={state.active !== CHANGES}>
+          {changes}
         </div>
         {/* Every page stays mounted, so switching tabs doesn't reload it. */}
         {state.pages.map((page) => (

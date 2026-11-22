@@ -3686,3 +3686,160 @@ td.wf-time {
 .settings-row[data-stack] .theme-grid {
   width: 100%;
 }
+
+/* -- the Changes tab */
+.pane-tab-badge {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  animation: mark-pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.changes-head {
+  justify-content: space-between;
+  margin: 2px 0 6px;
+}
+.changes-empty {
+  padding: 18px 4px;
+  text-align: center;
+}
+.changes-empty p {
+  margin: 0 0 4px;
+}
+.changes-files,
+.changes-turns ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.changes-file {
+  border-radius: 10px;
+  transition: background 0.15s;
+}
+.changes-file[data-open] {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+.changes-file-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.changes-file-row:hover {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+.changes-chevron {
+  flex: none;
+  color: var(--ink-2);
+  transition: transform 0.18s ease;
+}
+.changes-file[data-open] .changes-chevron {
+  transform: rotate(90deg);
+}
+.changes-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.changes-mark[data-status="added"] {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+.changes-mark[data-status="changed"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.changes-mark[data-status="deleted"] {
+  background: color-mix(in srgb, var(--bad) 16%, transparent);
+  color: var(--bad);
+}
+.changes-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  direction: rtl; /* a long path loses its start, not its file name */
+  text-align: left;
+}
+.changes-path-in {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+.changes-dir {
+  color: var(--ink-2);
+}
+.changes-file-row .diff-count {
+  flex: none;
+}
+.changes-diff {
+  padding: 2px 6px 8px;
+  overflow-x: auto;
+  animation: changes-open 0.2s ease-out;
+}
+@keyframes changes-open {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+.changes-turns {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--edge);
+}
+.changes-turns h3 {
+  margin: 0 0 6px;
+}
+.changes-turn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+.changes-turn-n {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.changes-turn-prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.button-small {
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+  border-radius: 8px;
+}

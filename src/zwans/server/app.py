@@ -239,6 +239,11 @@ def create_app(settings: ServerSettings) -> FastAPI:
         live = _live(hub, session_id)
         return {"turns": await live.undoable_turns(), "problem": live.undo_problem()}
 
+    @api.get("/sessions/{session_id}/changes")
+    async def session_changes(session_id: str) -> dict[str, Any]:
+        """What the session has changed so far, with the diff, for the Changes panel."""
+        return await _live(hub, session_id).changes()
+
     @api.post("/sessions/{session_id}/rewind")
     async def rewind(session_id: str, body: RewindTo) -> dict[str, Any]:
         """Undo a turn and every turn after it: the files go back to how they were before

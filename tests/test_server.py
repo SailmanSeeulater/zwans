@@ -408,6 +408,23 @@ def test_undoing_a_turn_puts_the_files_back_and_drops_it(server: Server) -> None
     assert "no checkpoint from before turn 5" in missing.json()["detail"]
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_the_changes_panel_gets_everything_the_session_changed(server: Server) -> None:
+    (server.workspace / "keep.txt").write_text("old\n")
+    script = [write("keep.txt", "new\n"), say("Changed."), write("b.txt", "2"), say("Wrote b.")]
+    session_id = server.new_session(FakeProvider(script))
+    _run(server, session_id, "Change keep", "Write b")
+
+    body = server.client.get(f"/api/sessions/{session_id}/changes", headers=AUTH).json()
+
+    assert body["problem"] is None and body["cut"] is False
+    assert sorted((c["status"], c["path"]) for c in body["changes"]) == [
+        ("added", "b.txt"),
+        ("changed", "keep.txt"),
+    ]
+    assert "-old" in body["diff"] and "+new" in body["diff"] and "+++ b/b.txt" in body["diff"]
+
+
 def test_a_new_session_needs_a_real_folder(server: Server, tmp_path: Path) -> None:
     body = {"workspace": str(tmp_path / "missing")}
     response = server.client.post("/api/sessions", json=body, headers=AUTH)

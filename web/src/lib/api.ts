@@ -182,6 +182,16 @@ export interface UndoableTurn {
   changes: FileChange[];
 }
 
+/** Everything a session has changed since its first checkpoint, for the Changes panel. */
+export interface SessionChanges {
+  changes: FileChange[];
+  /** A unified diff of them, cut short when `cut`. */
+  diff: string;
+  cut: boolean;
+  /** Why this session has no changes to show (the demo, a chat, checkpoints off), when it hasn't. */
+  problem: string | null;
+}
+
 export interface UndoableTurns {
   /** Newest first. */
   turns: UndoableTurn[];

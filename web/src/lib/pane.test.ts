@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CHANGES,
   clampWidth,
   DEFAULT_PANE,
   HOOD,
@@ -60,6 +61,11 @@ describe("tabLabel", () => {
 });
 
 describe("restore", () => {
+  it("keeps the Changes tab showing, which is always there", () => {
+    expect(restore({ active: CHANGES }).active).toBe(CHANGES);
+    expect(restore({ active: "gone" }).active).toBe(HOOD);
+  });
+
   it("falls back to the default for anything that isn't a saved pane", () => {
     expect(restore(null)).toEqual(DEFAULT_PANE);
     expect(restore("wide")).toEqual(DEFAULT_PANE);

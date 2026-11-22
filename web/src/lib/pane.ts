@@ -14,10 +14,11 @@ export interface PaneState {
   open: boolean;
   width: number; // pixels
   pages: PageTab[];
-  active: string; // HOOD, or a page tab's id
+  active: string; // HOOD, CHANGES, or a page tab's id
 }
 
 export const HOOD = "hood";
+export const CHANGES = "changes";
 export const DEFAULT_WIDTH = 320;
 export const MIN_WIDTH = 280;
 export const MIN_MAIN = 420; // what the conversation keeps, however far the pane is dragged
@@ -72,7 +73,8 @@ export function restore(saved: unknown): PaneState {
     .filter((p) => p.url === "" || toUrl(p.url) !== null)
     .slice(0, MAX_PAGES);
   const width = typeof from.width === "number" && Number.isFinite(from.width) ? from.width : DEFAULT_WIDTH;
-  const active = pages.some((p) => p.id === from.active) ? String(from.active) : HOOD;
+  const fixed = from.active === CHANGES || pages.some((p) => p.id === from.active);
+  const active = fixed ? String(from.active) : HOOD;
   return { open: from.open !== false, width: Math.max(MIN_WIDTH, Math.round(width)), pages, active };
 }
 

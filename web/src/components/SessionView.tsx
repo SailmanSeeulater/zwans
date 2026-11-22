@@ -12,6 +12,7 @@ import {
   type FileChange,
   type RewindResult,
   type SessionStatus,
+  type SessionChanges,
   type UndoableTurns,
 } from "@/lib/api";
 import {
@@ -24,7 +25,7 @@ import {
 } from "@/lib/attachments";
 import { buildCalls } from "@/lib/calls";
 import { buildTurns, pendingQuestion, waitingCalls, type RawEvent } from "@/lib/events";
-import { DEFAULT_PANE, readPane, savePane, type PaneState } from "@/lib/pane";
+import { CHANGES, DEFAULT_PANE, readPane, savePane, type PaneState } from "@/lib/pane";
 import { currentTodos } from "@/lib/todos";
 import { livenessOf, phaseOf, tabTitle, turnStartedAt } from "@/lib/working";
 import { AskBar, Conversation, type Answer } from "./Conversation";
@@ -34,6 +35,7 @@ import { WorkingLine } from "./Working";
 import { Inspector, isTab, type InspectorTab } from "./inspector/Inspector";
 import { ModelPicker } from "./ModelPicker";
 import { TodoList } from "./TodoList";
+import { ChangesPanel } from "./ChangesPanel";
 import { SidePane } from "./SidePane";
 import { UnderTheHood } from "./UnderTheHood";
 import { TokenMissing, useHasToken } from "./useApi";
@@ -61,6 +63,7 @@ export function SessionView() {
   const [demo, setDemo] = useState<DemoInfo | null>(null);
   const [images, setImages] = useState<Attachment[]>([]);
   const [undoable, setUndoable] = useState<UndoableTurns | null>(null);
+  const [changes, setChanges] = useState<SessionChanges | null>(null);
   const [undoing, setUndoing] = useState<number | null>(null); // the turn whose undo is being confirmed
   const [undoBusy, setUndoBusy] = useState(false);
   const [generation, setGeneration] = useState(0); // bumped when the session is reopened, to reconnect
@@ -181,6 +184,24 @@ export function SessionView() {
     setPane(next);
     savePane(next);
   }, []);
+  // What the session has changed: asked for whenever it settles, and as tool calls finish
+  // while the Changes tab is showing, so the list grows as the files do.
+  const finished = useMemo(() => events.filter((e) => e.type === "tool_result").length, [events]);
+  const watchingChanges = pane.open && pane.active === CHANGES;
+  const changesFor = idle || watchingChanges ? finished : -1;
+  useEffect(() => {
+    if (!id || !hasToken || changesFor < 0) return;
+    let current = true;
+    const ask = setTimeout(() => {
+      api<SessionChanges>(`/api/sessions/${encodeURIComponent(id)}/changes`)
+        .then((found) => current && setChanges(found))
+        .catch(() => undefined);
+    }, idle ? 0 : 400);
+    return () => {
+      current = false;
+      clearTimeout(ask);
+    };
+  }, [id, hasToken, idle, changesFor, turnCount, generation]);
   // While the pane's edge is dragged, a conversation that was following new output keeps
   // its last line in view as its text rewraps.
   const followWhileResizing = useCallback(() => {
@@ -644,6 +665,14 @@ export function SessionView() {
           onChange={changePane}
           onResizeFrame={followWhileResizing}
           hood={<UnderTheHood data={hood} status={status} onOpen={openTab} />}
+          changes={
+            <ChangesPanel
+              data={changes}
+              undoable={undoable}
+              onUndo={connection === "open" && !running ? setUndoing : undefined}
+            />
+          }
+          changed={changes?.changes.length ?? 0}
         />
       )}
     </div>
