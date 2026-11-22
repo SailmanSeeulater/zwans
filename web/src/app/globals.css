@@ -1034,9 +1034,21 @@ html[data-desktop] .session-head a {
   flex-wrap: wrap;
 }
 
+/* In a narrow window the under-the-hood panel goes under the conversation. The conversation
+   keeps the whole window, and the session scrolls down to the panel; without that the
+   panel sat below the window's edge with nothing to scroll it into view. */
 @media (max-width: 1100px) {
   .session {
     flex-direction: column;
+    overflow-y: auto;
+  }
+  .session > .session-main {
+    flex: none;
+    height: 100%;
+  }
+  .session > .inspector {
+    flex: none;
+    overflow-y: visible; /* the session scrolls it, so it needs no scrolling of its own */
   }
 }
 
