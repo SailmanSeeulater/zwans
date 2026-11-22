@@ -269,7 +269,7 @@ class Commands:
             when = info.updated_at.replace("T", " ")[:16]
             turns = f"{info.turns} turn{'s' if info.turns != 1 else ''}"
             # The title is the start of the first prompt, which may hold escape codes.
-            typer.echo(f"  {number:>2}. {when}  {turns:>9}  {printable(info.title)}")
+            typer.echo(f"  {number:>2}. {when}  {turns:>9}  {printable(info.label)}")
         _say("/resume <number> switches to one.")
         return None
 

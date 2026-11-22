@@ -81,7 +81,8 @@ class LiveSession:
         return {
             "type": "status",
             "id": info.id,
-            "title": info.title or self._first_prompt(),
+            "title": info.label or self._first_prompt(),
+            "pinned": info.pinned,
             "workspace": info.workspace,
             "model": opened.model,
             "mode": opened.policy.policy.mode,
@@ -387,6 +388,23 @@ class SessionHub:
         if info is not None and is_chat(info.workspace, home):
             with contextlib.suppress(OSError):
                 Path(info.workspace).rmdir()  # a chat's folder is an empty placeholder
+
+    def mark(self, session_id: str, *, name: str | None = None, pinned: bool | None = None) -> None:
+        """Rename or pin a saved session, by its exact id. An open one tells its clients.
+        Raises SessionError when there's no such session."""
+        store = SessionStore(self.settings.config.home / "sessions.db")
+        try:
+            info = store.get(session_id)
+            if info.id != session_id:
+                raise SessionError(f"No saved session has the id {session_id!r}.")
+            store.mark(session_id, name=name, pinned=pinned)
+            info = store.get(session_id)
+        finally:
+            store.close()
+        live = self.live.get(session_id)
+        if live is not None:
+            live.opened.info.name, live.opened.info.pinned = info.name, info.pinned
+            live._broadcast(live.status())
 
     async def close_all(self) -> None:
         for session_id in list(self.live):

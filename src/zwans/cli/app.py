@@ -165,7 +165,7 @@ def sessions(limit: Annotated[int, typer.Option(min=1, help="How many to list.")
         folder = _short_path(printable(info.workspace), WORKSPACE_WIDTH)
         line = f"{info.id}  {when}  {turns}  ${dollars:7.4f}  {folder:<{WORKSPACE_WIDTH}}"
         # A title is the start of a prompt, which may have come from the web UI or a script.
-        typer.echo(f"{line}  {printable(info.title)}".rstrip())
+        typer.echo(f"{line}  {printable(info.label)}".rstrip())
 
 
 @app.command()
