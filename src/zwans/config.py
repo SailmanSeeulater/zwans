@@ -177,7 +177,9 @@ def _describe_problem(error: ErrorDetails, path: Path, from_env: set[str]) -> st
 
 
 def read_dotenv(path: Path) -> dict[str, str]:
-    """Read KEY=value lines from a .env file. Lines starting with # are comments."""
+    """Read KEY=value lines from a .env file. Lines starting with # are comments, and a key
+    with no value (`KEY=`, as left by copying .env.example) is skipped: it would otherwise
+    hide the same key set in the home .env."""
     values: dict[str, str] = {}
     if not path.is_file():
         return values
@@ -189,7 +191,8 @@ def read_dotenv(path: Path) -> dict[str, str]:
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
-        values[key.removeprefix("export ").strip()] = value
+        if value:
+            values[key.removeprefix("export ").strip()] = value
     return values
 
 

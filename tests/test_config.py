@@ -64,6 +64,27 @@ def test_the_home_dotenv_works_everywhere_and_the_local_one_wins(
     assert env["ANTHROPIC_API_KEY"] == "sk-project"
 
 
+def test_a_blank_line_in_the_folders_dotenv_doesnt_hide_the_home_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home, project = tmp_path / "home", tmp_path / "project"
+    home.mkdir()
+    project.mkdir()
+    (home / ".env").write_text("CLAUDE_CODE_OAUTH_TOKEN=oauth-home\n")
+    # As copied from .env.example and never filled in.
+    (project / ".env").write_text("ANTHROPIC_API_KEY=sk-project\nCLAUDE_CODE_OAUTH_TOKEN=\n")
+    (tmp_path / "plan.toml").write_text('auth = "subscription"\n')
+    monkeypatch.setenv("ZWANS_HOME", str(home))
+    monkeypatch.setenv("ZWANS_CONFIG", str(tmp_path / "plan.toml"))
+    for name in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "ZWANS_AUTH"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.chdir(project)
+
+    config, env = load_settings()
+
+    assert load_credential(config, env).token == "oauth-home"
+
+
 def test_a_bad_setting_names_where_it_came_from(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text('max_stpes = 5\neffort = "extreme"\n', encoding="utf-8")
@@ -117,7 +138,6 @@ def test_dotenv_reads_values_and_skips_comments(tmp_path: Path) -> None:
     assert read_dotenv(path) == {
         "ZWANS_AUTH": "subscription",
         "ANTHROPIC_API_KEY": "sk-quoted",
-        "EMPTY": "",
     }
 
 
