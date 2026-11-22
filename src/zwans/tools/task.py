@@ -4,8 +4,10 @@ A subagent is the same loop with a fresh conversation: it starts from the prompt
 works with its own tools until it finishes or runs out of steps, and only its final message
 comes back. Everything it read stays out of the parent's context, which is the point.
 
-It shares the parent's model, permissions and hooks (except stop hooks, which are about the
-user's task as a whole), so every call it makes is checked like the parent's would be.
+It runs on the parent's subagent_provider: the session's model, or subagent_model when the
+config names a cheaper one for this kind of legwork. It shares the parent's permissions and
+hooks (except stop hooks, which are about the user's task as a whole), so every call it
+makes is checked like the parent's would be.
 """
 
 from collections.abc import Sequence
@@ -47,6 +49,7 @@ class Parent(Protocol):
     """The session a Task tool belongs to."""
 
     provider: Provider
+    subagent_provider: Provider
     tools: list[Tool[Any]]
     system: str
     permissions: Permissions | None
@@ -83,7 +86,7 @@ class TaskTool:
         hooks = parent.hooks.without("stop") if parent.hooks is not None else None
         stop_reason, problems = "error", []
         turn = run_turn(
-            parent.provider,
+            parent.subagent_provider,
             tools,
             messages,
             ctx,

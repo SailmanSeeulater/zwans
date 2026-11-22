@@ -345,7 +345,10 @@ def _provider_factory(
 
         return fake
 
-    resolve(config.model, config, env)  # checks the model and its key once, before any attempt
+    # Checks the models and their keys once, before any attempt.
+    for model in (config.model, config.subagent_model, config.compact_model):
+        if model:
+            resolve(model, config, env)
 
     def real(task: Task, config: Config) -> Provider:
         return ModelRouter(config, env, config.model)

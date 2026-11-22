@@ -39,8 +39,15 @@ PREVIEW_CHARS = 2_000  # of each tool call and result, in what the summarizer re
 
 
 class Compactor:
-    def __init__(self, provider: Provider, threshold: int, keep_messages: int = 8) -> None:
-        self.provider = provider  # could be a cheaper model than the main loop's
+    def __init__(
+        self,
+        provider: Provider,
+        threshold: int,
+        keep_messages: int = 8,
+        summarizer: Provider | None = None,
+    ) -> None:
+        self.provider = provider  # the session's: its context window says when to compact
+        self.summarizer = summarizer or provider  # writes the notes: compact_model, if set
         self.configured = threshold  # compact_at
         self.keep_messages = keep_messages
         self._counted_tokens = 0  # what the API counted for the last request, plus its reply
@@ -126,7 +133,7 @@ class Compactor:
         prompt = "Write the handoff notes for this conversation:\n\n" + render_transcript(older)
         request = [Message(role="user", content=[TextBlock(text=prompt)])]
         call = TimedCall()
-        async for _ in call.stream(self.provider, SUMMARY_SYSTEM, request, []):
+        async for _ in call.stream(self.summarizer, SUMMARY_SYSTEM, request, []):
             pass
         if call.response is None:
             raise ProviderError("The summary request ended without a response.")

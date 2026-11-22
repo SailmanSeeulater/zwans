@@ -36,7 +36,7 @@ from zwans.prompt import chat_prompt, system_prompt
 from zwans.providers.base import Provider
 from zwans.providers.catalog import canonical, is_known
 from zwans.providers.fake import FakeProvider
-from zwans.providers.router import ModelRouter
+from zwans.providers.router import ModelRouter, helper
 from zwans.session import Session
 from zwans.store import SessionError, SessionInfo, SessionRecorder, SessionStore, load_session
 from zwans.tools.ask_user import AskUserTool
@@ -231,6 +231,9 @@ def open_session(
     else:
         try:
             provider = ModelRouter(config, env, model)  # checks the model's provider and key
+            # The models work is handed to, checked now rather than at the first subagent.
+            helper(provider, config.subagent_model)
+            helper(provider, config.compact_model)
         except ConfigError:
             store.close()
             raise
@@ -324,11 +327,17 @@ def open_session(
         system=info.system,  # a resumed session keeps the exact prompt it started with
         listeners=[*listeners, transcript.on_event, meter.on_event],
         max_steps=config.max_steps,
-        compactor=Compactor(provider, config.compact_at, config.keep_messages),
+        compactor=Compactor(
+            provider,
+            config.compact_at,
+            config.keep_messages,
+            summarizer=helper(provider, config.compact_model),
+        ),
         permissions=permissions,
         # Hooks are about tools and a project's checks, and a chat has neither.
         hooks=Hooks(policy.hooks, root) if policy.hooks and not chat else None,
         follow_through=follow_through_for(config, provider),
+        subagent_provider=helper(provider, config.subagent_model),
     )
     session.messages = messages
     session.turn = info.turns

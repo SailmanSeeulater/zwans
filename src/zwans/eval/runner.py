@@ -43,6 +43,7 @@ from zwans.policy import Permissions, Policy
 from zwans.pricing import cost
 from zwans.prompt import system_prompt
 from zwans.providers.base import Provider
+from zwans.providers.router import helper
 from zwans.session import Session
 from zwans.tools.base import Tool, ToolContext
 from zwans.tools.bash import BashTool
@@ -381,9 +382,15 @@ class ZwansAgent:
             system=system,
             listeners=listeners,
             max_steps=self.config.max_steps,
-            compactor=Compactor(provider, self.config.compact_at, self.config.keep_messages),
+            compactor=Compactor(
+                provider,
+                self.config.compact_at,
+                self.config.keep_messages,
+                summarizer=helper(provider, self.config.compact_model),
+            ),
             hooks=Hooks(self.eval_config.hooks, workspace) if self.eval_config.hooks else None,
             follow_through=follow_through_for(self.config, provider),
+            subagent_provider=helper(provider, self.config.subagent_model),
         )
 
 

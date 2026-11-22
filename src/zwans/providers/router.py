@@ -7,7 +7,7 @@ from typing import Any
 from zwans.config import Config, load_credential
 from zwans.messages import Message
 from zwans.providers.anthropic import AnthropicProvider
-from zwans.providers.base import StreamItem
+from zwans.providers.base import Provider, StreamItem
 from zwans.providers.catalog import ANTHROPIC, Resolved, register_prices, resolve
 from zwans.providers.openai_compat import OpenAICompatProvider
 from zwans.tools.base import Tool
@@ -28,6 +28,7 @@ class ModelRouter:
         self.env = env
         self._make_backend = make_backend or self._backend_for
         self._backends: dict[str, Backend] = {}  # by provider, made when first needed
+        self._helpers: dict[str, ModelRouter] = {}  # other models' routers, by model name
         register_prices(config)
         self.set_model(model)
 
@@ -66,9 +67,22 @@ class ModelRouter:
             return [tool for tool in tools if not getattr(tool, "local_web", False)]
         return tools
 
+    def helper(self, model: str | None) -> "ModelRouter":
+        """A router fixed on `model`, for work the session hands to another model (subagents,
+        compaction): itself when `model` is unset. Its own backends, so /model switching this
+        router leaves it alone. Raises ModelError when `model` can't be used."""
+        if not model:
+            return self
+        name = resolve(model, self.config, self.env).name
+        if name not in self._helpers:
+            self._helpers[name] = ModelRouter(self.config, self.env, model, self._make_backend)
+        return self._helpers[name]
+
     async def aclose(self) -> None:
         for backend in self._backends.values():
             await backend.aclose()
+        for helper in self._helpers.values():
+            await helper.aclose()
 
     def _backend_for(self, resolved: Resolved) -> Backend:
         config = self.config
@@ -85,3 +99,9 @@ class ModelRouter:
         return OpenAICompatProvider(
             resolved.info.endpoint(self.env), resolved.model_id, config.effort
         )
+
+
+def helper(provider: Provider, model: str | None) -> Provider:
+    """The provider for work handed to `model`: a router of its own when `provider` routes,
+    and `provider` itself otherwise (a scripted model in tests, where there's only one)."""
+    return provider.helper(model) if isinstance(provider, ModelRouter) else provider

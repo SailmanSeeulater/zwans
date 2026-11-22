@@ -120,6 +120,9 @@ class Config(BaseModel):
     # with fewer, or a project where one doesn't belong.
     disabled_tools: list[str] = []
     subagent_max_steps: int = 30  # model calls allowed in one subagent's task
+    # The model subagents run on, as "claude-haiku-5-5": a cheaper one for searches and
+    # legwork, while the session's model keeps the judgment. Unset, they use the session's.
+    subagent_model: str | None = None
     # How many times a turn may send the model back when its final reply says what it will
     # do next, or only shows the code, without having done it (see followthrough.py). Unset,
     # that's 2 for a model on a local server, where small models stop early and another
@@ -127,6 +130,7 @@ class Config(BaseModel):
     follow_through: int | None = Field(default=None, ge=0, le=10)
     compact_at: int = 200_000  # estimated context tokens that trigger a compaction
     keep_messages: int = 8  # recent messages kept word for word when compacting
+    compact_model: str | None = None  # writes the handoff notes; unset, the session's model
     prompt_cache: PromptCache = "conversation"
     shell: str | None = None  # path to bash; found automatically when unset
     # Where commands run: on this machine, in a Docker container (executor/docker.py), or in

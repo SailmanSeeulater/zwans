@@ -32,8 +32,10 @@ class Session:
         permissions: Permissions | None = None,
         hooks: Hooks | None = None,
         follow_through: Callable[[], int] | None = None,
+        subagent_provider: Provider | None = None,
     ) -> None:
         self.provider = provider
+        self.subagent_provider = subagent_provider or provider  # subagent_model, if set
         self.tools = list(tools)
         self.ctx = ctx
         self.system = system  # fixed for the whole session, so earlier turns stay valid

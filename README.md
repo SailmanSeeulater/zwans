@@ -472,6 +472,18 @@ many files costs the main conversation one result. Several `Task` calls in one r
 at the same time. A subagent's calls go through the same policy and hooks (other than stop
 hooks), and show in the terminal as indented lines. Set `subagents = false` to turn it off.
 
+Subagents run on the session's model unless `subagent_model` names another. Most of what
+they do is searching and reading, which a cheaper model does nearly as well, so an Opus
+session can hand its legwork to Haiku at a fortieth of the price per token:
+
+```toml
+model = "claude-opus-5-5"
+subagent_model = "claude-haiku-5-5"   # or a local one: "ollama/qwen3-coder:30b"
+```
+
+`/model` changes the session's model only; subagents stay on theirs. Their cost counts at
+their own model's prices.
+
 ### Rooms
 
 A room is a conversation between several agents, each on a model of its own, about a topic
@@ -672,6 +684,8 @@ When the conversation passes `compact_at` tokens, Zwans has the model write hand
 for the older part and keeps the latest `keep_messages` messages word for word. Set
 `compact_at` well above what one task needs at once: below that, Zwans compacts again and
 again, and the agent re-reads what was summarized (see [docs/findings.md](docs/findings.md)).
+`compact_model` names a cheaper model to write the notes (`claude-sonnet-5-5`, say); the
+session's model still decides when it's time, from its own context window.
 
 ## Web UI
 
@@ -867,9 +881,11 @@ environment variables:
 | `test_commands` | none | Commands for `RunTests` to run instead of the test runners it finds |
 | `disabled_tools` | none | Tools not to offer, by name |
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
+| `subagent_model` | the session's | The model subagents run on |
 | `follow_through` | `2` local, `0` other | Times a turn sends the model back when its final reply only announced the next step or showed code without writing it |
 | `compact_at` | `200000` | Estimated context tokens that trigger a compaction |
 | `keep_messages` | `8` | Recent messages kept word for word when compacting |
+| `compact_model` | the session's | The model that writes the handoff notes when compacting |
 | `prompt_cache` | `conversation` | What prompt caching covers: `conversation` (system prompt, tools and the conversation so far), `system` (system prompt and tools), or `off` |
 | `shell` | found automatically | Path to bash |
 | `executor` | `local` | Where commands run: `local`, `docker`, `jail` (Linux) or `seatbelt` (macOS) |
