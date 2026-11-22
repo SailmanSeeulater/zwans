@@ -630,7 +630,18 @@ empty folder and no network, where it runs without asking.
 ### Notes between sessions
 
 `Memory` keeps short notes about a project: how its tests are run, what a folder is for.
-They go into the system prompt of every later session in the same folder. The notes are in
+They go into the system prompt of every later session in the same folder. Each note is a
+fact, not a list of steps, and is kept with its evidence (what showed it true: a command and
+its output, a file and line, your words) and the day it was last seen to hold:
+
+```
+- Run the tests with `make check`, not pytest. [shown by: make check: 41 passed; checked 2026-11-22]
+```
+
+A later session weighs a note by what backs it, checks one before relying on it, and removes
+it when what it sees says otherwise, rather than following a stale instruction. `confirm`
+records fresh evidence for a note seen to hold again. Notes kept before evidence existed
+load as they were, marked "no evidence kept". The notes are in
 `~/.zwans/memory/`, one file per workspace, not in the project. Writing one is judged like
 changing a file: it asks in `ask` mode, and after untrusted content has been read it
 follows the rule for writes, so a web page can't leave instructions for the next session.

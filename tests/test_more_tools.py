@@ -4,6 +4,7 @@ import asyncio
 import os
 import sys
 from collections.abc import Sequence
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,7 @@ from zwans.tools.ask_user import AskUserInput, AskUserTool
 from zwans.tools.base import ToolContext, ToolError, ToolOutput
 from zwans.tools.docs import DocsInput, DocsTool
 from zwans.tools.hints import says_missing
-from zwans.tools.memory import MemoryInput, MemoryTool, read_notes
+from zwans.tools.memory import MemoryInput, MemoryTool, Note, kept_notes, notes_file, read_notes
 from zwans.tools.outline import OutlineInput, OutlineTool, outline
 from zwans.tools.python_session import PythonInput, PythonTool
 from zwans.tools.refs import ReferencesInput, ReferencesTool, RenameInput, RenameTool, positions
@@ -401,30 +402,79 @@ def test_the_policy_judges_docs_as_running_python(tmp_path: Path) -> None:
 # -- Memory
 
 
-def test_memory_keeps_notes_for_the_next_session(tmp_path: Path, ctx: ToolContext) -> None:
+def memory(tmp_path: Path, day: str = "2026-11-22") -> tuple[MemoryTool, Path, Path]:
     home, workspace = tmp_path / "home", tmp_path / "ws"
-    workspace.mkdir()
-    tool = MemoryTool(home, workspace)
+    workspace.mkdir(exist_ok=True)
+    return MemoryTool(home, workspace, today=lambda: date.fromisoformat(day)), home, workspace
 
-    def call(action: Any, text: str) -> ToolOutput:
-        return asyncio.run(tool.run(MemoryInput(action=action, text=text), ctx))
 
-    call("add", "Run the tests with  `make check`,\nnot pytest.")
-    kept = call("add", "The api/ folder is generated.")
-    again = call("add", "The api/ folder is generated.")
-    with pytest.raises(ToolError, match="2 notes contain 'the'"):
-        call("remove", "the")
-    removed = call("remove", "generated")
+def remember(tool: MemoryTool, ctx: ToolContext, action: Any, text: str, evidence: str = "") -> str:
+    args = MemoryInput(action=action, text=text, evidence=evidence or None)
+    return asyncio.run(tool.run(args, ctx)).content
 
-    assert kept.content == (
-        "Kept.\n\nThe notes for this project:\n"
-        "- Run the tests with `make check`, not pytest.\n- The api/ folder is generated."
+
+def test_memory_keeps_notes_and_their_evidence_for_the_next_session(
+    tmp_path: Path, ctx: ToolContext
+) -> None:
+    tool, home, workspace = memory(tmp_path)
+
+    remember(
+        tool, ctx, "add", "Run the tests with  `make check`,\nnot pytest.", "make check: 41 passed"
     )
-    assert again.content.startswith("That note is already kept.")
-    assert removed.content.endswith("- Run the tests with `make check`, not pytest.")
-    assert read_notes(home, workspace) == ["Run the tests with `make check`, not pytest."]
+    kept = remember(tool, ctx, "add", "The api/ folder is generated.", "api/README.md line 1")
+    again = remember(tool, ctx, "add", "The api/ folder is generated.", "same")
+    with pytest.raises(ToolError, match="2 notes contain 'the'"):
+        remember(tool, ctx, "remove", "the")
+    removed = remember(tool, ctx, "remove", "generated")
+
+    assert kept == (
+        "Kept.\n\nThe notes for this project:\n"
+        "- Run the tests with `make check`, not pytest. "
+        "[shown by: make check: 41 passed; checked 2026-11-22]\n"
+        "- The api/ folder is generated. [shown by: api/README.md line 1; checked 2026-11-22]"
+    )
+    assert again.startswith("That note is already kept; confirm it")
+    assert "generated" not in removed
+    assert read_notes(home, workspace) == [
+        "Run the tests with `make check`, not pytest. "
+        "[shown by: make check: 41 passed; checked 2026-11-22]"
+    ]
     assert read_notes(home, tmp_path / "elsewhere") == []  # each workspace has its own
     assert not list(workspace.iterdir())  # nothing is written into the project
+
+
+def test_a_note_needs_evidence(tmp_path: Path, ctx: ToolContext) -> None:
+    tool, home, workspace = memory(tmp_path)
+
+    with pytest.raises(ToolError, match="Say what showed it's true"):
+        remember(tool, ctx, "add", "Tests run with make check.")
+    with pytest.raises(ToolError, match="under 300 characters"):
+        remember(tool, ctx, "add", "Tests run with make check.", "x" * 301)
+
+    assert kept_notes(home, workspace) == []
+
+
+def test_confirming_a_note_records_new_evidence_and_the_day(
+    tmp_path: Path, ctx: ToolContext
+) -> None:
+    tool, home, workspace = memory(tmp_path, day="2026-11-01")
+    remember(tool, ctx, "add", "Tests run with make check.", "make check: 41 passed")
+    later, _, _ = memory(tmp_path, day="2026-11-22")
+
+    remember(later, ctx, "confirm", "make check", "make check: 44 passed after the merge")
+
+    assert kept_notes(home, workspace) == [
+        Note("Tests run with make check.", "make check: 44 passed after the merge", "2026-11-22")
+    ]
+
+
+def test_notes_kept_before_evidence_still_load_and_say_so(tmp_path: Path) -> None:
+    _, home, workspace = memory(tmp_path)
+    old = notes_file(home, workspace)
+    old.parent.mkdir(parents=True)
+    old.write_text("- Tests run with make check.\n", "utf-8")
+
+    assert read_notes(home, workspace) == ["Tests run with make check. [no evidence kept]"]
 
 
 def test_a_new_session_starts_with_the_notes(tmp_path: Path) -> None:
@@ -432,7 +482,7 @@ def test_a_new_session_starts_with_the_notes(tmp_path: Path) -> None:
     workspace.mkdir()
     config = Config(home=tmp_path / "home", subagents=False)
     ctx = ToolContext(executor=LocalExecutor(workspace))
-    note = MemoryInput(action="add", text="Run the tests with make check.")
+    note = MemoryInput(action="add", text="Run the tests with make check.", evidence="make check")
     asyncio.run(MemoryTool(config.home, workspace).run(note, ctx))
 
     opened = open_session(
@@ -440,9 +490,9 @@ def test_a_new_session_starts_with_the_notes(tmp_path: Path) -> None:
     )
     asyncio.run(opened.close())
 
-    assert "Notes you kept about this project" in opened.info.system
-    assert "- Run the tests with make check." in opened.info.system
-    assert "Notes you kept" not in system_prompt(workspace, "bash", [])
+    assert "Trust a note as far as its evidence goes" in opened.info.system
+    assert "- Run the tests with make check. [shown by: make check;" in opened.info.system
+    assert "Notes kept about this project" not in system_prompt(workspace, "bash", [])
 
 
 def test_the_policy_judges_a_note_like_a_change_to_a_file(tmp_path: Path) -> None:

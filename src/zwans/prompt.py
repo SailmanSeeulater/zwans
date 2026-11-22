@@ -38,8 +38,10 @@ The tools for that are web_search and web_fetch, or WebSearch and WebFetch: use 
 you have."""
 
 _NOTES = """\
-Notes you kept about this project in earlier sessions. They were true when written; check \
-one before relying on it, and use the Memory tool to remove one that no longer holds:"""
+Notes kept about this project in earlier sessions, each with what showed it true and when it \
+was last checked. Trust a note as far as its evidence goes, and check one before relying on \
+it for anything that matters. If what you see contradicts a note, believe what you see and \
+remove the note with the Memory tool:"""
 
 _SKILLS = """\
 Skills are instructions for particular kinds of task. When a task matches one of these \
