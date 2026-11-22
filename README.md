@@ -727,6 +727,8 @@ one says so. A session that was open when the server stopped is resumed when you
   diff. When the policy asks, the question appears above the input box with Allow once,
   Always allow (only when it would take effect, as in the terminal) and Deny, and an Edit or
   Write shows the diff it would make. A Task call lists what its subagent did.
+  To delete a session, hover over it in the sidebar and press the bin, then Delete: its
+  conversation, transcript and kept tool output go, and the files it changed stay.
 - **Chat:** choose *Just chat* on the home screen, or *New chat* in the command palette, to
   talk to the model with no project folder. A chat has no tools for files or commands, so
   the model can't read your files or run anything on your machine. With `web = true` it can
@@ -756,6 +758,12 @@ one says so. A session that was open when the server stopped is resumed when you
   says whether a task-by-task comparison can tell it from the top row, so a few lucky
   attempts don't read as a win. Runs with `--agent claude-code` or `--agent codex` land on
   the same board as Zwans's.
+- **Side pane:** beside the conversation, with tabs. The first is *Under the hood*; `+` opens
+  a page in another, such as the project's dev server (`localhost:3000`), to watch it while
+  Zwans works on it. Drag the pane's edge to resize it (double-click resets it, and the
+  arrow keys move it when it has focus); the button at its top right hides it. Its width
+  and tabs are remembered. A site that refuses to show inside another page stays blank,
+  with a link to open it in your browser. In a window under 1100px wide the pane is left out.
 - **Themes:** fourteen, from the menu at the foot of the sidebar or the command palette.
   Eleven are light: Paper, five on a white page that differ in their accent (Chalk, Lagoon,
   Orchid, Ember, Fern) and five on a tinted one (Sand, Mint, Lilac, Sky, Blush). Three are

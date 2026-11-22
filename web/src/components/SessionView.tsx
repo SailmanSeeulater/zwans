@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowUp, ImagePlus, Maximize2, RotateCcw, Square, X } from "lucide-react";
+import { ArrowUp, ImagePlus, Maximize2, PanelRightOpen, RotateCcw, Square, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   api,
   sessionSocket,
@@ -24,11 +24,13 @@ import {
 } from "@/lib/attachments";
 import { buildCalls } from "@/lib/calls";
 import { buildTurns, pendingQuestion, waitingCalls, type RawEvent } from "@/lib/events";
+import { DEFAULT_PANE, readPane, savePane, type PaneState } from "@/lib/pane";
 import { currentTodos } from "@/lib/todos";
 import { AskBar, Conversation, type Answer } from "./Conversation";
 import { Inspector, isTab, type InspectorTab } from "./inspector/Inspector";
 import { ModelPicker } from "./ModelPicker";
 import { TodoList } from "./TodoList";
+import { SidePane } from "./SidePane";
 import { UnderTheHood } from "./UnderTheHood";
 import { TokenMissing, useHasToken } from "./useApi";
 
@@ -152,6 +154,23 @@ export function SessionView() {
     };
   }, [id, hasToken, idle, turnCount, generation]);
   const hood = useMemo(() => buildCalls(events), [events]);
+
+  const [pane, setPane] = useState<PaneState>(DEFAULT_PANE);
+  useEffect(() => {
+    // localStorage only exists in the browser.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPane(readPane());
+  }, []);
+  const changePane = useCallback((next: PaneState) => {
+    setPane(next);
+    savePane(next);
+  }, []);
+  // While the pane's edge is dragged, a conversation that was following new output keeps
+  // its last line in view as its text rewraps.
+  const followWhileResizing = useCallback(() => {
+    const box = scroller.current;
+    if (box && pinned.current) box.scrollTop = box.scrollHeight;
+  }, []);
   const waiting = waitingCalls(turns);
   // The model's own question, which the composer answers while it's waiting.
   const question = connection === "open" ? pendingQuestion(turns) : null;
@@ -266,8 +285,10 @@ export function SessionView() {
   const nextDemoPrompt = demo && !running ? demo.prompts[turns.filter((t) => t.prompt).length] : undefined;
   const warnings = (status?.warnings ?? []).filter((w) => !(status?.demo && w === demo?.note));
 
+  const hasPane = Boolean(status) || connection !== "closed";
+
   return (
-    <div className="session">
+    <div className="session" style={{ "--pane-width": `${pane.width}px` } as CSSProperties}>
       <div className="session-main">
         <header className="session-head glass">
           <h1 title={status?.title || undefined}>
@@ -310,6 +331,16 @@ export function SessionView() {
             <Maximize2 size={14} aria-hidden="true" />
             Inspect
           </button>
+          {hasPane && !pane.open && (
+            <button
+              className="button button-quiet icon-button pane-show"
+              onClick={() => changePane({ ...pane, open: true })}
+              aria-label="Show the side pane"
+              title="Show the side pane"
+            >
+              <PanelRightOpen size={14} aria-hidden="true" />
+            </button>
+          )}
         </header>
 
         <div
@@ -520,7 +551,14 @@ export function SessionView() {
           </div>
         </div>
       </div>
-      {(status || connection !== "closed") && <UnderTheHood data={hood} status={status} onOpen={openTab} />}
+      {hasPane && pane.open && (
+        <SidePane
+          state={pane}
+          onChange={changePane}
+          onResizeFrame={followWhileResizing}
+          hood={<UnderTheHood data={hood} status={status} onOpen={openTab} />}
+        />
+      )}
     </div>
   );
 }
