@@ -34,6 +34,12 @@ export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n.toLocaleString()} ${n === 1 ? one : many}`;
 }
 
+/** The last line of some text that has anything on it, or "" when none does. */
+export function lastLine(text: string): string {
+  const lines = text.split("\n").map((line) => line.trim());
+  return lines.filter(Boolean).at(-1) ?? "";
+}
+
 /** Text split at its `backticks`, so the parts between a pair can be shown as code. Text
  * with an unpaired backtick comes back whole. */
 export function codeSpans(text: string): { text: string; code: boolean }[] {

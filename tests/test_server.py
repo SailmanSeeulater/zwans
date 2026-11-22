@@ -1,7 +1,9 @@
 import asyncio
 import base64
 import json
+import os
 import shutil
+import sys
 from collections.abc import AsyncIterator, Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -12,6 +14,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from zwans.config import Config
 from zwans.eval.runner import AttemptResult, EvalConfig, Report, Summary
+from zwans.executor.seatbelt import SANDBOX_EXEC
 from zwans.messages import ImageBlock, Message, TextBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse, StreamItem
 from zwans.providers.fake import FakeProvider
@@ -19,6 +22,8 @@ from zwans.server.app import ServerSettings, create_app
 from zwans.tools.base import Tool
 
 TOKEN = "test-token"
+SANDBOXED = sys.platform == "darwin" and os.access(SANDBOX_EXEC, os.X_OK)
+CHAT_TOOLS = ["WebFetch", "Python"] if SANDBOXED else ["WebFetch"]
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
@@ -130,7 +135,7 @@ def test_a_session_runs_a_turn_over_the_websocket(server: Server) -> None:
     assert idle["title"] == "Say hello."
 
 
-def test_a_chat_has_no_folder_or_tools_and_is_still_one_when_resumed(
+def test_a_chat_has_no_folder_or_file_tools_and_is_still_one_when_resumed(
     server: Server, tmp_path: Path
 ) -> None:
     first, second = FakeProvider([say("Hi.")]), FakeProvider([say("Still here.")])
@@ -150,7 +155,9 @@ def test_a_chat_has_no_folder_or_tools_and_is_still_one_when_resumed(
         ws.send_json({"type": "prompt", "text": "Hello."})
         until(ws, "turn_ended")
     assert first.last_request is not None
-    assert first.last_request["tools"] == []
+    # Nothing for the user's files or commands: the web, and Python where a sandbox can
+    # hold it, which is on a Mac.
+    assert [tool["name"] for tool in first.last_request["tools"]] == CHAT_TOOLS
     assert "no project open" in first.last_request["system"][0]["text"]
     [saved] = server.client.get("/api/sessions", headers=AUTH).json()["saved"]
     assert saved["chat"] is True
@@ -167,7 +174,8 @@ def test_a_chat_has_no_folder_or_tools_and_is_still_one_when_resumed(
         assert "turn_ended" in types(backlog)
         ws.send_json({"type": "prompt", "text": "Are you there?"})
         until(ws, "turn_ended")
-    assert second.last_request is not None and second.last_request["tools"] == []
+    assert second.last_request is not None
+    assert [tool["name"] for tool in second.last_request["tools"]] == CHAT_TOOLS
 
 
 def test_a_chat_nobody_spoke_in_leaves_nothing_behind(server: Server) -> None:
@@ -192,6 +200,40 @@ def test_a_session_in_a_folder_is_not_a_chat(server: Server) -> None:
         until(ws, "turn_ended")
     [saved] = server.client.get("/api/sessions", headers=AUTH).json()["saved"]
     assert saved["chat"] is False
+
+
+def test_the_models_question_is_answered_over_the_websocket(server: Server) -> None:
+    asks = ModelResponse(
+        content=[
+            ToolUseBlock(
+                id="q1",
+                name="AskUser",
+                input={"question": "Tabs or spaces?", "options": ["Spaces", "Tabs"]},
+            )
+        ],
+        stop_reason="tool_use",
+    )
+    session_id = server.new_session(FakeProvider([asks, say("Spaces it is.")]))
+
+    with connect(server, session_id) as ws:
+        handshake(ws)
+        ws.send_json({"type": "answer", "text": "Too early"})  # nothing has been asked yet
+        early = ws.receive_json()
+        ws.send_json({"type": "prompt", "text": "Format the file."})
+        asked = until(ws, "tool_call_requested")[-1]
+        while True:  # the status that says the question is waiting
+            message = ws.receive_json()
+            if message["type"] == "status" and message["waiting_for"] == ["question"]:
+                break
+        ws.send_json({"type": "answer", "text": " Tabs "})
+        answered = until(ws, "tool_result")[-1]
+        until(ws, "turn_ended")
+        idle = ws.receive_json()
+
+    assert early == {"type": "server_error", "message": "No question is waiting for an answer."}
+    assert asked["args"]["options"] == ["Spaces", "Tabs"]
+    assert answered["content"] == "The user answered: Tabs"
+    assert idle["waiting_for"] == []
 
 
 def test_approvals_go_back_over_the_websocket(server: Server) -> None:

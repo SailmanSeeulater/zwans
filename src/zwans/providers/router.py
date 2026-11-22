@@ -56,7 +56,15 @@ class ModelRouter:
     def stream(
         self, system: str, messages: Sequence[Message], tools: Sequence[Tool[Any]]
     ) -> AsyncIterator[StreamItem]:
-        return self.current.stream(system, messages, tools)
+        return self.current.stream(system, messages, self._offered(tools))
+
+    def _offered(self, tools: Sequence[Tool[Any]]) -> Sequence[Tool[Any]]:
+        """The tools the current model is told about. Claude's web tools run on Anthropic's
+        servers, so with those on, Zwans's own stand-ins (WebFetch, WebSearch) are left out:
+        the model would otherwise have two ways to do one thing."""
+        if self.resolved.provider == ANTHROPIC and self.config.web:
+            return [tool for tool in tools if not getattr(tool, "local_web", False)]
+        return tools
 
     async def aclose(self) -> None:
         for backend in self._backends.values():

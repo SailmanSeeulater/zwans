@@ -134,7 +134,9 @@ Things to know:
   Llama 3.3, DeepSeek V3. A model whose server doesn't support tools writes calls as text
   instead of making them. Small local models get through simple edits but slip on longer
   tasks. Running the evals with `ZWANS_MODEL=ollama/<model>` measures one against Claude.
-- Web search and fetch run on Claude's servers, so other models don't get them.
+- Claude's web search and fetch run on Anthropic's servers, so other models get Zwans's own
+  instead: `WebFetch`, and `WebSearch` once you say where to search (see "Web search and
+  fetch").
 - Images reach a model only if it takes them (a vision model such as Qwen2.5-VL or Gemma 3).
 - A model's thinking shows as progress notes when its server streams it.
 
@@ -319,7 +321,7 @@ docker build -t zwans-proxy:0.1 sandbox-image/proxy
 ```
 
 `auto` mode lets code run without asking, and running code can do anything you can, so use
-`auto` together with the Docker executor or the jail.
+`auto` together with a sandbox: the Docker executor, the jail on Linux, or Seatbelt on a Mac.
 
 ### The jail (Linux)
 
@@ -329,6 +331,25 @@ visible, no network, memory and process limits, a seccomp allowlist and Landlock
 It starts in about 4 ms, against 38 ms for `docker exec` on the same Linux machine. Build it once with
 `cargo build --release --manifest-path runtime/Cargo.toml` (it needs `libseccomp-dev`);
 [runtime/README.md](runtime/README.md) has the details and how to work on it from a Mac.
+
+### Seatbelt (macOS)
+
+On a Mac, `executor = "seatbelt"` (or `ZWANS_EXECUTOR=seatbelt`) runs each command under
+Seatbelt, the sandbox macOS ships with. There is nothing to build, install or start. A
+command, and anything it starts:
+
+- can write only inside the workspace and the temporary folders;
+- has no network;
+- can't read the folders where credentials usually live: `~/.ssh`, `~/.aws`, `~/.gnupg`,
+  `~/.kube`, `~/.docker`, the `gh` and `gcloud` config folders, the keychains, and
+  `~/.netrc`, `~/.npmrc`, `~/.pypirc` and `~/.zwans/.env`.
+
+It is narrower than the jail, which shows a command nothing but the workspace and system
+folders: here the rest of the disk stays readable, because macOS programs read from all
+over it. Tests that open a network port fail in it, as they do in the jail. In a git
+worktree, `git commit` fails too, because a worktree keeps its git data in the main
+checkout, outside the workspace. Apple marks the `sandbox-exec` command as deprecated but
+still ships it; if a macOS release removes it, Zwans says so when a session starts.
 
 ### Hooks
 
@@ -467,6 +488,118 @@ and after it. When an answer cites pages it found, Zwans lists them under it as 
 
 Set `web = false` to turn them off.
 
+Other models have no web tools of their provider's, so Zwans gives them two of its own, which
+run on this machine:
+
+- `WebFetch` reads a page and returns it as text, with headings and links kept, up to 60,000
+  characters. It only reaches public addresses, and each redirect is checked too; for a
+  server on this machine, the model uses `curl` through Bash.
+- `WebSearch` is offered once the config says where to search: Brave's API, with its key in
+  `BRAVE_API_KEY`, or a SearXNG server you run.
+
+  ```toml
+  [web_search]
+  provider = "brave"        # or "searxng", with url = "http://localhost:8888"
+  ```
+
+Unlike Claude's, these go through the policy, judged like a command that uses the network:
+they ask first, in `auto` mode too, and are refused in `read-only` mode and wherever a
+network command would be after untrusted content. Their rules name hosts, as
+`WebFetch(docs.python.org)`, `WebFetch(*.python.org)` or `WebFetch` for every host. A chat
+gets them too. With a Claude model and `web = true`, Claude's own are used and these are left
+out.
+
+### Several edits at once
+
+`MultiEdit` makes several exact replacements in one call, in one file or across files, so a
+change that touches five places costs one model call instead of five. Either all of them are
+made or none: if one doesn't fit, nothing is written and the error says which. The policy
+judges each file as an `Edit` of it, so rules written for `Edit` cover it. Set
+`multi_edit = false` to turn it off.
+
+### Linters and type checkers
+
+`Diagnostics` runs the project's own checkers in one call and reports what they find. It
+finds them from the project's files, in the root and the folders just inside it: ruff, mypy,
+pyright, tsc, eslint, `cargo check` and `go vet`. Given paths, it runs only the checkers for
+those files. A checker that isn't installed is named and skipped.
+
+The policy judges a call by the commands it would run, exactly as if Bash ran them: it asks
+in `ask` mode, runs in `auto`, and a rule such as `Bash(mypy *)` covers it. To run your own
+commands instead of the ones found, list them; `false` turns the tool off.
+
+```toml
+diagnostics = ["make lint", "make typecheck"]
+```
+
+It only knows what the checkers know. ruff with its default rules won't notice a function
+that was deleted from another file, so it complements the tests and doesn't replace them.
+
+### Running the tests
+
+`RunTests` finds the project's test runner the same way (pytest, a `package.json` test
+script, `cargo test`, `go test`), runs it, and returns one line when everything passes or
+the failures when it doesn't. `paths` and `filter` narrow it. The policy judges it by the
+commands it would run, as it does `Diagnostics`. To run your own commands instead:
+
+```toml
+test_commands = ["make test"]
+```
+
+### Finding your way around
+
+- `Outline` lists what a file defines, or every source file in a folder: functions, classes
+  and types with their line numbers, without the bodies. Python is read with its own
+  parser, so signatures are exact; other languages are matched line by line.
+- `References` lists every place a name is used.
+- `Rename` changes a name everywhere it is used, in one call, and reports a diff of every
+  file. The policy judges each file as an `Edit` of it.
+
+`References` and `Rename` go by the name, not by meaning: they have no language server
+behind them, so two different things with the same name are treated as one. In Python a
+name inside a string or a comment is left alone; in other languages a whole-word match is
+used, which can't tell.
+
+- `ShowChanges` is everything the session has changed, as one diff, read from the
+  checkpoints. It includes what commands changed, and works outside a git repository.
+- `Docs` returns the signature and documentation of an installed Python module, class or
+  function, from the project's own Python, so the model doesn't guess at a library.
+
+### A Python session
+
+`Python` runs code in an interpreter that keeps its variables between calls, as a notebook
+does. It is started by the session's executor, so it is sandboxed whenever commands are, and
+the policy judges a call as `python -c` with that code. It isn't offered with the Docker
+executor or the jail. A chat gets it on a Mac, in a Seatbelt sandbox of its own with an
+empty folder and no network, where it runs without asking.
+
+### Notes between sessions
+
+`Memory` keeps short notes about a project: how its tests are run, what a folder is for.
+They go into the system prompt of every later session in the same folder. The notes are in
+`~/.zwans/memory/`, one file per workspace, not in the project. Writing one is judged like
+changing a file: it asks in `ask` mode, and after untrusted content has been read it
+follows the rule for writes, so a web page can't leave instructions for the next session.
+
+### Questions for you
+
+`AskUser` lets the model put a question to you, with up to four answers to choose from,
+and carry on with the answer. The web UI shows it above the message box with a button per
+answer, and what you type instead is the answer too; the terminal chat asks on a line of
+its own. It is offered only where someone can answer: not in `zwans run` without a
+terminal, and not in evals. `zwans attach` shows the question as a tool call but can't
+answer it yet.
+
+### Fewer tools
+
+Every tool's description is sent with each request: about 4,500 tokens for all 22, twice
+what the first 11 took. A small model also chooses worse the more it has to choose from.
+Leave some out by name:
+
+```toml
+disabled_tools = ["Python", "Memory", "Docs"]
+```
+
 ### To-do list
 
 For a task with several steps, the model keeps a checklist with the `TodoWrite` tool and
@@ -528,9 +661,11 @@ one says so. A session that was open when the server stopped is resumed when you
   Always allow (only when it would take effect, as in the terminal) and Deny, and an Edit or
   Write shows the diff it would make. A Task call lists what its subagent did.
 - **Chat:** choose *Just chat* on the home screen, or *New chat* in the command palette, to
-  talk to the model with no project folder. A chat has none of Zwans's tools, so the model
-  can't read your files or run commands; with a Claude model and `web = true` it can still
-  search the web. It follows your own `~/.zwans/ZWANS.md`, and it is saved, listed, resumed
+  talk to the model with no project folder. A chat has no tools for files or commands, so
+  the model can't read your files or run anything on your machine. With `web = true` it can
+  still use the web: Claude's own search and fetch, or `WebFetch` and `WebSearch` with
+  another model. On a Mac it also has `Python`, in a sandbox with no files and no network.
+  It follows your own `~/.zwans/ZWANS.md`, and it is saved, listed, resumed
   (from the terminal too, with `zwans --resume`) and billed like any session. Hooks, MCP
   servers, skills and undo don't apply to it.
 - **Images:** paste, drop or attach (the image button) up to 5 PNG, JPEG, GIF or WebP
@@ -576,8 +711,8 @@ The app's icon and the browser tab's come from the logo in `brand/`; after chang
 run `node desktop/make-icon.cjs` and copy `brand/favicon.ico`, `brand/zwans-icon-dark.svg`
 and `brand/png/apple-touch-icon-180.png` over `favicon.ico`, `icon.svg` and `apple-icon.png`
 in `web/src/app/`.
-Closing it stops its sessions, which you can resume from the sidebar. Commands run directly on the Mac (the jail is Linux-only), so
-stay in `ask` mode unless you trust the task.
+Closing it stops its sessions, which you can resume from the sidebar. Commands run directly on the Mac unless you set
+`executor = "seatbelt"`, so without it stay in `ask` mode unless you trust the task.
 
 ## Evals
 
@@ -655,13 +790,18 @@ environment variables:
 | `subagents` | `true` | Offer the `Task` tool |
 | `todos` | `true` | Offer the `TodoWrite` tool |
 | `checkpoints` | `true` | Snapshot the workspace before each turn, so `/undo` can put files back |
-| `web` | `true` | Offer web search and fetch, which the Claude API runs |
+| `web` | `true` | Offer web search and fetch: Claude's own, or `WebFetch` and `WebSearch` for other models |
+| `web_search` | none | Where `WebSearch` searches: `provider = "brave"` or `"searxng"` with `url` |
+| `multi_edit` | `true` | Offer the `MultiEdit` tool |
+| `diagnostics` | `true` | Offer the `Diagnostics` tool; a list of commands runs those instead of the checkers it finds |
+| `test_commands` | none | Commands for `RunTests` to run instead of the test runners it finds |
+| `disabled_tools` | none | Tools not to offer, by name |
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
 | `compact_at` | `200000` | Estimated context tokens that trigger a compaction |
 | `keep_messages` | `8` | Recent messages kept word for word when compacting |
 | `prompt_cache` | `conversation` | What prompt caching covers: `conversation` (system prompt, tools and the conversation so far), `system` (system prompt and tools), or `off` |
 | `shell` | found automatically | Path to bash |
-| `executor` | `local` | Where commands run: `local`, `docker`, or `jail` (Linux) |
+| `executor` | `local` | Where commands run: `local`, `docker`, `jail` (Linux) or `seatbelt` (macOS) |
 | `home` | `~/.zwans` | Where transcripts, saved sessions, saved tool output, and the policy file go |
 | `mcp_servers` | none | MCP servers, by name; see above |
 | `providers` | built-in ones | OpenAI-compatible servers for other models, by name; see "Other models" |

@@ -54,6 +54,8 @@ def find_jail() -> str:
 
 
 class JailExecutor(LocalExecutor):
+    interactive = False  # a command's input is how the jail is told what to run
+
     def __init__(
         self,
         root: Path,
@@ -87,8 +89,9 @@ class JailExecutor(LocalExecutor):
         }
 
     async def _spawn(
-        self, argv: Sequence[str], background: bool = False
+        self, argv: Sequence[str], background: bool = False, stdin: int = asyncio.subprocess.DEVNULL
     ) -> asyncio.subprocess.Process:
+        # `stdin` is never asked for here: this executor isn't `interactive`.
         process = await asyncio.create_subprocess_exec(
             self.jail,
             cwd=self.root,

@@ -4,6 +4,7 @@ import asyncio
 import io
 import os
 import sys
+from collections.abc import Sequence
 from contextlib import AbstractContextManager, nullcontext
 from enum import StrEnum
 from pathlib import Path
@@ -14,7 +15,12 @@ from prompt_toolkit.input import Input, create_input
 from prompt_toolkit.input.typeahead import get_typeahead
 
 from zwans import __version__
-from zwans.cli.approval import can_prompt, load_with_trust, terminal_approver
+from zwans.cli.approval import (
+    can_prompt,
+    load_with_trust,
+    terminal_approver,
+    terminal_question,
+)
 from zwans.cli.attach import Attached, AttachError, open_remote
 from zwans.cli.commands import COMMANDS, Commands, Quit, Reopen, is_command
 from zwans.cli.evals import eval_app
@@ -280,7 +286,8 @@ def _start(
                 rewind=rewind,
                 model=model,
                 mode=mode.value if mode else None,
-                approver=EchoingApprover() if can_prompt() else None,
+                approver=(asking := EchoingApprover() if can_prompt() else None),
+                asker=asking.ask if asking is not None else None,
                 listeners=[Renderer(spinner=True).on_event],
                 policy_loader=load_with_trust,
                 fake_script=fake_script,
@@ -328,6 +335,13 @@ class EchoingApprover:
             typer.secho("  What you typed before this question was dropped.", dim=True)
         with echoing():
             return await terminal_approver(request)
+
+    async def ask(self, question: str, options: Sequence[str]) -> str | None:
+        """The model's own question, asked the same way."""
+        if self.composer is not None and self.composer.drop_typed_ahead():
+            typer.secho("  What you typed before this question was dropped.", dim=True)
+        with echoing():
+            return terminal_question(question, options)
 
 
 def _run_session(

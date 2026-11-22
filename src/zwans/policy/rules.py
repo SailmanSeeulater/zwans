@@ -45,8 +45,12 @@ type Mode = Literal["read-only", "ask", "auto"]
 MODES: tuple[Mode, ...] = ("read-only", "ask", "auto")  # from the strictest to the loosest
 
 RULE = re.compile(r"^\s*([A-Za-z_][\w.-]*)\s*(?:\((.*)\))?\s*$", re.DOTALL)
-# Edit and Write both change files, so a rule for one covers the other.
-FILE_CHANGE_TOOLS = frozenset({"Edit", "Write"})
+# These all change files, so a rule for one covers the others. Memory's file is Zwans's
+# own, outside the workspace, but what it holds steers later sessions, so it's judged as
+# a change too.
+FILE_CHANGE_TOOLS = frozenset({"Edit", "MultiEdit", "Write", "Rename", "Memory"})
+# These show what's in the files they look through, so a rule about reading covers them.
+SEARCH_TOOLS = frozenset({"Grep", "Outline", "References"})
 # The built-in tools' names, so a rule for a misspelled one is reported instead of never
 # matching. MCP tools are named mcp__<server>__<tool>. tests/test_policy.py checks that this
 # lists every tool in zwans.tools.
@@ -58,6 +62,19 @@ TOOL_NAMES = frozenset(
         "Read",
         "Write",
         "Edit",
+        "MultiEdit",
+        "Rename",
+        "Outline",
+        "References",
+        "ShowChanges",
+        "RunTests",
+        "Diagnostics",
+        "Docs",
+        "Python",
+        "Memory",
+        "AskUser",
+        "WebFetch",
+        "WebSearch",
         "Glob",
         "Grep",
         "Skill",
@@ -126,8 +143,8 @@ class Rule:
     def covers(self, tool: str) -> bool:
         if self.tool in FILE_CHANGE_TOOLS and tool in FILE_CHANGE_TOOLS:
             return True
-        # Grep shows what's in the files it searches, so a Read rule applies to it too.
-        if self.tool == "Read" and tool == "Grep":
+        # A search shows what's in the files it looks through, so a Read rule applies to it.
+        if self.tool == "Read" and tool in SEARCH_TOOLS:
             return True
         return self.tool == tool
 

@@ -801,6 +801,30 @@ html[data-desktop] .session-head a {
   margin: 6px 0;
   font-size: 13.5px;
 }
+/* The model's thinking: one line until it's opened. */
+.thinking {
+  margin: 6px 0;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+.thinking > summary {
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thinking-label {
+  font-weight: 600;
+  margin-right: 8px;
+}
+.thinking[open] .thinking-latest {
+  display: none; /* it's in the text below */
+}
+.thinking > .model-note {
+  margin: 6px 0 2px 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--edge);
+}
 .prompt-row {
   display: flex;
   align-items: flex-start;
@@ -1035,9 +1059,12 @@ html[data-desktop] .session-head a {
   flex-wrap: wrap;
 }
 
+/* A narrow window, such as one tiled to half the screen, has no room for the under-the-hood
+   panel beside the conversation, so it's left out. Inspect, in the header, still opens
+   everything it showed. */
 @media (max-width: 1100px) {
-  .session {
-    flex-direction: column;
+  .session > .inspector {
+    display: none;
   }
 }
 
@@ -1160,6 +1187,15 @@ html[data-desktop] .session-head a {
   color: var(--ink-2);
   background: var(--code);
   padding: 2px 8px;
+}
+/* A diff of several files: each file's part under its own name. */
+.diff-file + .diff-file {
+  margin-top: 10px;
+}
+.diff-file-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 2px 0 4px;
 }
 
 /* -- charts and comparisons */

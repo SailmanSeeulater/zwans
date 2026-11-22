@@ -101,6 +101,10 @@ def _target(tool: str, args: dict[str, Any]) -> str:
         return str(args.get("path", ""))
     if tool == "Task":
         return ""  # it acts only through its subagent's calls, which are judged on their own
+    if tool == "MultiEdit":  # the files it changes, as for Edit, not the text it replaces
+        edits = args.get("edits")
+        named = [e.get("path", "") for e in edits if isinstance(e, dict)] if edits else []
+        return "\n".join(str(path) for path in named)
     if "path" in args:
         return str(args["path"])
     return json.dumps(args, ensure_ascii=False)  # another tool: anything it was given

@@ -500,6 +500,9 @@ def _act(live: LiveSession, message: dict[str, Any]) -> str | None:
     elif kind == "approve":
         if not live.answer(str(message.get("call_id", "")), str(message.get("answer", ""))):
             return "Nothing is waiting for that answer."
+    elif kind == "answer":
+        if not live.answer_question(str(message.get("text", ""))):
+            return "No question is waiting for an answer."
     elif kind == "interrupt":
         live.interrupt()
     else:

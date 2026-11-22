@@ -78,6 +78,23 @@ class ProviderConfig(BaseModel):
     prices: dict[str, tuple[float, float]] = {}
 
 
+class WebSearchConfig(BaseModel):
+    """Where the WebSearch tool looks things up, for models whose provider has no search of
+    its own: Brave's search API, or a SearXNG server you run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["brave", "searxng"]
+    url: str | None = None  # the SearXNG server's address, as "http://localhost:8888"
+    api_key_env: str = "BRAVE_API_KEY"  # the environment variable that holds Brave's key
+
+    @model_validator(mode="after")
+    def _searxng_has_an_address(self) -> Self:
+        if self.provider == "searxng" and not self.url:
+            raise ValueError("searxng needs url, the address of your SearXNG server")
+        return self
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -89,15 +106,28 @@ class Config(BaseModel):
     subagents: bool = True  # offer the Task tool
     checkpoints: bool = True  # snapshot the workspace before each turn, so /undo works
     todos: bool = True  # offer TodoWrite, a checklist the model keeps for long tasks
-    web: bool = True  # offer web search and fetch, which the Claude API runs (see web.py)
+    # Offer web search and fetch. The Claude API runs its own (see web.py); other models get
+    # WebFetch, and WebSearch when web_search says where to search (see tools/web_local.py).
+    web: bool = True
+    web_search: WebSearchConfig | None = None
+    multi_edit: bool = True  # offer MultiEdit, several replacements in one call
+    # Offer Diagnostics, which runs the project's linters and type checkers: true finds them
+    # from the project's files, and a list of commands runs those instead.
+    diagnostics: bool | list[str] = True
+    # Commands for RunTests to run instead of the test runners it finds.
+    test_commands: list[str] = []
+    # Tools not to offer, by name, as ["Python", "Memory"]: for a model that does better
+    # with fewer, or a project where one doesn't belong.
+    disabled_tools: list[str] = []
     subagent_max_steps: int = 30  # model calls allowed in one subagent's task
     compact_at: int = 200_000  # estimated context tokens that trigger a compaction
     keep_messages: int = 8  # recent messages kept word for word when compacting
     prompt_cache: PromptCache = "conversation"
     shell: str | None = None  # path to bash; found automatically when unset
     # Where commands run: on this machine, in a Docker container (executor/docker.py), or in
-    # zwans-jail, Zwans's own sandbox (executor/jail.py, Linux only)
-    executor: Literal["local", "docker", "jail"] = "local"
+    # zwans-jail, Zwans's own sandbox (executor/jail.py, Linux only),
+    # or under Seatbelt, the sandbox built into macOS (executor/seatbelt.py)
+    executor: Literal["local", "docker", "jail", "seatbelt"] = "local"
     home: Path = ZWANS_HOME  # transcripts, saved sessions, and saved tool output live here
     mcp_servers: dict[str, McpServerConfig] = {}  # tools from MCP servers, by server name
     providers: dict[str, ProviderConfig] = {}  # OpenAI-compatible servers, by name

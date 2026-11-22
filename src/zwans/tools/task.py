@@ -105,7 +105,9 @@ class TaskTool:
 
     def _tools(self, available: Sequence[Tool[Any]], wanted: list[str] | None) -> list[Tool[Any]]:
         # No subagents of its own, and no to-do list: the one people see is the parent's.
-        tools = [tool for tool in available if tool.name not in (self.name, "TodoWrite")]
+        # Nor may it question the user or leave notes: those are the parent's to do.
+        apart = (self.name, "TodoWrite", "AskUser", "Memory")
+        tools = [tool for tool in available if tool.name not in apart]
         if wanted is None:
             return tools
         names = {tool.name for tool in tools}

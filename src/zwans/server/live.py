@@ -9,8 +9,8 @@ turn; they all see the result, because it arrives as events.
 import asyncio
 import json
 import logging
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -57,9 +57,13 @@ class LiveSession:
         self.clients: set[asyncio.Queue[Message]] = set()
         self.turn: asyncio.Task[None] | None = None
         self.pending: dict[str, asyncio.Future[Approval]] = {}
+        # The model's question to the person, while it waits for an answer; one at a time.
+        self.question: asyncio.Future[str] | None = None
+        self._one_question = asyncio.Lock()
         opened.session.listeners.append(self._on_event)
         if opened.session.permissions is not None:
             opened.session.permissions.approver = self.approve
+        opened.session.ctx = replace(opened.session.ctx, ask=self.ask)
 
     @property
     def id(self) -> str:
@@ -83,7 +87,9 @@ class LiveSession:
             "turns": opened.session.turn,
             "dollars": opened.meter.session_dollars,
             "context_tokens": opened.session.context_tokens(),
-            "waiting_for": sorted(self.pending),  # permission questions nobody has answered
+            # What nobody has answered yet: permission questions, by call, and the model's
+            # own question.
+            "waiting_for": [*sorted(self.pending), *(["question"] if self.question else [])],
             "warnings": self.warnings,
             "demo": self.demo,
             "chat": opened.chat,  # no project and no tools: only a conversation
@@ -177,6 +183,24 @@ class LiveSession:
             return await future
         finally:
             self.pending.pop(request.call_id, None)
+
+    async def ask(self, question: str, options: Sequence[str]) -> str | None:
+        """The session's asker, for the AskUser tool: waits until a client answers. The
+        question itself reaches clients as that tool's call, which is how they show it."""
+        async with self._one_question:
+            future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+            self.question = future
+            self._broadcast(self.status())
+            try:
+                return await future
+            finally:
+                self.question = None
+
+    def answer_question(self, text: str) -> bool:
+        if self.question is None or self.question.done() or not text.strip():
+            return False
+        self.question.set_result(text.strip())
+        return True
 
     async def close(self) -> None:
         self.interrupt()
@@ -272,6 +296,7 @@ class SessionHub:
             config or self.settings.config,
             self.settings.env,
             make_provider=make_provider or self.settings.make_provider,
+            ask_later=True,  # the live session gives it its asker, in LiveSession
             **kwargs,
         )
         try:

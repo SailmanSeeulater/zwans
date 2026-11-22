@@ -1,0 +1,8 @@
+# Zwans with only the tools it started with, to measure what the newer ones add. Compare a
+# run with this config against one with the default.
+
+multi_edit = false
+diagnostics = false
+disabled_tools = [
+  "Outline", "References", "Rename", "RunTests", "Docs", "Python", "ShowChanges", "Memory",
+]

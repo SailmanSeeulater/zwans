@@ -204,9 +204,35 @@ export function waitingCalls(turns: Turn[]): ToolCall[] {
   return waiting;
 }
 
+/** The model's question that nobody has answered yet: an AskUser call with no result. */
+export function pendingQuestion(turns: Turn[]): { question: string; options: string[] } | null {
+  const last = turns.at(-1);
+  if (!last || last.stop) return null;
+  for (const item of last.items) {
+    if (item.kind !== "tool" || item.call.name !== "AskUser" || item.call.result) continue;
+    const { question, options } = item.call.args;
+    return {
+      question: typeof question === "string" ? question : "",
+      options: Array.isArray(options) ? options.map(String).filter(Boolean) : [],
+    };
+  }
+  return null;
+}
+
 /** The one argument worth showing for a call, so it fits on a line. */
 export function keyArgument(call: Pick<ToolCall, "name" | "args">): string {
-  for (const key of ["command", "path", "pattern", "query", "url", "description", "name", "job_id", "ticket"]) {
+  const { edits, paths } = call.args;
+  if (call.name === "MultiEdit" && Array.isArray(edits)) {
+    const files = [...new Set(edits.map((e: unknown) => String((e as { path?: unknown } | null)?.path ?? "")))];
+    return `${edits.length} ${edits.length === 1 ? "edit" : "edits"} in ${files.join(", ")}`;
+  }
+  if (call.name === "Diagnostics" || call.name === "RunTests") {
+    const named = Array.isArray(paths) && paths.length ? paths.map(String).join(" ") : "the whole project";
+    return call.args.filter ? `${named} matching ${String(call.args.filter)}` : named;
+  }
+  if (call.name === "Rename") return `${String(call.args.old ?? "")} to ${String(call.args.new ?? "")}`;
+  const keys = ["command", "pattern", "symbol", "path", "query", "url", "question", "description", "name", "job_id", "ticket", "code", "text"];
+  for (const key of keys) {
     const value = call.args[key];
     if (typeof value === "string" && value) return value.split("\n")[0] ?? "";
   }

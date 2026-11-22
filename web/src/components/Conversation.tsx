@@ -10,6 +10,7 @@ import {
   type ToolCall,
   type Turn,
 } from "@/lib/events";
+import { lastLine } from "@/lib/format";
 import { TODO_TOOL, todosOf } from "@/lib/todos";
 import { DiffBody } from "./DiffBody";
 import { Markdown } from "./Markdown";
@@ -81,7 +82,7 @@ function ItemView({ item, onAnswer }: { item: Item; onAnswer?: Props["onAnswer"]
     case "text":
       return <Markdown text={item.text} />;
     case "note":
-      return <div className="model-note">{item.text}</div>;
+      return <Thinking text={item.text} />;
     case "tool":
       if (item.call.name === TODO_TOOL && !item.call.result?.isError) return <TodoCard call={item.call} />;
       return <ToolCard call={item.call} onAnswer={onAnswer} />;
@@ -104,6 +105,22 @@ function ItemView({ item, onAnswer }: { item: Item; onAnswer?: Props["onAnswer"]
         </div>
       );
   }
+}
+
+/** The model's thinking, folded away so the answer and the tool calls stay in view. The one
+ * line that shows is where the thinking has got to, so it still reads as progress while it
+ * streams; opening it shows all of it. */
+function Thinking({ text }: { text: string }) {
+  const latest = lastLine(text);
+  return (
+    <details className="thinking">
+      <summary>
+        <span className="thinking-label">Thinking</span>
+        <span className="thinking-latest">{latest}</span>
+      </summary>
+      <div className="model-note">{text.trim()}</div>
+    </details>
+  );
 }
 
 function stateOf(call: ToolCall): { mark: string; tone: string; text: string } {
