@@ -479,6 +479,7 @@ h2 {
   text-decoration: none;
   display: inline-flex;
   align-items: center;
+  gap: 6px; /* between an icon and its label */
 }
 .segmented > [aria-checked="true"],
 .segmented > [aria-selected="true"],

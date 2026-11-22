@@ -86,6 +86,7 @@ class LiveSession:
             "waiting_for": sorted(self.pending),  # permission questions nobody has answered
             "warnings": self.warnings,
             "demo": self.demo,
+            "chat": opened.chat,  # no project and no tools: only a conversation
             "compact_at": opened.session.compact_at(opened.config.compact_at),
         }
 
@@ -149,6 +150,8 @@ class LiveSession:
         checkpoints = self.opened.checkpoints
         if self.demo:
             return "The demo's turns can't be undone; start it again instead."
+        if self.opened.chat:
+            return "A chat has no files to put back, so its turns can't be undone."
         if checkpoints is None:
             return "Checkpoints are off (checkpoints = false), so turns can't be undone."
         return checkpoints.problem
@@ -233,6 +236,10 @@ class SessionHub:
             if session_id in self.live:
                 return self.live[session_id]
             return await self._open(workspace=Path("."), resume=session_id, mode=mode)
+
+    async def chat(self, model: str | None = None) -> LiveSession:
+        """A new chat: no project folder, and none of Zwans's tools."""
+        return await self._open(workspace=Path("."), chat=True, model=model)
 
     async def demo(self, mode: str | None = None) -> LiveSession:
         """A new demo session, in a fresh copy of the demo project."""

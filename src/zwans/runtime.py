@@ -1,6 +1,12 @@
 """Opens a session with everything it needs, for the CLI and the server alike: the model,
-the executor, the policy, the tools, the transcript, and the saved copy in sessions.db."""
+the executor, the policy, the tools, the transcript, and the saved copy in sessions.db.
 
+A chat is a session with no project: it gets an empty folder of its own under the home's
+chats/ folder and none of Zwans's tools, so the model can only talk (and search the web,
+where the model's provider offers that). Everything else is the same, so chats are saved,
+listed, resumed and metered like any session, and where a session works says which it is."""
+
+import contextlib
 import secrets
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -24,7 +30,7 @@ from zwans.messages import Message
 from zwans.policy.engine import Approver, Permissions
 from zwans.policy.rules import LoadedPolicy, Mode, load_policy
 from zwans.pricing import CostMeter
-from zwans.prompt import system_prompt
+from zwans.prompt import chat_prompt, system_prompt
 from zwans.providers.base import Provider
 from zwans.providers.catalog import canonical, is_known
 from zwans.providers.fake import FakeProvider
@@ -46,6 +52,13 @@ from zwans.transcript import TranscriptWriter
 type PolicyLoader = Callable[[Path, Path, Mode | None], LoadedPolicy]
 type ProviderFactory = Callable[[Config, str], Provider]
 
+CHATS = "chats"  # in Zwans's home: one empty folder per chat
+
+
+def is_chat(workspace: str | Path, home: Path) -> bool:
+    """Whether a session working in `workspace` is a chat."""
+    return Path(workspace).parent == (home / CHATS).resolve()
+
 
 @dataclass
 class OpenedSession:
@@ -62,6 +75,7 @@ class OpenedSession:
     jobs: BackgroundJobs | None = None  # commands left running in the background
     checkpoints: Checkpoints | None = None  # the files before each turn, for /undo
     instructions: list[Path] = field(default_factory=list)  # instruction files, for a new one
+    chat: bool = False  # no project and no tools of Zwans's own
     resumed: bool = False
     repaired: bool = False  # its last turn was cut off mid-tool
     had_turns: bool = False  # it had turns before, even if a rewind has dropped them all
@@ -98,6 +112,9 @@ class OpenedSession:
         self.transcript.close()
         if self.empty:
             self.store.delete(self.info.id)
+            if self.chat:
+                with contextlib.suppress(OSError):
+                    Path(self.info.workspace).rmdir()  # its folder was only ever a placeholder
         self.store.close()
 
 
@@ -115,9 +132,11 @@ def open_session(
     policy_loader: PolicyLoader = load_policy,
     make_provider: ProviderFactory | None = None,
     fake_script: Path | None = None,
+    chat: bool = False,
 ) -> OpenedSession:
-    """A new session in `workspace`, or the saved one `resume` names. Raises ConfigError
-    (JailError among them), SessionError or PolicyError. Call `start()` before the first turn."""
+    """A new session in `workspace`, a new chat (`chat`, which ignores `workspace`), or the
+    saved one `resume` names. Raises ConfigError (JailError among them), SessionError or
+    PolicyError. Call `start()` before the first turn."""
     model = canonical(model) if model else None
     store = SessionStore(config.home / "sessions.db")
     messages: list[Message] = []
@@ -128,6 +147,8 @@ def open_session(
     if resume is not None:
         try:
             found = store.get(resume)
+            if is_chat(found.workspace, config.home):
+                Path(found.workspace).mkdir(parents=True, exist_ok=True)  # nothing was in it
             if not Path(found.workspace).is_dir():  # checked first, so nothing is rewound
                 raise SessionError(
                     f"Session {found.id} worked in {found.workspace}, which no longer exists. "
@@ -150,18 +171,20 @@ def open_session(
         meter = CostMeter.restore(info.usage)
         skills = find_skills(skill_folders(Path(info.workspace), config.home))
     else:
-        root = workspace.resolve()
+        session_id = f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
+        root = (config.home / CHATS / session_id if chat else workspace).resolve()
         skills = find_skills(skill_folders(root, config.home))
-        instructions = load_instructions(root, config.home)
+        instructions = load_instructions(root, config.home)  # for a chat, only the user's own
         followed = [path for path, _ in instructions]
-        if config.executor == "docker":
+        if chat:
+            system = chat_prompt(instructions, config.web)
+        elif config.executor == "docker":
             system = system_prompt(root, "bash", instructions, SANDBOX_OS, skills, config.web)
         elif config.executor == "jail":
             system = system_prompt(root, "bash", instructions, JAIL_OS, skills, config.web)
         else:
             shell = describe_shell(config.shell)
             system = system_prompt(root, shell, instructions, skills=skills, web=config.web)
-        session_id = f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
         info = SessionInfo(
             id=session_id, workspace=str(root), model=model or config.model, system=system
         )
@@ -183,6 +206,9 @@ def open_session(
         store.create(info)  # only once the credential is known to be there
 
     root = Path(info.workspace)
+    chat = is_chat(root, config.home)  # a resumed chat is still one
+    if chat:
+        root.mkdir(parents=True, exist_ok=True)
     loaded = policy_loader(root, config.home, mode)
     policy = loaded.policy
     transcript = TranscriptWriter(config.home / "transcripts" / f"{info.id}.jsonl")
@@ -192,7 +218,9 @@ def open_session(
         transcript.on_event(Rewound(turn=rewind))
     spill_dir = config.home / "tool-output" / info.id
     executor: LocalExecutor
-    if config.executor == "docker":
+    if chat:  # nothing runs in a chat, so there's no container or jail to start
+        executor = LocalExecutor(root, shell=config.shell, spill_dir=spill_dir)
+    elif config.executor == "docker":
         executor = DockerExecutor(root, spill_dir=spill_dir)
     elif config.executor == "jail":
         executor = JailExecutor(root, spill_dir=spill_dir)
@@ -206,22 +234,24 @@ def open_session(
         approver=approver,
         root=executor.root,
     )
-    tools: list[Tool[Any]] = [
-        ReadTool(),
-        WriteTool(),
-        EditTool(),
-        GlobTool(),
-        GrepTool(hidden=policy.hidden_from_search),
-        BashTool(),
-        BashOutputTool(),
-        KillBashTool(),
-    ]
-    if config.todos:
-        tools.append(TodoWriteTool())
-    if skills:
-        tools.append(SkillTool(skills))
-    if config.subagents:
-        tools.append(TaskTool(config.subagent_max_steps))
+    tools: list[Tool[Any]] = []
+    if not chat:
+        tools = [
+            ReadTool(),
+            WriteTool(),
+            EditTool(),
+            GlobTool(),
+            GrepTool(hidden=policy.hidden_from_search),
+            BashTool(),
+            BashOutputTool(),
+            KillBashTool(),
+        ]
+        if config.todos:
+            tools.append(TodoWriteTool())
+        if skills:
+            tools.append(SkillTool(skills))
+        if config.subagents:
+            tools.append(TaskTool(config.subagent_max_steps))
     session = Session(
         provider=provider,
         tools=tools,
@@ -231,12 +261,13 @@ def open_session(
         max_steps=config.max_steps,
         compactor=Compactor(provider, config.compact_at, config.keep_messages),
         permissions=permissions,
-        hooks=Hooks(policy.hooks, root) if policy.hooks else None,
+        # Hooks are about tools and a project's checks, and a chat has neither.
+        hooks=Hooks(policy.hooks, root) if policy.hooks and not chat else None,
     )
     session.messages = messages
     session.turn = info.turns
     checkpoints = None
-    if config.checkpoints:
+    if config.checkpoints and not chat:  # a chat has no files to put back
         checkpoints = Checkpoints(root, config.home, info.id)
         session.before_turn = checkpoints.save
     saved = len(messages) - (1 if repaired else 0)
@@ -247,7 +278,7 @@ def open_session(
     recorder.save()  # saves the answers to any cut-off tool calls right away
 
     mcp = None
-    if config.mcp_servers:
+    if config.mcp_servers and not chat:
         mcp = McpServers(config.mcp_servers, root, env, config.home / "mcp-logs")
     return OpenedSession(
         config=config,
@@ -263,6 +294,7 @@ def open_session(
         jobs=jobs,
         checkpoints=checkpoints,
         instructions=followed,
+        chat=chat,
         resumed=resume is not None,
         repaired=repaired,
         had_turns=had_turns,

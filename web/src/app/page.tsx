@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderOpen, Play, ScrollText } from "lucide-react";
+import { FolderOpen, MessageCircle, Play, ScrollText } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -24,7 +24,14 @@ const MODES: { id: Mode; label: string; about: string }[] = [
   { id: "auto", label: "Auto", about: "Edits and local commands run without asking" },
 ];
 
-/** Draft 19: start a task, or watch the demo with no key at all. */
+type Kind = "folder" | "chat";
+
+const KINDS = [
+  { id: "folder", label: "Work in a folder", icon: FolderOpen, about: "Zwans reads and changes a project with its tools" },
+  { id: "chat", label: "Just chat", icon: MessageCircle, about: "No folder, and no file or command tools: only a conversation" },
+] as const satisfies readonly { id: Kind; label: string; icon: typeof FolderOpen; about: string }[];
+
+/** Draft 19: start a task or a chat, or watch the demo with no key at all. */
 export default function HomePage() {
   const hasToken = useHasToken();
   const mac = useIsMac();
@@ -38,6 +45,9 @@ export default function HomePage() {
   const [busy, setBusy] = useState<"start" | "demo" | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [canPick, setCanPick] = useState(false);
+  const [kind, setKind] = useState<Kind>("folder");
+  const chat = kind === "chat";
+  const ready = chat || Boolean(workspace.trim());
 
   useEffect(() => {
     // Only the desktop app can open a folder dialog, and only the browser can tell.
@@ -53,7 +63,7 @@ export default function HomePage() {
   const folders = useMemo(() => {
     const seen = new Map<string, string>();
     for (const s of sessions?.saved ?? []) {
-      if (s.workspace.includes("zwans-demo-") || seen.has(s.workspace)) continue;
+      if (s.chat || s.workspace.includes("zwans-demo-") || seen.has(s.workspace)) continue;
       seen.set(s.workspace, s.updated_at);
     }
     return [...seen].slice(0, 5);
@@ -68,7 +78,7 @@ export default function HomePage() {
     try {
       const status = await api<SessionStatus>("/api/sessions", {
         method: "POST",
-        body: JSON.stringify({ workspace, mode }),
+        body: JSON.stringify(chat ? { chat: true } : { workspace, mode }),
       });
       if (task.trim()) rememberFirstPrompt(status.id, task.trim());
       go(status.id);
@@ -113,68 +123,86 @@ export default function HomePage() {
       )}
 
       <form className="panel glass home-start" onSubmit={start}>
-        <h1>What should Zwans work on?</h1>
+        <div className="segmented" role="radiogroup" aria-label="What to start" style={{ alignSelf: "flex-start" }}>
+          {KINDS.map((k) => (
+            <button key={k.id} type="button" role="radio" aria-checked={kind === k.id} title={k.about} onClick={() => setKind(k.id)}>
+              <k.icon size={14} aria-hidden="true" />
+              {k.label}
+            </button>
+          ))}
+        </div>
+        <h1>{chat ? "What do you want to ask?" : "What should Zwans work on?"}</h1>
         <textarea
           className="textarea home-task"
-          placeholder="Describe the task. Zwans reads the code, makes the change, and runs the checks."
-          aria-label="Task"
+          placeholder={
+            chat
+              ? "Ask anything. A chat has no project, so Zwans can't read your files or run commands in it."
+              : "Describe the task. Zwans reads the code, makes the change, and runs the checks."
+          }
+          aria-label={chat ? "Message" : "Task"}
           value={task}
           rows={3}
           onChange={(e) => setTask(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && workspace.trim()) void start(e);
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && ready) void start(e);
           }}
         />
         <div className="row">
-          <div className="folder-field">
-            <FolderOpen size={15} aria-hidden="true" />
-            <input
-              className="mono"
-              placeholder="/path/to/project"
-              aria-label="Folder to work in"
-              value={workspace}
-              onChange={(e) => setWorkspace(e.target.value)}
-              list="recent-folders"
-              required
-            />
-            {canPick && (
-              <button
-                type="button"
-                className="button button-quiet"
-                onClick={async () => {
-                  const folder = await window.zwansDesktop?.pickFolder();
-                  if (folder) setWorkspace(folder);
-                }}
-              >
-                Choose…
-              </button>
-            )}
-          </div>
-          <div className="segmented" role="radiogroup" aria-label="Permission mode">
-            {MODES.map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                role="radio"
-                aria-checked={mode === m.id}
-                aria-current={mode === m.id ? "page" : undefined}
-                title={m.about}
-                onClick={() => setMode(m.id)}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
+          {chat ? (
+            <span style={{ flex: 1 }} />
+          ) : (
+            <>
+              <div className="folder-field">
+                <FolderOpen size={15} aria-hidden="true" />
+                <input
+                  className="mono"
+                  placeholder="/path/to/project"
+                  aria-label="Folder to work in"
+                  value={workspace}
+                  onChange={(e) => setWorkspace(e.target.value)}
+                  list="recent-folders"
+                  required
+                />
+                {canPick && (
+                  <button
+                    type="button"
+                    className="button button-quiet"
+                    onClick={async () => {
+                      const folder = await window.zwansDesktop?.pickFolder();
+                      if (folder) setWorkspace(folder);
+                    }}
+                  >
+                    Choose…
+                  </button>
+                )}
+              </div>
+              <div className="segmented" role="radiogroup" aria-label="Permission mode">
+                {MODES.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={mode === m.id}
+                    aria-current={mode === m.id ? "page" : undefined}
+                    title={m.about}
+                    onClick={() => setMode(m.id)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           <button
             className="button button-primary"
-            disabled={busy !== null || !workspace.trim()}
-            title={workspace.trim() ? undefined : "Give it a folder to work in first"}
+            disabled={busy !== null || !ready}
+            title={ready ? undefined : "Give it a folder to work in first"}
           >
-            {busy === "start" ? "Starting…" : "Start"}
+            {busy === "start" ? "Starting…" : chat ? "Start chat" : "Start"}
           </button>
         </div>
         <p className="muted small">
-          {MODES.find((m) => m.id === mode)?.about}. {mac ? "⌘↵" : "Ctrl+Enter"} starts.
+          {chat ? KINDS[1].about : MODES.find((m) => m.id === mode)?.about}. {mac ? "⌘↵" : "Ctrl+Enter"} starts.
         </p>
         <datalist id="recent-folders">
           {folders.map(([path]) => (

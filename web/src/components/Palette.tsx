@@ -81,8 +81,8 @@ function Dialog({ close }: { close: () => void }) {
     for (const s of sessions?.live ?? []) {
       list.push({
         group: "Open sessions",
-        label: s.title || "New session",
-        hint: s.workspace,
+        label: s.title || (s.chat ? "New chat" : "New session"),
+        hint: s.chat ? "Chat, no folder" : s.workspace,
         run: go(`/session/?id=${encodeURIComponent(s.id)}`),
       });
     }
@@ -90,13 +90,22 @@ function Dialog({ close }: { close: () => void }) {
       list.push({
         group: "Resume",
         label: s.title || "(no prompt)",
-        hint: s.workspace,
+        hint: s.chat ? "Chat, no folder" : s.workspace,
         run: async () => {
           await api<SessionStatus>(`/api/sessions/${encodeURIComponent(s.id)}/open`, { method: "POST" });
           router.push(`/session/?id=${encodeURIComponent(s.id)}`);
         },
       });
     }
+    list.push({
+      group: "Start",
+      label: "New chat",
+      hint: "Talk to the model with no folder and no tools",
+      run: async () => {
+        const status = await api<SessionStatus>("/api/sessions", { method: "POST", body: JSON.stringify({ chat: true }) });
+        router.push(`/session/?id=${encodeURIComponent(status.id)}`);
+      },
+    });
     list.push({
       group: "Demo",
       label: "Start the demo",

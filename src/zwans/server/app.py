@@ -47,6 +47,7 @@ from zwans.images import ImageError, image_block
 from zwans.messages import ImageBlock
 from zwans.policy.rules import Mode, PolicyError
 from zwans.providers.catalog import list_all, resolve
+from zwans.runtime import is_chat
 from zwans.server import evals
 from zwans.server.live import Busy, HubSettings, LiveSession, Message, RewindError, SessionHub
 from zwans.store import SessionError, SessionStore
@@ -76,6 +77,7 @@ class NewSession(BaseModel):
     mode: Mode | None = None
     model: str | None = None
     demo: bool = False  # the scripted replay in a copy of the demo project; ignores the rest
+    chat: bool = False  # a conversation with no folder and no tools; takes only the model
 
 
 class ChooseModel(BaseModel):
@@ -143,6 +145,7 @@ def create_app(settings: ServerSettings) -> FastAPI:
                     "updated_at": info.updated_at,
                     "dollars": float(info.usage.get("dollars", 0.0)),
                     "live": info.id in hub.live,
+                    "chat": is_chat(info.workspace, settings.config.home),
                 }
                 for info in saved
             ],
@@ -153,6 +156,8 @@ def create_app(settings: ServerSettings) -> FastAPI:
         try:
             if body.demo:
                 live = await hub.demo(body.mode)
+            elif body.chat:
+                live = await hub.chat(body.model)
             elif not body.workspace:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a folder to work in.")
             else:

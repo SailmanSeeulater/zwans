@@ -501,6 +501,12 @@ one says so. A session that was open when the server stopped is resumed when you
   diff. When the policy asks, the question appears above the input box with Allow once,
   Always allow (only when it would take effect, as in the terminal) and Deny, and an Edit or
   Write shows the diff it would make. A Task call lists what its subagent did.
+- **Chat:** choose *Just chat* on the home screen, or *New chat* in the command palette, to
+  talk to the model with no project folder. A chat has none of Zwans's tools, so the model
+  can't read your files or run commands; with a Claude model and `web = true` it can still
+  search the web. It follows your own `~/.zwans/ZWANS.md`, and it is saved, listed, resumed
+  (from the terminal too, with `zwans --resume`) and billed like any session. Hooks, MCP
+  servers, skills and undo don't apply to it.
 - **Images:** paste, drop or attach (the image button) up to 5 PNG, JPEG, GIF or WebP
   images, 3.75 MB each, to send with a message. The server checks each one's bytes.
 - **Undo:** hover over one of your messages and choose Undo to put the files back as they
@@ -540,6 +546,10 @@ npm run pack   # or build desktop/dist/Zwans-darwin-arm64/Zwans.app
 `Zwans.app` can go in Applications or the Dock, but it keeps pointing at this checkout: after
 changing the web UI, `npm --prefix web run build` is enough; after moving the repo or changing
 `desktop/`, run `npm run pack` again. The window opens at the size and place you left it.
+The app's icon and the browser tab's come from the logo in `brand/`; after changing the logo,
+run `node desktop/make-icon.cjs` and copy `brand/favicon.ico`, `brand/zwans-icon-dark.svg`
+and `brand/png/apple-touch-icon-180.png` over `favicon.ico`, `icon.svg` and `apple-icon.png`
+in `web/src/app/`.
 Closing it stops its sessions, which you can resume from the sidebar. Commands run directly on the Mac (the jail is Linux-only), so
 stay in `ask` mode unless you trust the task.
 

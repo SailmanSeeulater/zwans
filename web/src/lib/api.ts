@@ -116,6 +116,8 @@ export interface SessionStatus {
   warnings: string[];
   /** The scripted replay: no API calls. */
   demo?: boolean;
+  /** A conversation with no project folder and none of Zwans's tools. */
+  chat?: boolean;
   /** Estimated context tokens that trigger a compaction. */
   compact_at?: number;
 }
@@ -212,6 +214,7 @@ export interface SavedSession {
   updated_at: string;
   dollars: number;
   live: boolean;
+  chat?: boolean;
 }
 
 export interface SessionList {

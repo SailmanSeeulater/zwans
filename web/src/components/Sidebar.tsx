@@ -62,9 +62,9 @@ export function Sidebar() {
           aria-current={path.startsWith("/session") && currentId === s.id ? "page" : undefined}
         >
           <span style={{ minWidth: 0, flex: 1 }}>
-            <span className="sidebar-title">{s.title || "New session"}</span>
+            <span className="sidebar-title">{s.title || (s.chat ? "New chat" : "New session")}</span>
             <span className="sidebar-sub">
-              {s.running ? (s.waiting_for.length ? "waiting for you" : "working") : "idle"} · {folderName(s.workspace)}
+              {s.running ? (s.waiting_for.length ? "waiting for you" : "working") : "idle"} · {placeOf(s)}
             </span>
           </span>
           {s.waiting_for.length > 0 && (
@@ -87,7 +87,7 @@ export function Sidebar() {
           <span style={{ minWidth: 0, flex: 1 }}>
             <span className="sidebar-title">{s.title || "(no prompt)"}</span>
             <span className="sidebar-sub">
-              {folderName(s.workspace)} · {s.turns} {s.turns === 1 ? "turn" : "turns"}
+              {placeOf(s)} · {s.turns} {s.turns === 1 ? "turn" : "turns"}
             </span>
           </span>
         </button>
@@ -105,8 +105,10 @@ export function Sidebar() {
   );
 }
 
-function folderName(path: string): string {
-  return path.split("/").filter(Boolean).at(-1) ?? path;
+/** Where a session works: its folder's name, or "chat" for one with no folder. */
+function placeOf(session: { workspace: string; chat?: boolean }): string {
+  if (session.chat) return "chat";
+  return session.workspace.split("/").filter(Boolean).at(-1) ?? session.workspace;
 }
 
 function ThemeMenu() {

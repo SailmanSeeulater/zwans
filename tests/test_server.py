@@ -130,6 +130,69 @@ def test_a_session_runs_a_turn_over_the_websocket(server: Server) -> None:
     assert idle["title"] == "Say hello."
 
 
+def test_a_chat_has_no_folder_or_tools_and_is_still_one_when_resumed(
+    server: Server, tmp_path: Path
+) -> None:
+    first, second = FakeProvider([say("Hi.")]), FakeProvider([say("Still here.")])
+    server.scripts += [first, second]
+    created = server.client.post("/api/sessions", json={"chat": True}, headers=AUTH)
+    assert created.status_code == 201, created.text
+    status = created.json()
+    url = f"/api/sessions/{status['id']}"
+    folder = Path(status["workspace"])
+    assert status["chat"] is True
+    assert folder.parent == (tmp_path / "home" / "chats").resolve()
+    assert list(folder.iterdir()) == []
+
+    with connect(server, status["id"]) as ws:
+        handshake(ws)
+        ws.send_json({"type": "prompt", "text": "Hello."})
+        until(ws, "turn_ended")
+    assert first.last_request is not None
+    assert first.last_request["tools"] == []
+    assert "no project open" in first.last_request["system"][0]["text"]
+    [saved] = server.client.get("/api/sessions", headers=AUTH).json()["saved"]
+    assert saved["chat"] is True
+    undo = server.client.post(f"{url}/rewind", json={"turn": 1}, headers=AUTH)
+    assert undo.status_code == 400 and "no files to put back" in undo.json()["detail"]
+
+    # Closed and resumed, even with its folder gone: there was never anything in it.
+    assert server.client.delete(url, headers=AUTH).status_code == 204
+    shutil.rmtree(folder)
+    reopened = server.client.post(f"{url}/open", headers=AUTH).json()
+    assert reopened["chat"] is True and folder.is_dir()
+    with connect(server, status["id"]) as ws:
+        _, backlog = handshake(ws)
+        assert "turn_ended" in types(backlog)
+        ws.send_json({"type": "prompt", "text": "Are you there?"})
+        until(ws, "turn_ended")
+    assert second.last_request is not None and second.last_request["tools"] == []
+
+
+def test_a_chat_nobody_spoke_in_leaves_nothing_behind(server: Server) -> None:
+    server.scripts.append(FakeProvider([]))
+    status = server.client.post("/api/sessions", json={"chat": True}, headers=AUTH).json()
+    assert Path(status["workspace"]).is_dir()
+
+    server.client.delete(f"/api/sessions/{status['id']}", headers=AUTH)
+
+    assert not Path(status["workspace"]).exists()
+    assert server.client.get("/api/sessions", headers=AUTH).json()["saved"] == []
+
+
+def test_a_session_in_a_folder_is_not_a_chat(server: Server) -> None:
+    session_id = server.new_session(FakeProvider([say("Hi.")]))
+    status = server.client.get(f"/api/sessions/{session_id}", headers=AUTH).json()
+    assert status["chat"] is False
+
+    with connect(server, session_id) as ws:
+        handshake(ws)
+        ws.send_json({"type": "prompt", "text": "Hello."})
+        until(ws, "turn_ended")
+    [saved] = server.client.get("/api/sessions", headers=AUTH).json()["saved"]
+    assert saved["chat"] is False
+
+
 def test_approvals_go_back_over_the_websocket(server: Server) -> None:
     session_id = server.new_session(
         FakeProvider([write("yes.txt", "1"), write("no.txt", "2"), say("Done.")]), mode="ask"

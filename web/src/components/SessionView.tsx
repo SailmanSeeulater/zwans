@@ -262,14 +262,22 @@ export function SessionView() {
       <div className="session-main">
         <header className="session-head glass">
           <h1 title={status?.title || undefined}>
-            {status?.title || (connection === "closed" ? "Session" : "New session")}
+            {status?.title || (connection === "closed" ? "Session" : status?.chat ? "New chat" : "New session")}
           </h1>
           {status && (
             <>
-              <span className="pill pill-quiet mono" title={status.workspace}>
-                {status.workspace.split("/").filter(Boolean).at(-1)}
-              </span>
-              <span className="pill pill-quiet">{MODES[status.mode] ?? status.mode}</span>
+              {status.chat ? (
+                <span className="pill pill-quiet" title="No project folder, and no file or command tools">
+                  Chat
+                </span>
+              ) : (
+                <>
+                  <span className="pill pill-quiet mono" title={status.workspace}>
+                    {status.workspace.split("/").filter(Boolean).at(-1)}
+                  </span>
+                  <span className="pill pill-quiet">{MODES[status.mode] ?? status.mode}</span>
+                </>
+              )}
               {!status.demo && (
                 <ModelPicker
                   sessionId={id}
@@ -379,7 +387,9 @@ export function SessionView() {
                 ? "Answer the question above first."
                 : running
                   ? "Zwans is working. You can write the next task meanwhile."
-                  : "Message Zwans. Enter sends, Shift+Enter adds a line."
+                  : status?.chat
+                    ? "Ask Zwans anything. Enter sends, Shift+Enter adds a line."
+                    : "Message Zwans. Enter sends, Shift+Enter adds a line."
             }
             aria-label="Message Zwans"
             value={draft}
