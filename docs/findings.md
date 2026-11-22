@@ -332,6 +332,33 @@ other `ZWANS_*` variables. Add `--executor jail` on Linux to run commands in zwa
 The dated entries behind the sections above, newest first, as written at the time. Later
 entries sometimes correct earlier ones.
 
+### 2026-11-22: a 30B local model passes seven of the ten starter tasks
+
+The same ten starter tasks as the 7B runs below, once each, with `ollama/qwen3-coder:30b`
+(a mixture of experts, about 3B parameters active a token, 18 GB) on this Mac (32 GB),
+effort low, every tool, one attempt at a time, at cb64917. Free. Report
+`evals/reports/local-qwen3-coder-30b`.
+
+| Model | Passed | Model calls | Tool calls that failed | Seconds |
+|---|---|---|---|---|
+| qwen2.5-coder:7b (after the fixes) | 0/10 | 3.5 | | |
+| qwen2.5:latest, 7B (after the fixes) | 2/10 | 6.8 | | |
+| qwen3-coder:30b | 7/10 | 19.0 | 3% | 207 |
+
+The 7B rows are from the entry below, run at 201b07f. Since then attempts no longer see the
+task's name in their scratch folder, which if anything helped the 7B runs.
+
+Of the three it failed, one was wrong: on `notes-import-cycle` it named two of the modules in
+the cycle. The other two ran out of time while still testing and fixing their code:
+`duration-parser` at its 300 s limit and `retry-backoff` at 600 s, with replies taking 15 to
+80 s each. The time limits were set for API models, so those two say nothing either way.
+
+Tool calls that failed went from about a third of them with the 7B model to 3%. The same
+tools and prompt that a 7B model couldn't use, a 30B one uses: the size where the harness
+starts to pay is between the two. Ten easy tasks is a small sample and the starter tier is
+one Haiku passes all of; the hard tier is what would tell how far it goes, and wants longer
+time limits for a model this slow.
+
 ### 2026-11-22: evals could be passed by reading the answer
 
 Prompted by Harness² (google-research/harness2), whose guide reports a Codex run fetching
