@@ -763,6 +763,13 @@ one says so. A session that was open when the server stopped is resumed when you
   says whether a task-by-task comparison can tell it from the top row, so a few lucky
   attempts don't read as a win. Runs with `--agent claude-code` or `--agent codex` land on
   the same board as Zwans's.
+- **At a glance:** a session's header has a thin meter for how full the context is, up to
+  where older turns get summarized; it turns amber near that point and opens the context
+  inspector. Once a session has a few tool calls, a strip down its right edge has one mark per
+  call, by turn: faint for reading, the accent colour for an edit, grey for a command, green
+  or red for tests that passed or failed (by RunTests, or a test command's exit code).
+  Hovering a mark names the call, and clicking it jumps to its card. Edit cards show the lines
+  added and removed, `+12 −3`, with five blocks in proportion.
 - **Usage:** tokens and cost across every session and chat: tiles for today, this week,
   this month, this year and all time, a chart by day, week, month or year in tokens or
   dollars, how the tokens divide (input, cache writes, cache reads, output), and totals by
