@@ -758,6 +758,13 @@ one says so. A session that was open when the server stopped is resumed when you
   says whether a task-by-task comparison can tell it from the top row, so a few lucky
   attempts don't read as a win. Runs with `--agent claude-code` or `--agent codex` land on
   the same board as Zwans's.
+- **Usage:** tokens and cost across every session and chat: tiles for today, this week,
+  this month, this year and all time, a chart by day, week, month or year in tokens or
+  dollars, how the tokens divide (input, cache writes, cache reads, output), and totals by
+  model. It's read from the sessions' transcripts, in this machine's timezone; a deleted
+  session's usage is kept in `~/.zwans/usage-archive.jsonl`, so the totals don't drop. Costs
+  use today's prices: a model on this machine costs nothing, and a hosted one the config
+  gives no `prices` for adds tokens and no cost. Eval runs and rooms aren't counted.
 - **Side pane:** beside the conversation, with tabs. The first is *Under the hood*; `+` opens
   a page in another, such as the project's dev server (`localhost:3000`), to watch it while
   Zwans works on it. Drag the pane's edge to resize it (double-click resets it, and the
