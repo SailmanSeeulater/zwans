@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from zwans import demo as zwans_demo
-from zwans import pricing, usage
+from zwans import pricing, races, usage
 from zwans.checkpoints import Change, CheckpointError
 from zwans.config import Config, ConfigError
 from zwans.events import Error, Event, TurnEnded
@@ -351,6 +351,65 @@ class SessionHub:
             if session_id in self.live:
                 return self.live[session_id]
             return await self._open(workspace=Path("."), resume=session_id, mode=mode)
+
+    async def race(
+        self, workspace: Path, prompt: str, models: Sequence[str], mode: str | None = None
+    ) -> races.Race:
+        """Give `prompt` to each of `models` at once, each in its own copy of `workspace`.
+        Raises FileNotFoundError, RaceError, or ConfigError for a model that can't be used."""
+        if not workspace.is_dir():
+            raise FileNotFoundError(f"{workspace} isn't a folder")
+        if len(models) != len(races.LANES):
+            raise races.RaceError(f"A race takes {len(races.LANES)} models.")
+        if not prompt.strip():
+            raise races.RaceError("Give the models a task.")
+        home = self.settings.config.home
+        race = races.Race(
+            id=races.new_id(),
+            prompt=prompt.strip(),
+            workspace=str(workspace.resolve()),
+            created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        )
+        folder = home / races.RACES / race.id
+        opened: list[LiveSession] = []
+        try:
+            for letter, model in zip(races.LANES, models, strict=True):
+                copy = folder / letter
+                await asyncio.to_thread(races.copy_project, workspace, copy)
+                live = await self.create(copy, mode=mode, model=model)
+                opened.append(live)
+                race.lanes.append(
+                    races.Lane(model=live.opened.model, folder=str(copy), session_id=live.id)
+                )
+        except BaseException:
+            for live in opened:
+                await self.close(live.id)
+            shutil.rmtree(folder, ignore_errors=True)
+            raise
+        races.save(home, race)
+        for live in opened:
+            live.prompt(race.prompt)
+        return race
+
+    async def keep_race(self, race_id: str, session_id: str) -> list[Change]:
+        """Copy what one of a race's sessions changed back into the race's project. Raises
+        RaceError, or Busy while that session is working."""
+        home = self.settings.config.home
+        race = races.load(home, race_id)
+        lane = next((lane for lane in race.lanes if lane.session_id == session_id), None)
+        if lane is None:
+            raise races.RaceError(f"{session_id} isn't one of race {race_id}'s sessions.")
+        live = self.live.get(session_id) or await self.resume(session_id)
+        if live.running:
+            raise Busy("Wait for it to finish before keeping its result.")
+        checkpoints = live.opened.checkpoints
+        if checkpoints is None or not checkpoints.available:
+            raise races.RaceError("Its changes can't be found: checkpoints are off.")
+        changes, _ = await checkpoints.since_start()
+        kept = await asyncio.to_thread(races.keep, race, lane, changes)
+        race.kept = session_id
+        races.save(home, race)
+        return kept
 
     async def chat(self, model: str | None = None) -> LiveSession:
         """A new chat: no project folder, and none of Zwans's tools."""

@@ -470,6 +470,49 @@ def test_only_a_local_session_offers_to_hand_off(
     assert local["local"] is True and local["handoff_model"] == "claude-sonnet-5-5"
 
 
+def _finished(server: Server, session_id: str) -> None:
+    with connect(server, session_id) as ws:
+        _, backlog = handshake(ws)
+        if not any(e["type"] == "turn_ended" for e in backlog):
+            until(ws, "turn_ended")
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_race_runs_two_models_in_copies_and_keeps_the_chosen_result(server: Server) -> None:
+    (server.workspace / "a.txt").write_text("old\n")
+    server.scripts += [
+        FakeProvider([write("a.txt", "from a\n"), say("A done.")]),
+        FakeProvider([write("a.txt", "from b\n"), say("B done.")]),
+    ]
+    body = {
+        "workspace": str(server.workspace),
+        "prompt": "Change a",
+        "models": ["claude-opus-5-5", "claude-sonnet-5-5"],
+        "mode": "auto",
+    }
+
+    started = server.client.post("/api/races", json=body, headers=AUTH)
+    assert started.status_code == 201, started.text
+    race = started.json()
+    for lane in race["lanes"]:
+        _finished(server, lane["session_id"])
+    a, b = race["lanes"]
+    kept = server.client.post(
+        f"/api/races/{race['id']}/keep", json={"session_id": b["session_id"]}, headers=AUTH
+    )
+    again = server.client.get(f"/api/races/{race['id']}", headers=AUTH).json()
+
+    assert [lane["model"] for lane in race["lanes"]] == ["claude-opus-5-5", "claude-sonnet-5-5"]
+    assert Path(a["folder"], "a.txt").read_text() == "from a\n"
+    assert kept.status_code == 200, kept.text
+    assert kept.json()["kept"] == [{"status": "changed", "path": "a.txt"}]
+    assert (server.workspace / "a.txt").read_text() == "from b\n"
+    assert again["kept"] == b["session_id"]
+    one_model = {**body, "models": ["claude-opus-5-5"]}
+    refused = server.client.post("/api/races", json=one_model, headers=AUTH)
+    assert refused.status_code == 400 and "takes 2 models" in refused.json()["detail"]
+
+
 def test_a_new_session_needs_a_real_folder(server: Server, tmp_path: Path) -> None:
     body = {"workspace": str(tmp_path / "missing")}
     response = server.client.post("/api/sessions", json=body, headers=AUTH)

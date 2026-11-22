@@ -40,7 +40,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketDisconnect
 
-from zwans import __version__, usage
+from zwans import __version__, races, usage
 from zwans import demo as zwans_demo
 from zwans.config import ConfigError
 from zwans.executor.docker import DockerError
@@ -48,6 +48,7 @@ from zwans.images import ImageError, image_block
 from zwans.messages import ImageBlock
 from zwans.policy.rules import Mode, PolicyError
 from zwans.providers.catalog import canonical, list_all, register_prices, resolve
+from zwans.races import RaceError
 from zwans.room import AgentSpec, RoomError
 from zwans.runtime import is_chat
 from zwans.server import evals
@@ -82,6 +83,17 @@ class NewSession(BaseModel):
     model: str | None = None
     demo: bool = False  # the scripted replay in a copy of the demo project; ignores the rest
     chat: bool = False  # a conversation with no folder and no tools; takes only the model
+
+
+class NewRace(BaseModel):
+    workspace: str
+    prompt: str
+    models: list[str]
+    mode: Mode | None = None
+
+
+class KeepResult(BaseModel):
+    session_id: str
 
 
 class ChooseModel(BaseModel):
@@ -186,6 +198,35 @@ def create_app(settings: ServerSettings) -> FastAPI:
         except (FileNotFoundError, ConfigError, PolicyError, DockerError) as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
         return live.status()
+
+    @api.post("/races", status_code=status.HTTP_201_CREATED)
+    async def start_race(body: NewRace) -> dict[str, Any]:
+        """One task, given to two models at once, each in its own copy of the folder."""
+        try:
+            race = await hub.race(
+                Path(body.workspace).expanduser(), body.prompt, body.models, body.mode
+            )
+        except (FileNotFoundError, RaceError, ConfigError, PolicyError, DockerError) as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        return race.as_json()
+
+    @api.get("/races/{race_id}")
+    def get_race(race_id: str) -> dict[str, Any]:
+        try:
+            return races.load(settings.config.home, race_id).as_json()
+        except RaceError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @api.post("/races/{race_id}/keep")
+    async def keep_race(race_id: str, body: KeepResult) -> dict[str, Any]:
+        """Copy one model's result back into the folder the race was started from."""
+        try:
+            kept = await hub.keep_race(race_id, body.session_id)
+        except Busy as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        except (RaceError, SessionError) as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        return {"kept": [{"status": c.status, "path": c.path} for c in kept]}
 
     @api.post("/sessions/{session_id}/open")
     async def open_session(session_id: str, body: OpenSession | None = None) -> Message:
