@@ -1,6 +1,6 @@
 "use client";
 
-import { ChartColumn, Check, Palette, Plus, Search, Users } from "lucide-react";
+import { ChartColumn, Check, Monitor, Palette,Plus, Search, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -146,37 +146,36 @@ function ThemeMenu() {
     setChoice(next);
   };
 
-  const options: { id: ThemeChoice; name: string; about: string }[] = [
-    { id: "system", name: "Match system", about: "Paper by day, Graphite by night" },
-    ...THEMES,
-  ];
-  const current = options.find((o) => o.id === choice)?.name ?? "Match system";
+  const current = THEMES.find((t) => t.id === choice)?.name ?? "Match system";
+  // One row for a theme: its own page and accent colours as a dot, then its name.
+  const option = (id: ThemeChoice, name: string, about: string) => (
+    <button
+      key={id}
+      role="radio"
+      aria-checked={choice === id}
+      className="theme-option"
+      title={about}
+      onClick={() => pick(id)}
+    >
+      {id === "system" ? (
+        <Monitor size={16} aria-hidden="true" />
+      ) : (
+        <span className="theme-swatch" data-theme={id} aria-hidden="true" />
+      )}
+      <span className="theme-name">{name}</span>
+      {choice === id && <Check size={14} aria-hidden="true" />}
+    </button>
+  );
 
   return (
     <div ref={box} style={{ position: "relative" }}>
       {open && (
-        <div
-          role="radiogroup"
-          aria-label="Theme"
-          className="glass"
-          style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 0, right: 0, padding: 6, borderRadius: 14, zIndex: 10 }}
-        >
-          {options.map((o) => (
-            <button
-              key={o.id}
-              role="radio"
-              aria-checked={choice === o.id}
-              className="sidebar-link"
-              style={{ width: "100%", border: 0, background: "transparent", font: "inherit", cursor: "pointer", textAlign: "left" }}
-              onClick={() => pick(o.id)}
-            >
-              <span style={{ flex: 1 }}>
-                <span className="sidebar-title">{o.name}</span>
-                <span className="sidebar-sub">{o.about}</span>
-              </span>
-              {choice === o.id && <Check size={14} aria-hidden="true" />}
-            </button>
-          ))}
+        <div role="radiogroup" aria-label="Theme" className="theme-menu glass">
+          {option("system", "Match system", "Paper by day, Graphite by night")}
+          <p className="theme-heading">Light</p>
+          {THEMES.filter((t) => !t.dark).map((t) => option(t.id, t.name, t.about))}
+          <p className="theme-heading">Dark</p>
+          {THEMES.filter((t) => t.dark).map((t) => option(t.id, t.name, t.about))}
         </div>
       )}
       <button

@@ -689,6 +689,11 @@ one says so. A session that was open when the server stopped is resumed when you
   says whether a task-by-task comparison can tell it from the top row, so a few lucky
   attempts don't read as a win. Runs with `--agent claude-code` or `--agent codex` land on
   the same board as Zwans's.
+- **Themes:** fourteen, from the menu at the foot of the sidebar or the command palette.
+  Eleven are light: Paper, five on a white page that differ in their accent (Chalk, Lagoon,
+  Orchid, Ember, Fern) and five on a tinted one (Sand, Mint, Lilac, Sky, Blush). Three are
+  dark. "Match system" follows the system's light and dark mode with Paper and Graphite.
+  A test checks every theme's text against what it sits on, so each one can be read.
 
 While working on the UI, `zwans serve --dev-origin http://localhost:3000` lets `npm run dev`
 (with `NEXT_PUBLIC_ZWANS_API=http://localhost:8765`) call the API.

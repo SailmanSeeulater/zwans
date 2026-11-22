@@ -6,6 +6,9 @@
  * paint by the script in layout.tsx (lib/theme.ts has the names).
  *
  * Paper and Graphite are the plain two; Blue Slate and Mustard Charcoal have character.
+ * Ten more are light: five on a white page that differ in their accent, and five on a
+ * tinted one. lib/themes.test.ts checks that every theme's text can be read on what it
+ * sits on, so a new theme that can't be fails there.
  * "Glass" is a translucent panel over the wallpaper: --glass for panels, --raised for
  * controls on them, --edge for hairlines, --spec for the bright top edge light catches.
  */
@@ -54,7 +57,7 @@
   --ink-2: #a4a4ac;
   --accent: #5e9eff;
   --accent-ink: #0a1628;
-  --accent-soft: rgba(94, 158, 255, 0.16);
+  --accent-soft: rgba(94, 158, 255, 0.14);
   --ok: #5ccb8e;
   --ok-soft: rgba(92, 203, 142, 0.14);
   --bad: #f29b4c;
@@ -124,7 +127,7 @@
   --warn: #e8c468;
   --s1: #f4efe6;
   --s2: #e0ae3f;
-  --s3: #8e7a4f;
+  --s3: #9a8558;
   --s4: #54493a;
   --on-s1: var(--base);
   --on-s2: #1b1a18;
@@ -133,6 +136,320 @@
   --code: rgba(255, 240, 210, 0.06);
   --shadow: rgba(0, 0, 0, 0.5);
   color-scheme: dark;
+}
+
+/* -- light themes on a white page: the page is white, panels a shade off it */
+
+[data-theme="chalk"] {
+  --base: #ffffff;
+  --wall-1: rgba(120, 130, 150, 0.10);
+  --wall-2: rgba(120, 130, 150, 0.07);
+  --glass: rgba(246, 247, 249, 0.78);
+  --raised: rgba(255, 255, 255, 0.96);
+  --edge: rgba(15, 23, 42, 0.11);
+  --spec: rgba(255, 255, 255, 0.95);
+  --ink: #16181d;
+  --ink-2: #565c69;
+  --accent: #1f2430;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(31, 36, 48, 0.10);
+  --ok: #17714a;
+  --ok-soft: rgba(23, 113, 74, 0.12);
+  --bad: #b03d0a;
+  --bad-soft: rgba(176, 61, 10, 0.12);
+  --warn: #855600;
+  --s1: #16181d;
+  --s2: #4b5262;
+  --s3: #9198a6;
+  --s4: #d5d9e0;
+  --on-s1: var(--base);
+  --on-s2: #ffffff;
+  --on-s3: #16181d;
+  --on-s4: #16181d;
+  --code: rgba(15, 23, 42, 0.05);
+  --shadow: rgba(15, 23, 42, 0.09);
+  color-scheme: light;
+}
+
+[data-theme="lagoon"] {
+  --base: #ffffff;
+  --wall-1: rgba(20, 150, 140, 0.10);
+  --wall-2: rgba(120, 130, 150, 0.07);
+  --glass: rgba(246, 247, 249, 0.78);
+  --raised: rgba(255, 255, 255, 0.96);
+  --edge: rgba(15, 23, 42, 0.11);
+  --spec: rgba(255, 255, 255, 0.95);
+  --ink: #16181d;
+  --ink-2: #565c69;
+  --accent: #0b6f6a;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(11, 111, 106, 0.10);
+  --ok: #17714a;
+  --ok-soft: rgba(23, 113, 74, 0.12);
+  --bad: #b03d0a;
+  --bad-soft: rgba(176, 61, 10, 0.12);
+  --warn: #855600;
+  --s1: #16181d;
+  --s2: #3d6f73;
+  --s3: #8fb3b3;
+  --s4: #d2e3e2;
+  --on-s1: var(--base);
+  --on-s2: #ffffff;
+  --on-s3: #16181d;
+  --on-s4: #16181d;
+  --code: rgba(15, 23, 42, 0.05);
+  --shadow: rgba(15, 23, 42, 0.09);
+  color-scheme: light;
+}
+
+[data-theme="orchid"] {
+  --base: #ffffff;
+  --wall-1: rgba(140, 100, 230, 0.10);
+  --wall-2: rgba(120, 130, 150, 0.07);
+  --glass: rgba(246, 247, 249, 0.78);
+  --raised: rgba(255, 255, 255, 0.96);
+  --edge: rgba(15, 23, 42, 0.11);
+  --spec: rgba(255, 255, 255, 0.95);
+  --ink: #16181d;
+  --ink-2: #565c69;
+  --accent: #6d33d6;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(109, 51, 214, 0.10);
+  --ok: #17714a;
+  --ok-soft: rgba(23, 113, 74, 0.12);
+  --bad: #b03d0a;
+  --bad-soft: rgba(176, 61, 10, 0.12);
+  --warn: #855600;
+  --s1: #16181d;
+  --s2: #5f4f8f;
+  --s3: #a79bcb;
+  --s4: #dcd6ee;
+  --on-s1: var(--base);
+  --on-s2: #ffffff;
+  --on-s3: #16181d;
+  --on-s4: #16181d;
+  --code: rgba(15, 23, 42, 0.05);
+  --shadow: rgba(15, 23, 42, 0.09);
+  color-scheme: light;
+}
+
+[data-theme="ember"] {
+  --base: #ffffff;
+  --wall-1: rgba(230, 130, 70, 0.10);
+  --wall-2: rgba(120, 130, 150, 0.07);
+  --glass: rgba(246, 247, 249, 0.78);
+  --raised: rgba(255, 255, 255, 0.96);
+  --edge: rgba(15, 23, 42, 0.11);
+  --spec: rgba(255, 255, 255, 0.95);
+  --ink: #16181d;
+  --ink-2: #565c69;
+  --accent: #b8400d;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(184, 64, 13, 0.10);
+  --ok: #17714a;
+  --ok-soft: rgba(23, 113, 74, 0.12);
+  --bad: #b03d0a;
+  --bad-soft: rgba(176, 61, 10, 0.12);
+  --warn: #855600;
+  --s1: #16181d;
+  --s2: #855a45;
+  --s3: #c5a593;
+  --s4: #ecdcd2;
+  --on-s1: var(--base);
+  --on-s2: #ffffff;
+  --on-s3: #16181d;
+  --on-s4: #16181d;
+  --code: rgba(15, 23, 42, 0.05);
+  --shadow: rgba(15, 23, 42, 0.09);
+  color-scheme: light;
+}
+
+[data-theme="fern"] {
+  --base: #ffffff;
+  --wall-1: rgba(60, 160, 100, 0.10);
+  --wall-2: rgba(120, 130, 150, 0.07);
+  --glass: rgba(246, 247, 249, 0.78);
+  --raised: rgba(255, 255, 255, 0.96);
+  --edge: rgba(15, 23, 42, 0.11);
+  --spec: rgba(255, 255, 255, 0.95);
+  --ink: #16181d;
+  --ink-2: #565c69;
+  --accent: #17753c;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(23, 117, 60, 0.10);
+  --ok: #17714a;
+  --ok-soft: rgba(23, 113, 74, 0.12);
+  --bad: #b03d0a;
+  --bad-soft: rgba(176, 61, 10, 0.12);
+  --warn: #855600;
+  --s1: #16181d;
+  --s2: #4c7059;
+  --s3: #9cb9a5;
+  --s4: #d6e6da;
+  --on-s1: var(--base);
+  --on-s2: #ffffff;
+  --on-s3: #16181d;
+  --on-s4: #16181d;
+  --code: rgba(15, 23, 42, 0.05);
+  --shadow: rgba(15, 23, 42, 0.09);
+  color-scheme: light;
+}
+
+/* -- light themes on a tinted page */
+
+[data-theme="sand"] {
+  --base: #f3ecdf;
+  --wall-1: rgba(214, 176, 122, 0.42);
+  --wall-2: rgba(190, 170, 140, 0.38);
+  --glass: rgba(255, 252, 245, 0.66);
+  --raised: rgba(255, 255, 255, 0.9);
+  --edge: rgba(60, 40, 10, 0.12);
+  --spec: rgba(255, 255, 255, 0.9);
+  --ink: #2a2118;
+  --ink-2: #655949;
+  --accent: #9c3f17;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(156, 63, 23, 0.12);
+  --ok: #2c6b3f;
+  --ok-soft: rgba(44, 107, 63, 0.12);
+  --bad: #a53a12;
+  --bad-soft: rgba(165, 58, 18, 0.12);
+  --warn: #7d5200;
+  --s1: #2a2118;
+  --s2: #7a6248;
+  --s3: #b8a385;
+  --s4: #ddd0b8;
+  --on-s1: var(--base);
+  --on-s2: #ffffff;
+  --on-s3: #2a2118;
+  --on-s4: #2a2118;
+  --code: rgba(60, 40, 10, 0.06);
+  --shadow: rgba(60, 40, 10, 0.13);
+  color-scheme: light;
+}
+
+[data-theme="mint"] {
+  --base: #e8f2ec;
+  --wall-1: rgba(120, 190, 160, 0.42);
+  --wall-2: rgba(170, 200, 180, 0.38);
+  --glass: rgba(250, 255, 252, 0.66);
+  --raised: rgba(255, 255, 255, 0.9);
+  --edge: rgba(10, 50, 30, 0.12);
+  --spec: rgba(255, 255, 255, 0.9);
+  --ink: #14261e;
+  --ink-2: #4b5f55;
+  --accent: #0a6b49;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(10, 107, 73, 0.12);
+  --ok: #12693f;
+  --ok-soft: rgba(18, 105, 63, 0.12);
+  --bad: #a8400f;
+  --bad-soft: rgba(168, 64, 15, 0.12);
+  --warn: #775300;
+  --s1: #14261e;
+  --s2: #44705d;
+  --s3: #93b5a5;
+  --s4: #cbded3;
+  --on-s1: var(--base);
+  --on-s2: #ffffff;
+  --on-s3: #14261e;
+  --on-s4: #14261e;
+  --code: rgba(10, 50, 30, 0.06);
+  --shadow: rgba(10, 50, 30, 0.13);
+  color-scheme: light;
+}
+
+[data-theme="lilac"] {
+  --base: #eeebf7;
+  --wall-1: rgba(160, 140, 220, 0.40);
+  --wall-2: rgba(190, 180, 215, 0.38);
+  --glass: rgba(253, 252, 255, 0.66);
+  --raised: rgba(255, 255, 255, 0.9);
+  --edge: rgba(40, 20, 90, 0.12);
+  --spec: rgba(255, 255, 255, 0.9);
+  --ink: #1f1a33;
+  --ink-2: #585270;
+  --accent: #5536b8;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(85, 54, 184, 0.12);
+  --ok: #1d6f48;
+  --ok-soft: rgba(29, 111, 72, 0.12);
+  --bad: #ab3f12;
+  --bad-soft: rgba(171, 63, 18, 0.12);
+  --warn: #7a5300;
+  --s1: #1f1a33;
+  --s2: #5d5488;
+  --s3: #a49dc6;
+  --s4: #d6d1e8;
+  --on-s1: var(--base);
+  --on-s2: #ffffff;
+  --on-s3: #1f1a33;
+  --on-s4: #1f1a33;
+  --code: rgba(40, 20, 90, 0.06);
+  --shadow: rgba(40, 20, 90, 0.13);
+  color-scheme: light;
+}
+
+[data-theme="sky"] {
+  --base: #e6eff8;
+  --wall-1: rgba(120, 170, 225, 0.42);
+  --wall-2: rgba(170, 195, 220, 0.38);
+  --glass: rgba(250, 253, 255, 0.66);
+  --raised: rgba(255, 255, 255, 0.9);
+  --edge: rgba(10, 40, 90, 0.12);
+  --spec: rgba(255, 255, 255, 0.9);
+  --ink: #12233a;
+  --ink-2: #4a5b70;
+  --accent: #0a55b3;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(10, 85, 179, 0.12);
+  --ok: #156b47;
+  --ok-soft: rgba(21, 107, 71, 0.12);
+  --bad: #a84010;
+  --bad-soft: rgba(168, 64, 16, 0.12);
+  --warn: #765200;
+  --s1: #12233a;
+  --s2: #48668c;
+  --s3: #96b0cd;
+  --s4: #cddbea;
+  --on-s1: var(--base);
+  --on-s2: #ffffff;
+  --on-s3: #12233a;
+  --on-s4: #12233a;
+  --code: rgba(10, 40, 90, 0.06);
+  --shadow: rgba(10, 40, 90, 0.13);
+  color-scheme: light;
+}
+
+[data-theme="blush"] {
+  --base: #f8ebed;
+  --wall-1: rgba(230, 150, 170, 0.38);
+  --wall-2: rgba(215, 185, 190, 0.38);
+  --glass: rgba(255, 252, 252, 0.66);
+  --raised: rgba(255, 255, 255, 0.9);
+  --edge: rgba(90, 20, 40, 0.12);
+  --spec: rgba(255, 255, 255, 0.9);
+  --ink: #33161c;
+  --ink-2: #6b4f55;
+  --accent: #a81f47;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(168, 31, 71, 0.12);
+  --ok: #22694a;
+  --ok-soft: rgba(34, 105, 74, 0.12);
+  --bad: #a03c0c;
+  --bad-soft: rgba(160, 60, 12, 0.12);
+  --warn: #7a5100;
+  --s1: #33161c;
+  --s2: #855663;
+  --s3: #c7a1aa;
+  --s4: #e8d3d7;
+  --on-s1: var(--base);
+  --on-s2: #ffffff;
+  --on-s3: #33161c;
+  --on-s4: #33161c;
+  --code: rgba(90, 20, 40, 0.06);
+  --shadow: rgba(90, 20, 40, 0.13);
+  color-scheme: light;
 }
 
 /* Names the older screens use, mapped onto the theme. */
@@ -315,6 +632,75 @@ html[data-desktop] .sidebar button {
 }
 .sidebar-spacer {
   flex: 1;
+}
+
+/* The theme menu: one compact row a theme, each with a dot in its own colours. It opens
+   upward from the foot of the sidebar and scrolls when the window is short. */
+.theme-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  max-height: min(72vh, 560px);
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: 14px;
+  /* Nearly solid: fourteen names over whatever is behind the sidebar must stay readable. */
+  background: color-mix(in srgb, var(--base) 88%, var(--glass));
+}
+.theme-heading {
+  margin: 8px 8px 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.theme-option:hover {
+  background: var(--code);
+}
+.theme-option[aria-checked="true"] {
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+.theme-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The dot carries data-theme, so --base and --accent inside it are that theme's own. */
+.theme-swatch {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--base);
+  box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 28%, transparent);
+}
+.theme-swatch::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 @media (max-width: 760px) {

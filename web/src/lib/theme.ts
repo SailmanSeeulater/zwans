@@ -1,14 +1,24 @@
 /**
- * The four themes. The choice lives in localStorage; "system" follows macOS light and dark
- * mode with the two plain themes. layout.tsx runs THEME_SCRIPT before the first paint, so a
- * page never flashes the wrong colors.
+ * The themes. The choice lives in localStorage; "system" follows the system's light and
+ * dark mode with the two plain themes. layout.tsx runs THEME_SCRIPT before the first paint,
+ * so a page never flashes the wrong colors. Each theme's colors are in app/globals.css.
  */
 
 export const THEMES = [
-  { id: "paper", name: "Paper", about: "Light and plain" },
-  { id: "graphite", name: "Graphite", about: "Dark and plain" },
-  { id: "slate", name: "Blue Slate", about: "Cool blue-grey glass" },
-  { id: "mustard", name: "Mustard Charcoal", about: "Warm charcoal, mustard accent" },
+  { id: "paper", name: "Paper", about: "Light and plain", dark: false },
+  { id: "chalk", name: "Chalk", about: "White, with ink for an accent", dark: false },
+  { id: "lagoon", name: "Lagoon", about: "White, teal accent", dark: false },
+  { id: "orchid", name: "Orchid", about: "White, violet accent", dark: false },
+  { id: "ember", name: "Ember", about: "White, burnt orange accent", dark: false },
+  { id: "fern", name: "Fern", about: "White, green accent", dark: false },
+  { id: "sand", name: "Sand", about: "Warm cream, terracotta accent", dark: false },
+  { id: "mint", name: "Mint", about: "Pale green, deep green accent", dark: false },
+  { id: "lilac", name: "Lilac", about: "Pale violet, indigo accent", dark: false },
+  { id: "sky", name: "Sky", about: "Pale blue, navy accent", dark: false },
+  { id: "blush", name: "Blush", about: "Pale rose, wine accent", dark: false },
+  { id: "graphite", name: "Graphite", about: "Dark and plain", dark: true },
+  { id: "slate", name: "Blue Slate", about: "Cool blue-grey glass", dark: true },
+  { id: "mustard", name: "Mustard Charcoal", about: "Warm charcoal, mustard accent", dark: true },
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]["id"];
