@@ -221,6 +221,9 @@ function keepWindowHome(contents) {
 
 function createWindow() {
   const mac = process.platform === "darwin";
+  // A packed app carries its icon (icon.icns); run with `npm start`, the Dock would show
+  // Electron's own unless it's given ours.
+  if (mac && !app.isPackaged) app.dock?.setIcon(path.join(__dirname, "icon.png"));
   window = new BrowserWindow({
     width: 1320,
     height: 880,

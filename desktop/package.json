@@ -7,7 +7,7 @@
   "scripts": {
     "start": "electron .",
     "app": "npm --prefix ../web run build && electron .",
-    "pack": "npm --prefix ../web run build && node -e \"require('fs').writeFileSync('checkout.txt', require('path').resolve('..'))\" && electron-packager . Zwans --out=dist --overwrite --ignore=^/dist"
+    "pack": "npm --prefix ../web run build && node -e \"require('fs').writeFileSync('checkout.txt', require('path').resolve('..'))\" && electron-packager . Zwans --icon=icon.icns --out=dist --overwrite --ignore=^/dist"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
