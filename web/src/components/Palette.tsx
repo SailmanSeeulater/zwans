@@ -76,6 +76,7 @@ function Dialog({ close }: { close: () => void }) {
       { group: "Go to", label: "Home: new session", hint: "Start a task in a folder", run: go("/") },
       { group: "Go to", label: "Eval runs", hint: "Every report in evals/reports", run: go("/evals/") },
       { group: "Go to", label: "Task matrix", hint: "Tasks × configs, pass counts", run: go("/evals/matrix/") },
+      { group: "Go to", label: "Leaderboard", hint: "Pass rate against cost, for everything run", run: go("/evals/leaderboard/") },
     );
     for (const s of sessions?.live ?? []) {
       list.push({

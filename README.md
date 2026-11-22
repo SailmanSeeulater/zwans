@@ -516,6 +516,12 @@ one says so. A session that was open when the server stopped is resumed when you
   with its confidence intervals. Pick a task to see
   two attempts' transcripts side by side, lined up step by step, with the first step where
   they differ marked: that's where a regression starts.
+- **Leaderboard:** for each set of tasks, everything that was run on it (agent, model,
+  effort, executor and config, with repeat runs pooled), ranked by pass rate and then by
+  cost per attempt, over a chart of the two. Each row has a 95% range for its pass rate and
+  says whether a task-by-task comparison can tell it from the top row, so a few lucky
+  attempts don't read as a win. Runs with `--agent claude-code` or `--agent codex` land on
+  the same board as Zwans's.
 
 While working on the UI, `zwans serve --dev-origin http://localhost:3000` lets `npm run dev`
 (with `NEXT_PUBLIC_ZWANS_API=http://localhost:8765`) call the API.

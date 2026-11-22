@@ -360,6 +360,78 @@ def test_eval_reports_transcripts_and_comparisons(server: Server) -> None:
         assert server.client.get(bad, headers=AUTH).status_code == 404
 
 
+def _eval_run(
+    tasks: dict[str, list[bool]], dollars: float, agent: str = "zwans", started: str = "1"
+) -> Report:
+    """A report with one attempt per pass or fail listed for each task."""
+    attempts = [
+        AttemptResult(
+            task=task,
+            category="bug-fix",
+            repeat=repeat,
+            status="passed" if passed else "failed",
+            stop_reason="end_turn",
+            dollars=dollars,
+            model_calls=4,
+            seconds=10.0,
+        )
+        for task, results in tasks.items()
+        for repeat, passed in enumerate(results, 1)
+    ]
+    by_task = {task: Summary.of([a for a in attempts if a.task == task]) for task in tasks}
+    return Report(
+        agent=agent,
+        config=EvalConfig(name="default"),
+        model="m",
+        effort="low",
+        started_at=f"2026-10-30T10:00:0{started}",
+        repeats=max(map(len, tasks.values())),
+        budget=None,
+        out_of_budget=False,
+        summary=Summary.of(attempts),
+        tasks=by_task,
+        attempts=attempts,
+    )
+
+
+def test_the_leaderboard_pools_runs_of_the_same_tasks_and_ranks_them(server: Server) -> None:
+    six = [f"task-{n}" for n in range(6)]
+    reports = {
+        # The same thing run twice is one row: 6 of 6, then 5 of 6.
+        "zwans-1": _eval_run({t: [True] for t in six}, dollars=0.02, started="1"),
+        "zwans-2": _eval_run({t: [t != "task-0"] for t in six}, dollars=0.04, started="2"),
+        # Passes everything, for ten times the money.
+        "codex": _eval_run({t: [True, True] for t in six}, dollars=0.30, agent="codex 0.171.0"),
+        # Never passes, and costs more than the pooled zwans row.
+        "broken": _eval_run({t: [False] for t in six}, dollars=0.05, agent="other"),
+        # Other tasks, so a board of its own, with too few tasks to tell rows apart.
+        "small-a": _eval_run({"solo": [True, True, True]}, dollars=0.01),
+        "small-b": _eval_run({"solo": [False]}, dollars=0.01, agent="other"),
+    }
+    for name, report in reports.items():
+        (server.reports / name).mkdir(parents=True)
+        (server.reports / name / "report.json").write_text(report.model_dump_json())
+
+    big, small = server.client.get("/api/evals/leaderboard", headers=AUTH).json()
+
+    assert (big["tasks"], big["runs"]) == (six, 4)  # the board with the most runs is first
+    codex, zwans, broken = big["rows"]
+    assert (codex["agent"], codex["standing"]) == ("codex 0.171.0", "best")
+    assert (zwans["runs"], zwans["attempts"], zwans["passed"]) == (["zwans-1", "zwans-2"], 12, 11)
+    assert zwans["mean_dollars"] == pytest.approx(0.03)
+    assert zwans["standing"] == "level"  # one failure in twelve isn't clearly behind
+    assert (broken["pass_rate"], broken["standing"]) == (0.0, "behind")
+    # Cheaper or better than every other row puts a row on the frontier.
+    assert [row["frontier"] for row in big["rows"]] == [True, True, False]
+    # Three of three and none of six both leave room for doubt.
+    assert codex["low"] < 0.8 and codex["high"] == 1.0
+    assert broken["low"] == 0.0 and 0.3 < broken["high"] < 0.5
+
+    assert small["tasks"] == ["solo"]
+    assert [row["standing"] for row in small["rows"]] == ["best", "too_few_tasks"]
+    assert small["rows"][0]["low"] == pytest.approx(0.438, abs=0.005)  # Wilson, 3 of 3
+
+
 def test_without_a_built_ui_the_root_says_how_to_build_it(server: Server) -> None:
     assert "npm run build" in server.client.get("/").text
 

@@ -251,6 +251,10 @@ def create_app(settings: ServerSettings) -> FastAPI:
     def list_runs() -> list[dict[str, Any]]:
         return evals.list_runs(settings.reports)
 
+    @api.get("/evals/leaderboard")
+    def leaderboard() -> list[dict[str, Any]]:
+        return evals.leaderboard(settings.reports)
+
     @api.get("/evals/compare")
     def compare_runs(a: str, b: str) -> dict[str, Any]:
         try:

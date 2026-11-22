@@ -64,6 +64,9 @@ export default function RunsPage() {
             >
               {picked.length >= 2 ? `Task matrix of ${picked.length} runs` : "Task matrix"}
             </Link>
+            <Link className="button" href="/evals/leaderboard/">
+              Leaderboard
+            </Link>
             {picked.length > 0 && (
               <button className="button button-quiet" onClick={() => setPicked([])}>
                 Clear

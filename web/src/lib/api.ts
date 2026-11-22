@@ -246,6 +246,35 @@ export interface RunListing {
   summary: Summary;
 }
 
+/** One thing that was run on a set of tasks, with its runs pooled. */
+export interface LeaderRow {
+  agent: string;
+  model: string;
+  effort: string;
+  executor: string;
+  config: string;
+  runs: string[]; // oldest first
+  attempts: number;
+  passed: number;
+  pass_rate: number;
+  /** The 95% interval for the pass rate, from the number of attempts. */
+  low: number;
+  high: number;
+  mean_dollars: number;
+  mean_seconds: number;
+  mean_model_calls: number;
+  /** Against the best row, task by task: level means the tasks can't tell them apart. */
+  standing: "best" | "level" | "behind" | "too_few_tasks";
+  /** No other row passes at least as often for no more money. */
+  frontier: boolean;
+}
+
+export interface Leaderboard {
+  tasks: string[];
+  runs: number;
+  rows: LeaderRow[]; // best first
+}
+
 export interface Attempt {
   task: string;
   category: string;

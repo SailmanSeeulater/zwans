@@ -1160,8 +1160,9 @@ html[data-desktop] .session-head a {
 /* -- charts and comparisons */
 
 .chart {
+  display: block;
   width: 100%;
-  height: 220px;
+  height: auto; /* from the viewBox, so a narrow window shrinks the chart instead of padding it */
   background: var(--glass);
   border: 1px solid var(--edge);
   border-radius: 14px;
