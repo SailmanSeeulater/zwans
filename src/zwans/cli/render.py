@@ -316,6 +316,13 @@ def _block_end(text: str) -> int | None:
 
 
 def _summarize(name: str, args: dict[str, Any]) -> str:
+    edits, paths = args.get("edits"), args.get("paths")
+    if name == "MultiEdit" and isinstance(edits, list):
+        files = list(dict.fromkeys(str(e.get("path", "")) for e in edits if isinstance(e, dict)))
+        return _clip(f"{_count(len(edits), 'edit')} in {', '.join(files)}")
+    if name == "Diagnostics":
+        named = [str(p) for p in paths] if isinstance(paths, list) else []
+        return _clip(" ".join(named)) if named else "the whole project"
     key = next((k for k in KEY_ARGS if k in args), None)
     if key is None:
         return ""

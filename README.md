@@ -133,7 +133,9 @@ Things to know:
   Llama 3.3, DeepSeek V3. A model whose server doesn't support tools writes calls as text
   instead of making them. Small local models get through simple edits but slip on longer
   tasks. Running the evals with `ZWANS_MODEL=ollama/<model>` measures one against Claude.
-- Web search and fetch run on Claude's servers, so other models don't get them.
+- Claude's web search and fetch run on Anthropic's servers, so other models get Zwans's own
+  instead: `WebFetch`, and `WebSearch` once you say where to search (see "Web search and
+  fetch").
 - Images reach a model only if it takes them (a vision model such as Qwen2.5-VL or Gemma 3).
 - A model's thinking shows as progress notes when its server streams it.
 
@@ -443,6 +445,53 @@ and after it. When an answer cites pages it found, Zwans lists them under it as 
 
 Set `web = false` to turn them off.
 
+Other models have no web tools of their provider's, so Zwans gives them two of its own, which
+run on this machine:
+
+- `WebFetch` reads a page and returns it as text, with headings and links kept, up to 60,000
+  characters. It only reaches public addresses, and each redirect is checked too; for a
+  server on this machine, the model uses `curl` through Bash.
+- `WebSearch` is offered once the config says where to search: Brave's API, with its key in
+  `BRAVE_API_KEY`, or a SearXNG server you run.
+
+  ```toml
+  [web_search]
+  provider = "brave"        # or "searxng", with url = "http://localhost:8888"
+  ```
+
+Unlike Claude's, these go through the policy, judged like a command that uses the network:
+they ask first, in `auto` mode too, and are refused in `read-only` mode and wherever a
+network command would be after untrusted content. Their rules name hosts, as
+`WebFetch(docs.python.org)`, `WebFetch(*.python.org)` or `WebFetch` for every host. A chat
+gets them too. With a Claude model and `web = true`, Claude's own are used and these are left
+out.
+
+### Several edits at once
+
+`MultiEdit` makes several exact replacements in one call, in one file or across files, so a
+change that touches five places costs one model call instead of five. Either all of them are
+made or none: if one doesn't fit, nothing is written and the error says which. The policy
+judges each file as an `Edit` of it, so rules written for `Edit` cover it. Set
+`multi_edit = false` to turn it off.
+
+### Linters and type checkers
+
+`Diagnostics` runs the project's own checkers in one call and reports what they find. It
+finds them from the project's files, in the root and the folders just inside it: ruff, mypy,
+pyright, tsc, eslint, `cargo check` and `go vet`. Given paths, it runs only the checkers for
+those files. A checker that isn't installed is named and skipped.
+
+The policy judges a call by the commands it would run, exactly as if Bash ran them: it asks
+in `ask` mode, runs in `auto`, and a rule such as `Bash(mypy *)` covers it. To run your own
+commands instead of the ones found, list them; `false` turns the tool off.
+
+```toml
+diagnostics = ["make lint", "make typecheck"]
+```
+
+It only knows what the checkers know. ruff with its default rules won't notice a function
+that was deleted from another file, so it complements the tests and doesn't replace them.
+
 ### To-do list
 
 For a task with several steps, the model keeps a checklist with the `TodoWrite` tool and
@@ -504,9 +553,10 @@ one says so. A session that was open when the server stopped is resumed when you
   Always allow (only when it would take effect, as in the terminal) and Deny, and an Edit or
   Write shows the diff it would make. A Task call lists what its subagent did.
 - **Chat:** choose *Just chat* on the home screen, or *New chat* in the command palette, to
-  talk to the model with no project folder. A chat has none of Zwans's tools, so the model
-  can't read your files or run commands; with a Claude model and `web = true` it can still
-  search the web. It follows your own `~/.zwans/ZWANS.md`, and it is saved, listed, resumed
+  talk to the model with no project folder. A chat has no tools for files or commands, so
+  the model can't read your files or run anything. With `web = true` it can still use the
+  web: Claude's own search and fetch, or `WebFetch` and `WebSearch` with another model. It
+  follows your own `~/.zwans/ZWANS.md`, and it is saved, listed, resumed
   (from the terminal too, with `zwans --resume`) and billed like any session. Hooks, MCP
   servers, skills and undo don't apply to it.
 - **Images:** paste, drop or attach (the image button) up to 5 PNG, JPEG, GIF or WebP
@@ -631,7 +681,10 @@ environment variables:
 | `subagents` | `true` | Offer the `Task` tool |
 | `todos` | `true` | Offer the `TodoWrite` tool |
 | `checkpoints` | `true` | Snapshot the workspace before each turn, so `/undo` can put files back |
-| `web` | `true` | Offer web search and fetch, which the Claude API runs |
+| `web` | `true` | Offer web search and fetch: Claude's own, or `WebFetch` and `WebSearch` for other models |
+| `web_search` | none | Where `WebSearch` searches: `provider = "brave"` or `"searxng"` with `url` |
+| `multi_edit` | `true` | Offer the `MultiEdit` tool |
+| `diagnostics` | `true` | Offer the `Diagnostics` tool; a list of commands runs those instead of the checkers it finds |
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
 | `compact_at` | `200000` | Estimated context tokens that trigger a compaction |
 | `keep_messages` | `8` | Recent messages kept word for word when compacting |

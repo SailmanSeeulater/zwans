@@ -39,13 +39,16 @@ from zwans.session import Session
 from zwans.store import SessionError, SessionInfo, SessionRecorder, SessionStore, load_session
 from zwans.tools.base import Tool, ToolContext
 from zwans.tools.bash import BashOutputTool, BashTool, KillBashTool
+from zwans.tools.diagnostics import DiagnosticsTool
 from zwans.tools.edit import EditTool
 from zwans.tools.glob import GlobTool
 from zwans.tools.grep import GrepTool
+from zwans.tools.multi_edit import MultiEditTool
 from zwans.tools.read import ReadTool
 from zwans.tools.skill import SkillTool
 from zwans.tools.task import TaskTool
 from zwans.tools.todo import TodoWriteTool
+from zwans.tools.web_local import WebFetchTool, WebSearchTool
 from zwans.tools.write import WriteTool
 from zwans.transcript import TranscriptWriter
 
@@ -246,12 +249,24 @@ def open_session(
             BashOutputTool(),
             KillBashTool(),
         ]
+        if config.multi_edit:
+            tools.insert(3, MultiEditTool())  # next to Edit
+        if config.diagnostics:
+            own = config.diagnostics if isinstance(config.diagnostics, list) else ()
+            tools.append(DiagnosticsTool(root, own))
         if config.todos:
             tools.append(TodoWriteTool())
         if skills:
             tools.append(SkillTool(skills))
         if config.subagents:
             tools.append(TaskTool(config.subagent_max_steps))
+    if config.web:
+        # For models whose provider has no web tools of its own; a chat gets them too. With
+        # Claude's own turned on, the router leaves these out (providers/router.py).
+        tools.append(WebFetchTool())
+        search = config.web_search
+        if search is not None and WebSearchTool.problem(search, env) is None:
+            tools.append(WebSearchTool(search, env))
     session = Session(
         provider=provider,
         tools=tools,

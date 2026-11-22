@@ -31,7 +31,7 @@ class EditTool:
 
     async def run(self, args: EditInput, ctx: ToolContext) -> ToolOutput:
         file = TextFile.decode(await ctx.executor.read_bytes(args.path))
-        updated, count = _replace(file.text, args)
+        updated, count = replace_in(file.text, args)
         await ctx.executor.write_bytes(args.path, file.encode(updated))
         replaced = f"{count} occurrences" if count > 1 else "1 occurrence"
         return ToolOutput(
@@ -43,12 +43,13 @@ class EditTool:
         """The diff this call would make, with the file's own line numbers, for the user to
         see before allowing it. Raises ToolError when the call would fail."""
         file = TextFile.decode(await ctx.executor.read_bytes(args.path))
-        updated, _ = _replace(file.text, args)
+        updated, _ = replace_in(file.text, args)
         return unified_diff(args.path, file.text, updated)
 
 
-def _replace(text: str, args: EditInput) -> tuple[str, int]:
-    """The file's text with the edit made, and how many places it changed."""
+def replace_in(text: str, args: EditInput) -> tuple[str, int]:
+    """The file's text with the edit made, and how many places it changed. Raises ToolError
+    when the edit doesn't fit the text. MultiEdit makes each of its edits with this too."""
     # TextFile.text always uses "\n", so normalize the model's strings the same way.
     old = args.old_string.replace("\r\n", "\n")
     new = args.new_string.replace("\r\n", "\n")

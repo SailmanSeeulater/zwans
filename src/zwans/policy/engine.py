@@ -8,20 +8,40 @@ planted for the model. A refusal goes back to the model as a tool error that say
 import asyncio
 import glob
 import itertools
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
 from zwans.policy.classify import Action, Kind, analyze
-from zwans.policy.rules import Decision, Policy, Rule, normalize, strictest
+from zwans.policy.rules import (
+    FILE_CHANGE_TOOLS,
+    Decision,
+    Policy,
+    Rule,
+    normalize,
+    strictest,
+)
 
 # Tools whose output comes from outside: files, programs, the web. Instructions inside it
 # are data, not the user's.
 # A subagent's report (Task) is made from what it read, so it counts too.
 UNTRUSTED_OUTPUT = frozenset(
-    {"Read", "Grep", "Bash", "BashOutput", "web_search", "web_fetch", "Skill", "Task"}
+    {
+        "Read",
+        "Grep",
+        "Bash",
+        "BashOutput",
+        "Diagnostics",
+        "web_search",
+        "web_fetch",
+        "WebSearch",
+        "WebFetch",
+        "Skill",
+        "Task",
+    }
 )
 MCP_PREFIX = "mcp__"
 MAX_GLOB_NAMES = 1000  # the files of a command's glob looked at for links out of the workspace
@@ -77,8 +97,20 @@ class Permissions:
     _asking: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
     def check(self, tool: _ToolLike, args: dict[str, Any]) -> Verdict:
+        commands = getattr(tool, "commands", None)
+        host = getattr(tool, "host", None)
         if tool.name == "Bash" and isinstance(args.get("command"), str):
             verdict = self._check_command(args["command"])
+        elif callable(commands):
+            # A tool that runs programs (Diagnostics) is judged by each command it would
+            # run, exactly as if Bash ran it, so the rules about commands cover it too.
+            verdict = _combine([self._check_command(command) for command in commands(args)])
+        elif callable(host):
+            verdict = self._check_network(tool, str(host(args)))
+        elif tool.name == "MultiEdit":
+            # Each file is judged as an Edit of it would be; one refusal refuses the call.
+            paths: Sequence[str | None] = _edited_paths(args) or [None]
+            verdict = _combine([self._check_tool(tool, path) for path in paths])
         else:
             path = args.get("path")
             verdict = self._check_tool(tool, path if isinstance(path, str) else None)
@@ -130,7 +162,7 @@ class Permissions:
             return Verdict(Decision.ALLOW)
         elif self.policy.mode == "read-only":
             return Verdict(Decision.DENY, f"{what} {effect}, and Zwans is in read-only mode")
-        elif self.policy.mode == "ask" or tool.name not in ("Edit", "Write"):
+        elif self.policy.mode == "ask" or tool.name not in FILE_CHANGE_TOOLS:
             verdict = Verdict(Decision.ASK, f"{what} {effect}")
         else:
             verdict = Verdict(Decision.ALLOW)
@@ -144,23 +176,44 @@ class Permissions:
             return Verdict(Decision.ASK, verdict.reason, (always,))
         return verdict
 
+    # -- tools that send a request out
+
+    def _check_network(self, tool: _ToolLike, host: str) -> Verdict:
+        """A tool that sends a request to `host` (WebFetch, WebSearch), judged like a command
+        that uses the network. Its rules name hosts: WebFetch(docs.python.org) or
+        WebFetch(*.python.org), and WebFetch alone for every host."""
+        what = f"{tool.name} {host}" if host else tool.name
+
+        def matches(rule: Rule) -> bool:
+            return rule.pattern is None or (bool(host) and fnmatchcase(host, rule.pattern))
+
+        matched = self._match(tool.name, matches)
+        if matched is not None:
+            decision, rule = matched
+            if decision != Decision.ALLOW:
+                return Verdict(
+                    decision, f"{what} matches the {decision} rule {rule} ({rule.source})"
+                )
+            verdict = Verdict(Decision.ALLOW)
+        elif self.policy.mode == "read-only":
+            return Verdict(
+                Decision.DENY, f"{what} uses the network, and Zwans is in read-only mode"
+            )
+        else:
+            verdict = Verdict(Decision.ASK, f"{what} uses the network")
+        # What was read could be sent out in the address or the search itself.
+        after = self.policy.after_untrusted.network
+        if self.tainted and strictest(after, verdict.decision) != verdict.decision:
+            verdict = Verdict(after, f"{what} uses the network after untrusted content was read")
+        if verdict.decision == Decision.ASK and not (self.tainted and after != Decision.ALLOW):
+            always = f"{tool.name}({host})" if host else tool.name
+            return Verdict(Decision.ASK, verdict.reason, (always,))
+        return verdict
+
     # -- Bash
 
     def _check_command(self, command: str) -> Verdict:
-        verdicts = [self._check_action(action) for action in analyze(command, self.inside)]
-        if not verdicts:
-            return Verdict(Decision.ALLOW)
-        worst = strictest(*(v.decision for v in verdicts))
-        if worst == Decision.ALLOW:
-            return Verdict(Decision.ALLOW)
-        chosen = [v for v in verdicts if v.decision == worst]
-        reason = "; ".join(dict.fromkeys(v.reason for v in chosen))
-        asked = [v for v in verdicts if v.decision == Decision.ASK]
-        # "Always" is offered only when its rules would let this whole call run next time.
-        rules: tuple[str, ...] = ()
-        if all(v.rules for v in asked):
-            rules = tuple(dict.fromkeys(r for v in asked for r in v.rules))
-        return Verdict(worst, reason, rules)
+        return _combine([self._check_action(action) for action in analyze(command, self.inside)])
 
     def _check_action(self, action: Action) -> Verdict:
         shown = f"`{_brief(action.display)}`"
@@ -285,6 +338,33 @@ class Permissions:
                 if rule.covers(tool) and test(rule):
                     return decision, rule
         return None
+
+
+def _combine(verdicts: Sequence[Verdict]) -> Verdict:
+    """One verdict for a call that does several things: the strictest of theirs."""
+    if not verdicts:
+        return Verdict(Decision.ALLOW)
+    worst = strictest(*(v.decision for v in verdicts))
+    if worst == Decision.ALLOW:
+        return Verdict(Decision.ALLOW)
+    chosen = [v for v in verdicts if v.decision == worst]
+    reason = "; ".join(dict.fromkeys(v.reason for v in chosen))
+    asked = [v for v in verdicts if v.decision == Decision.ASK]
+    # "Always" is offered only when its rules would let this whole call run next time.
+    rules: tuple[str, ...] = ()
+    if all(v.rules for v in asked):
+        rules = tuple(dict.fromkeys(r for v in asked for r in v.rules))
+    return Verdict(worst, reason, rules)
+
+
+def _edited_paths(args: dict[str, Any]) -> list[str]:
+    """The files a MultiEdit names, from its raw input. Input that isn't shaped right names
+    none; the call then fails when it's validated."""
+    edits = args.get("edits")
+    if not isinstance(edits, list):
+        return []
+    paths = [e.get("path") for e in edits if isinstance(e, dict)]
+    return list(dict.fromkeys(p for p in paths if isinstance(p, str)))
 
 
 def _allows(rule: Rule, action: Action) -> bool:

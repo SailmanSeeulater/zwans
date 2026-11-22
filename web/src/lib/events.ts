@@ -206,6 +206,14 @@ export function waitingCalls(turns: Turn[]): ToolCall[] {
 
 /** The one argument worth showing for a call, so it fits on a line. */
 export function keyArgument(call: Pick<ToolCall, "name" | "args">): string {
+  const { edits, paths } = call.args;
+  if (call.name === "MultiEdit" && Array.isArray(edits)) {
+    const files = [...new Set(edits.map((e: unknown) => String((e as { path?: unknown } | null)?.path ?? "")))];
+    return `${edits.length} ${edits.length === 1 ? "edit" : "edits"} in ${files.join(", ")}`;
+  }
+  if (call.name === "Diagnostics") {
+    return Array.isArray(paths) && paths.length ? paths.map(String).join(" ") : "the whole project";
+  }
   for (const key of ["command", "path", "pattern", "query", "url", "description", "name", "job_id", "ticket"]) {
     const value = call.args[key];
     if (typeof value === "string" && value) return value.split("\n")[0] ?? "";

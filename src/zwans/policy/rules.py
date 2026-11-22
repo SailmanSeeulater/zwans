@@ -45,8 +45,8 @@ type Mode = Literal["read-only", "ask", "auto"]
 MODES: tuple[Mode, ...] = ("read-only", "ask", "auto")  # from the strictest to the loosest
 
 RULE = re.compile(r"^\s*([A-Za-z_][\w.-]*)\s*(?:\((.*)\))?\s*$", re.DOTALL)
-# Edit and Write both change files, so a rule for one covers the other.
-FILE_CHANGE_TOOLS = frozenset({"Edit", "Write"})
+# Edit, MultiEdit and Write all change files, so a rule for one covers the others.
+FILE_CHANGE_TOOLS = frozenset({"Edit", "MultiEdit", "Write"})
 # The built-in tools' names, so a rule for a misspelled one is reported instead of never
 # matching. MCP tools are named mcp__<server>__<tool>. tests/test_policy.py checks that this
 # lists every tool in zwans.tools.
@@ -58,6 +58,10 @@ TOOL_NAMES = frozenset(
         "Read",
         "Write",
         "Edit",
+        "MultiEdit",
+        "Diagnostics",
+        "WebFetch",
+        "WebSearch",
         "Glob",
         "Grep",
         "Skill",

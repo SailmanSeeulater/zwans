@@ -130,7 +130,7 @@ def test_a_session_runs_a_turn_over_the_websocket(server: Server) -> None:
     assert idle["title"] == "Say hello."
 
 
-def test_a_chat_has_no_folder_or_tools_and_is_still_one_when_resumed(
+def test_a_chat_has_no_folder_or_file_tools_and_is_still_one_when_resumed(
     server: Server, tmp_path: Path
 ) -> None:
     first, second = FakeProvider([say("Hi.")]), FakeProvider([say("Still here.")])
@@ -150,7 +150,8 @@ def test_a_chat_has_no_folder_or_tools_and_is_still_one_when_resumed(
         ws.send_json({"type": "prompt", "text": "Hello."})
         until(ws, "turn_ended")
     assert first.last_request is not None
-    assert first.last_request["tools"] == []
+    # Nothing for files or commands. The web is the one thing a chat can reach.
+    assert [tool["name"] for tool in first.last_request["tools"]] == ["WebFetch"]
     assert "no project open" in first.last_request["system"][0]["text"]
     [saved] = server.client.get("/api/sessions", headers=AUTH).json()["saved"]
     assert saved["chat"] is True
@@ -167,7 +168,8 @@ def test_a_chat_has_no_folder_or_tools_and_is_still_one_when_resumed(
         assert "turn_ended" in types(backlog)
         ws.send_json({"type": "prompt", "text": "Are you there?"})
         until(ws, "turn_ended")
-    assert second.last_request is not None and second.last_request["tools"] == []
+    assert second.last_request is not None
+    assert [tool["name"] for tool in second.last_request["tools"]] == ["WebFetch"]
 
 
 def test_a_chat_nobody_spoke_in_leaves_nothing_behind(server: Server) -> None:
