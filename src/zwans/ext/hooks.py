@@ -30,6 +30,7 @@ rather than letting them through.
 
 import asyncio
 import json
+import sys
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -37,7 +38,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from zwans.executor.local import command_env, kill_tree, own_process_group
+from zwans.executor.local import command_env, find_bash, kill_tree, own_process_group
 
 type HookEvent = Literal["pre_tool", "post_tool", "stop"]
 
@@ -107,16 +108,22 @@ class Hooks:
 
     async def _run(self, spec: HookSpec, payload: dict[str, Any]) -> HookFailure | None:
         data = json.dumps({"event": spec.event, "workspace": str(self.workspace), **payload})
+        options: dict[str, Any] = {
+            "stdin": asyncio.subprocess.PIPE,
+            "stdout": asyncio.subprocess.PIPE,
+            "stderr": asyncio.subprocess.PIPE,
+            "cwd": self.workspace,
+            "env": command_env(),
+            **own_process_group(),
+        }
         try:
-            process = await asyncio.create_subprocess_shell(
-                spec.command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=self.workspace,
-                env=command_env(),
-                **own_process_group(),
-            )
+            if sys.platform == "win32":
+                # Hooks are written for sh, as the Bash tool's commands are; a shell on
+                # Windows would be cmd.exe, so Git Bash runs them there.
+                bash = find_bash()
+                process = await asyncio.create_subprocess_exec(bash, "-c", spec.command, **options)
+            else:
+                process = await asyncio.create_subprocess_shell(spec.command, **options)
         except OSError as exc:
             return HookFailure(spec, f"The hook `{spec.command}` couldn't start: {exc}")
         try:

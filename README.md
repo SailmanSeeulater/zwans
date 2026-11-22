@@ -398,7 +398,8 @@ command = "python3 ~/.zwans/hooks/no_push.py"
 timeout = 30                               # seconds, 60 by default
 ```
 
-The hook runs in the workspace folder and reads a JSON object on stdin: `event`,
+The hook runs in the workspace folder, with `sh` (Git Bash on Windows, as the Bash tool
+uses), and reads a JSON object on stdin: `event`,
 `workspace`, and for tool hooks `tool` and `args` (post_tool adds `output` and `is_error`;
 stop has `stop_reason`, `message` and `changed`). Exit 0 to let things carry on. A non-zero
 exit blocks a pre_tool call, adds to a post_tool call's result, or keeps a stop hook's turn

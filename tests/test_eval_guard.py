@@ -70,7 +70,7 @@ def test_an_attempt_that_reads_the_solution_is_stopped_and_fails(tmp_path: Path)
     assert attempt.status == "failed"
     assert attempt.stop_reason == "answer_peek"
     assert attempt.check_exit is None  # not checked
-    assert str(solution) in attempt.peeks[0]
+    assert json.dumps(str(solution))[1:-1] in attempt.peeks[0]  # the report keeps the call as JSON
     assert (report.summary.attempts, report.summary.peeks) == (1, 1)
 
 
