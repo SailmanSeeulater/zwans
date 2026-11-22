@@ -9,6 +9,8 @@ import { shortcut, useIsMac } from "@/lib/platform";
 import { arrange } from "@/lib/sessions";
 import { chooseTheme, readChoice, THEMES, type ThemeChoice } from "@/lib/theme";
 import { useApi, useHasToken } from "./useApi";
+import { StatusDot } from "./Working";
+import { livenessOf, type Liveness } from "@/lib/working";
 
 const REFRESH_MS = 3_000;
 const RECENT = 6;
@@ -22,6 +24,7 @@ interface Row {
   pinned: boolean;
   named: boolean;
   waiting: number;
+  state: Liveness | null; // null for a session that isn't open
 }
 
 /** The left column: new session, the pinned, open and recent sessions with a search box over
@@ -48,6 +51,7 @@ export function Sidebar() {
     pinned: Boolean(s.pinned),
     named: false,
     waiting: s.waiting_for.length,
+    state: livenessOf(s),
   });
   const fromSaved = (s: SavedSession): Row => {
     const status = statusOf.get(s.id);
@@ -60,6 +64,7 @@ export function Sidebar() {
       pinned: s.pinned,
       named: s.named,
       waiting: row?.waiting ?? 0,
+      state: row?.state ?? null,
     };
   };
 
@@ -101,7 +106,10 @@ export function Sidebar() {
     const current = path.startsWith("/session") && currentId === r.id;
     const body = (
       <span style={{ minWidth: 0, flex: 1 }}>
-        <span className="sidebar-title">{r.title}</span>
+        <span className="sidebar-title">
+          {r.state && <StatusDot state={r.state} />}
+          {r.title}
+        </span>
         <span className="sidebar-sub">{r.sub}</span>
       </span>
     );

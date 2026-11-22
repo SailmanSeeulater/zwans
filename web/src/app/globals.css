@@ -3020,3 +3020,175 @@ td.wf-time {
 .session-body:has(.activity) .session-scroll {
   padding-right: 22px;
 }
+
+/* ---------------------------------------------------------------- working (Working.tsx) */
+.spark {
+  flex: none;
+  color: var(--accent);
+  overflow: visible;
+}
+.spark line {
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  opacity: 0.25;
+  animation: spark-ray 0.88s linear infinite;
+}
+.spark[data-still] line {
+  animation: none;
+  opacity: 0.9;
+}
+@keyframes spark-ray {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.18;
+  }
+}
+.working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 4px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  min-width: 0;
+  animation: enter 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.working-verb {
+  font-weight: 600;
+  white-space: nowrap;
+  animation: verb-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.working-detail {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.working-meta {
+  display: inline-flex;
+  gap: 10px;
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+@keyframes verb-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+/* Light passing over text that's still going. */
+.shimmer {
+  background: linear-gradient(
+      100deg,
+      var(--ink-2) 0%,
+      var(--ink-2) 40%,
+      var(--ink) 50%,
+      var(--ink-2) 60%,
+      var(--ink-2) 100%
+    )
+    0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.2s linear infinite;
+}
+.working-verb.shimmer {
+  animation:
+    verb-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both,
+    shimmer 2.2s linear infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+
+/* What arrives while you watch eases up into place. */
+.enter {
+  animation: enter 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* The reply's last line has a caret while it's still arriving. */
+.streaming .markdown > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.18em;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: caret 1s steps(1) infinite;
+}
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+.tool-mark {
+  display: inline-grid;
+  place-items: center;
+  align-self: center;
+}
+.tool-mark-glyph {
+  display: inline-block;
+  animation: mark-pop 320ms cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+@keyframes mark-pop {
+  from {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+}
+
+.status-dot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  vertical-align: 0.1em;
+  box-sizing: border-box;
+}
+.status-dot[data-state="idle"] {
+  border: 1.5px solid var(--ink-2);
+  opacity: 0.6;
+}
+.status-dot[data-state="working"] {
+  background: var(--accent);
+  animation: breathe 1.6s ease-in-out infinite;
+}
+.status-dot[data-state="waiting"] {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 28%, transparent);
+}
+@keyframes breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 0%, transparent);
+    transform: scale(0.85);
+  }
+}

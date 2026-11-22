@@ -17,6 +17,7 @@ import { DiffCount } from "./Glance";
 import { Markdown } from "./Markdown";
 import { Ticks } from "./Ticks";
 import { TodoList } from "./TodoList";
+import { Enter, Spark } from "./Working";
 
 export type Answer = "once" | "always" | "no";
 
@@ -27,15 +28,20 @@ interface Props {
   /** Turns that can be undone, by number, and what to do when one is chosen. */
   undoable?: Set<number>;
   onUndo?: (turn: number) => void;
+  /** Set while a live session's turn runs: the last reply gets a caret as it arrives. */
+  streaming?: boolean;
+  /** Set once the backlog has been shown: what arrives after eases in. */
+  animate?: boolean;
 }
 
-export function Conversation({ turns, onAnswer, undoable, onUndo }: Props) {
+export function Conversation({ turns, onAnswer, undoable, onUndo, streaming = false, animate = false }: Props) {
   if (turns.length === 0) return <p className="muted">Nothing yet.</p>;
   return (
     <div>
       {turns.map((turn, i) => (
         <section key={i} className="turn">
           {(turn.prompt || turn.images > 0) && (
+            <Enter live={animate}>
             <div className="prompt-row">
               {onUndo && undoable?.has(turn.number) && (
                 <button
@@ -58,11 +64,20 @@ export function Conversation({ turns, onAnswer, undoable, onUndo }: Props) {
                 )}
               </div>
             </div>
+            </Enter>
           )}
           {turn.items.map((item, j) => (
-            <ItemView key={j} item={item} onAnswer={onAnswer} />
+            <Enter key={j} live={animate}>
+              <ItemView
+                item={item}
+                onAnswer={onAnswer}
+                streaming={streaming && i === turns.length - 1 && j === turn.items.length - 1}
+              />
+            </Enter>
           ))}
-          <TurnFoot turn={turn} />
+          <Enter live={animate}>
+            <TurnFoot turn={turn} />
+          </Enter>
         </section>
       ))}
     </div>
@@ -78,12 +93,18 @@ function TurnFoot({ turn }: { turn: Turn }) {
   return <div className="turn-foot">{parts.join(" · ")}</div>;
 }
 
-function ItemView({ item, onAnswer }: { item: Item; onAnswer?: Props["onAnswer"] }) {
+function ItemView({ item, onAnswer, streaming }: { item: Item; onAnswer?: Props["onAnswer"]; streaming: boolean }) {
   switch (item.kind) {
     case "text":
-      return <Markdown text={item.text} />;
+      return streaming ? (
+        <div className="streaming">
+          <Markdown text={item.text} />
+        </div>
+      ) : (
+        <Markdown text={item.text} />
+      );
     case "note":
-      return <Thinking text={item.text} />;
+      return <Thinking text={item.text} live={streaming} />;
     case "tool":
       if (item.call.name === TODO_TOOL && !item.call.result?.isError) return <TodoCard call={item.call} />;
       return <ToolCard call={item.call} onAnswer={onAnswer} />;
@@ -113,12 +134,12 @@ function ItemView({ item, onAnswer }: { item: Item; onAnswer?: Props["onAnswer"]
 /** The model's thinking, folded away so the answer and the tool calls stay in view. The one
  * line that shows is where the thinking has got to, so it still reads as progress while it
  * streams; opening it shows all of it. */
-function Thinking({ text }: { text: string }) {
+function Thinking({ text, live }: { text: string; live: boolean }) {
   const latest = lastLine(text);
   return (
     <details className="thinking">
       <summary>
-        <span className="thinking-label">Thinking</span>
+        <span className={`thinking-label ${live ? "shimmer" : ""}`}>{live ? "Thinking" : "Thought"}</span>
         <span className="thinking-latest">{latest}</span>
       </summary>
       <div className="model-note">{text.trim()}</div>
@@ -175,7 +196,7 @@ export function ToolCard({ call, onAnswer }: { call: ToolCall; onAnswer?: Props[
       >
         <summary>
           <span className={`tool-mark ${state.tone}`} aria-hidden="true">
-            {state.mark}
+            {state.tone === "tone-run" ? <Spark size={12} /> : <span className="tool-mark-glyph">{state.mark}</span>}
           </span>
           <span className="tool-name">{call.name}</span>
           <span className="tool-arg" title={keyArgument(call)}>

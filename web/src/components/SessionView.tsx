@@ -26,8 +26,10 @@ import { buildCalls } from "@/lib/calls";
 import { buildTurns, pendingQuestion, waitingCalls, type RawEvent } from "@/lib/events";
 import { DEFAULT_PANE, readPane, savePane, type PaneState } from "@/lib/pane";
 import { currentTodos } from "@/lib/todos";
+import { livenessOf, phaseOf, tabTitle, turnStartedAt } from "@/lib/working";
 import { AskBar, Conversation, type Answer } from "./Conversation";
 import { ActivityStrip, ContextMeter } from "./Glance";
+import { WorkingLine } from "./Working";
 import { Inspector, isTab, type InspectorTab } from "./inspector/Inspector";
 import { ModelPicker } from "./ModelPicker";
 import { TodoList } from "./TodoList";
@@ -61,6 +63,7 @@ export function SessionView() {
   const [undoing, setUndoing] = useState<number | null>(null); // the turn whose undo is being confirmed
   const [undoBusy, setUndoBusy] = useState(false);
   const [generation, setGeneration] = useState(0); // bumped when the session is reopened, to reconnect
+  const [animate, setAnimate] = useState(false); // whether new items ease in: not the backlog
   const picker = useRef<HTMLInputElement | null>(null);
   const socket = useRef<WebSocket | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
@@ -95,7 +98,10 @@ export function SessionView() {
         if (data.type === "status") setStatus(data as unknown as SessionStatus);
         else if (data.type === "backlog") {
           const backlog = (data.events as RawEvent[]) ?? [];
+          setAnimate(false);
           setEvents(backlog);
+          // Once the backlog is on screen, what arrives after it eases in.
+          requestAnimationFrame(() => requestAnimationFrame(() => setAnimate(true)));
           // A session started from the home screen arrives with its first task to send.
           const first = backlog.length === 0 ? takeFirstPrompt(id) : null;
           if (first) ws.send(JSON.stringify({ type: "prompt", text: first }));
@@ -176,6 +182,15 @@ export function SessionView() {
   // The model's own question, which the composer answers while it's waiting.
   const question = connection === "open" ? pendingQuestion(turns) : null;
   const todos = currentTodos(turns);
+  const liveness = livenessOf(status);
+
+  useEffect(() => {
+    const title = status?.title || (status?.chat ? "New chat" : status ? "New session" : "");
+    document.title = tabTitle(title, liveness, status?.waiting_for.length ?? 0);
+    return () => {
+      document.title = "Zwans";
+    };
+  }, [status, liveness]);
 
   useLayoutEffect(() => {
     const box = scroller.current;
@@ -379,12 +394,16 @@ export function SessionView() {
                 onAnswer={connection === "open" ? answer : undefined}
                 undoable={running ? undefined : new Set(undoable?.turns.map((t) => t.turn) ?? [])}
                 onUndo={connection === "open" ? setUndoing : undefined}
+                streaming={running}
+                animate={animate}
               />
             )}
             {running && waiting.length === 0 && !question && (
-              <p className="muted small pulse" aria-live="polite">
-                Working…
-              </p>
+              <WorkingLine
+                phase={phaseOf(turns)}
+                startedAt={turnStartedAt(events)}
+                outputTokens={turns.at(-1)?.outputTokens ?? 0}
+              />
             )}
           </div>
         </div>
