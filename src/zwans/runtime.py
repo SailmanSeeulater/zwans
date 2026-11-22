@@ -23,6 +23,7 @@ from zwans.executor.background import BackgroundJobs
 from zwans.executor.docker import SANDBOX_OS, DockerExecutor
 from zwans.executor.jail import JAIL_OS, JailExecutor
 from zwans.executor.local import LocalExecutor, find_bash
+from zwans.executor.seatbelt import SEATBELT_OS, SeatbeltExecutor
 from zwans.ext.hooks import Hooks
 from zwans.ext.skills import find_skills, skill_folders
 from zwans.mcp.tools import McpServers, McpTool
@@ -185,6 +186,9 @@ def open_session(
             system = system_prompt(root, "bash", instructions, SANDBOX_OS, skills, config.web)
         elif config.executor == "jail":
             system = system_prompt(root, "bash", instructions, JAIL_OS, skills, config.web)
+        elif config.executor == "seatbelt":
+            shell = describe_shell(config.shell)
+            system = system_prompt(root, shell, instructions, SEATBELT_OS, skills, config.web)
         else:
             shell = describe_shell(config.shell)
             system = system_prompt(root, shell, instructions, skills=skills, web=config.web)
@@ -227,6 +231,8 @@ def open_session(
         executor = DockerExecutor(root, spill_dir=spill_dir)
     elif config.executor == "jail":
         executor = JailExecutor(root, spill_dir=spill_dir)
+    elif config.executor == "seatbelt":
+        executor = SeatbeltExecutor(root, shell=config.shell, spill_dir=spill_dir)
     else:
         executor = LocalExecutor(root, shell=config.shell, spill_dir=spill_dir)
     jobs = BackgroundJobs(executor)

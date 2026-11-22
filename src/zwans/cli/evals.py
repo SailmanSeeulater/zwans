@@ -30,6 +30,7 @@ from zwans.eval.runner import (
 from zwans.eval.task import Task, TaskError, load_suite
 from zwans.executor.docker import DockerError, ensure_sandbox_network
 from zwans.executor.jail import find_jail
+from zwans.executor.seatbelt import find_sandbox
 from zwans.pricing import price_of
 from zwans.providers.base import Provider
 from zwans.providers.catalog import register_prices, resolve
@@ -45,6 +46,7 @@ class ExecutorName(StrEnum):
     local = "local"
     docker = "docker"
     jail = "jail"
+    seatbelt = "seatbelt"
 
 
 class AgentName(StrEnum):
@@ -104,6 +106,8 @@ def run_command(
             asyncio.run(ensure_sandbox_network())  # fail now rather than in every attempt
         if config.executor == "jail" and agent_name is AgentName.zwans:
             find_jail()  # the same: say now if it isn't built
+        if config.executor == "seatbelt" and agent_name is AgentName.zwans:
+            find_sandbox()  # and here, if this isn't a Mac
         problem = asyncio.run(check_the_checks(tasks, config.shell))
         if problem:
             raise TaskError(problem)

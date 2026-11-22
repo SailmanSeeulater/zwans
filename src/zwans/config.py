@@ -120,8 +120,9 @@ class Config(BaseModel):
     prompt_cache: PromptCache = "conversation"
     shell: str | None = None  # path to bash; found automatically when unset
     # Where commands run: on this machine, in a Docker container (executor/docker.py), or in
-    # zwans-jail, Zwans's own sandbox (executor/jail.py, Linux only)
-    executor: Literal["local", "docker", "jail"] = "local"
+    # zwans-jail, Zwans's own sandbox (executor/jail.py, Linux only),
+    # or under Seatbelt, the sandbox built into macOS (executor/seatbelt.py)
+    executor: Literal["local", "docker", "jail", "seatbelt"] = "local"
     home: Path = ZWANS_HOME  # transcripts, saved sessions, and saved tool output live here
     mcp_servers: dict[str, McpServerConfig] = {}  # tools from MCP servers, by server name
     providers: dict[str, ProviderConfig] = {}  # OpenAI-compatible servers, by name
