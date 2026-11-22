@@ -1642,10 +1642,15 @@ html[data-desktop] .session-head a {
   overflow-x: auto;
   scrollbar-width: none;
 }
+/* The fixed tabs keep their names; page tabs give way, down to their icon and a few letters. */
+.pane-tabs > .pane-tab {
+  flex: none;
+}
 .pane-tab-wrap {
   display: flex;
   align-items: center;
-  min-width: 0;
+  flex: 0 1 auto;
+  min-width: 64px;
   border-radius: 999px;
 }
 .pane-tab {
@@ -1666,6 +1671,7 @@ html[data-desktop] .session-head a {
 }
 .pane-tab-wrap .pane-tab {
   padding-right: 4px;
+  overflow: hidden;
 }
 .pane-tab-name {
   max-width: 140px;
@@ -3902,4 +3908,71 @@ td.wf-time {
 }
 .steer-send {
   animation: changes-open 0.16s ease-out;
+}
+
+/* -- live preview */
+.pane-live[data-on] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.pane-live[data-on] svg {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+.pane-page {
+  position: relative;
+}
+.pane-reloaded {
+  position: absolute;
+  top: 54px;
+  left: 50%;
+  z-index: 2;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: reloaded 1.6s ease forwards;
+}
+@keyframes reloaded {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -4px);
+  }
+  15%,
+  70% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.server-found {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 6px 8px 6px 10px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 13px;
+  animation: changes-open 0.2s ease-out;
+}
+.server-found-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent);
+}
+.server-found-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, CornerDownRight, ImagePlus, Maximize2, PanelRightOpen, RotateCcw, Square, X } from "lucide-react";
+import { ArrowUp, CornerDownRight, ImagePlus, Maximize2, MonitorPlay, PanelRightOpen, RotateCcw, Square, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -25,7 +25,8 @@ import {
 } from "@/lib/attachments";
 import { buildCalls } from "@/lib/calls";
 import { buildTurns, pendingQuestion, waitingCalls, type RawEvent } from "@/lib/events";
-import { CHANGES, DEFAULT_PANE, readPane, savePane, type PaneState } from "@/lib/pane";
+import { CHANGES, DEFAULT_PANE, readPane, savePane, tabLabel, withNewPage, type PaneState } from "@/lib/pane";
+import { fileChanges, latestServer } from "@/lib/preview";
 import { currentTodos } from "@/lib/todos";
 import { livenessOf, phaseOf, tabTitle, turnStartedAt } from "@/lib/working";
 import { AskBar, Conversation, type Answer } from "./Conversation";
@@ -321,6 +322,18 @@ export function SessionView() {
   );
   const closeInspector = useCallback(() => openTab(null), [openTab]);
 
+  // Live preview: a dev server the session's commands started is offered beside the
+  // conversation, once, and pages set to live reload when files change.
+  const server = useMemo(() => latestServer(turns), [turns]);
+  const changedFiles = useMemo(() => fileChanges(turns), [turns]);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const serverOpen = server !== null && pane.pages.some((p) => p.url === server);
+  const offerServer = server !== null && !serverOpen && dismissed !== server;
+  const previewServer = () => {
+    if (!server) return;
+    changePane(withNewPage(pane, `p${Date.now().toString(36)}`, server, true));
+  };
+
   // Esc stops a turn, / goes to the message box, J to the latest message, and the
   // platform's modifier with \\ shows or hides the side pane.
   const runningNow = status?.running ?? false;
@@ -515,6 +528,26 @@ export function SessionView() {
           }}
         >
           {notice && <div className="notice notice-warn">{notice}</div>}
+          {offerServer && server && (
+            <div className="server-found" role="status">
+              <span className="server-found-dot" aria-hidden="true" />
+              <span className="server-found-text">
+                A dev server is up at <span className="mono">{tabLabel(server)}</span>
+              </span>
+              <button className="button button-primary button-small" onClick={previewServer}>
+                <MonitorPlay size={13} aria-hidden="true" />
+                Preview
+              </button>
+              <button
+                className="button button-quiet icon-button"
+                onClick={() => setDismissed(server)}
+                aria-label="Not now"
+                title="Not now"
+              >
+                <X size={13} aria-hidden="true" />
+              </button>
+            </div>
+          )}
           {running && (status?.queued?.length ?? 0) > 0 && (
             <ul className="queued" aria-label="Sent, waiting for Zwans's next step">
               {status?.queued?.map((text, i) => (
@@ -696,6 +729,7 @@ export function SessionView() {
             />
           }
           changed={changes?.changes.length ?? 0}
+          fileChanges={changedFiles}
         />
       )}
     </div>

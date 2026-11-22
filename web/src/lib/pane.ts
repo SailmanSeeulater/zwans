@@ -8,6 +8,8 @@
 export interface PageTab {
   id: string;
   url: string; // "" for a tab with nothing opened yet
+  /** Reloads by itself when the session changes files. */
+  live?: boolean;
 }
 
 export interface PaneState {
@@ -70,6 +72,7 @@ export function restore(saved: unknown): PaneState {
   const from = saved as Record<string, unknown>;
   const pages = (Array.isArray(from.pages) ? from.pages : [])
     .filter((p): p is PageTab => typeof p?.id === "string" && typeof p?.url === "string")
+    .map((p) => (p.live === true ? { id: p.id, url: p.url, live: true } : { id: p.id, url: p.url }))
     .filter((p) => p.url === "" || toUrl(p.url) !== null)
     .slice(0, MAX_PAGES);
   const width = typeof from.width === "number" && Number.isFinite(from.width) ? from.width : DEFAULT_WIDTH;
@@ -95,9 +98,10 @@ export function savePane(state: PaneState): void {
 }
 
 /** The state with a new empty tab, showing; unchanged once MAX_PAGES are open. */
-export function withNewPage(state: PaneState, id: string): PaneState {
+export function withNewPage(state: PaneState, id: string, url = "", live = false): PaneState {
   if (state.pages.length >= MAX_PAGES) return state;
-  return { ...state, open: true, pages: [...state.pages, { id, url: "" }], active: id };
+  const page: PageTab = live ? { id, url, live } : { id, url };
+  return { ...state, open: true, pages: [...state.pages, page], active: id };
 }
 
 /** The state without a tab. Closing the one showing shows its neighbour. */

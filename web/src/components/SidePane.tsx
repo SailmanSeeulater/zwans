@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, Globe, PanelRightClose, Plus, RotateCw, X } from "lucide-react";
+import { ExternalLink, Globe, PanelRightClose, Plus, Radio, RotateCw, X } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import {
   CHANGES,
@@ -23,6 +23,8 @@ interface Props {
   changes: ReactNode;
   /** How many files the session has changed, for the Changes tab's badge. */
   changed?: number;
+  /** Goes up whenever the session may have changed files; live pages reload on it. */
+  fileChanges?: number;
   /** Called in each frame of a drag, after the width is written, to keep the conversation's place. */
   onResizeFrame?: () => void;
 }
@@ -34,7 +36,7 @@ const KEY_STEP = 24; // pixels an arrow key moves the edge
  * hood" and any pages opened beside the conversation. Both elements are children of the
  * session's row, which holds the width as --pane-width.
  */
-export function SidePane({ state, onChange, hood, changes, changed = 0, onResizeFrame }: Props) {
+export function SidePane({ state, onChange, hood, changes, changed = 0, fileChanges = 0, onResizeFrame }: Props) {
   const handle = useRef<HTMLDivElement>(null);
   const drag = useRef<{ startX: number; from: number; next: number; frame: number } | null>(null);
   const tabs = useRef<HTMLDivElement>(null);
@@ -101,6 +103,8 @@ export function SidePane({ state, onChange, hood, changes, changed = 0, onResize
   const open = () => onChange(withNewPage(state, `p${Date.now().toString(36)}`));
   const setUrl = (id: string, url: string) =>
     onChange({ ...state, pages: state.pages.map((p) => (p.id === id ? { ...p, url } : p)) });
+  const setLive = (id: string, live: boolean) =>
+    onChange({ ...state, pages: state.pages.map((p) => (p.id === id ? { ...p, live } : p)) });
 
   // Arrow keys move between tabs, as in any tab list.
   const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -142,8 +146,9 @@ export function SidePane({ state, onChange, hood, changes, changed = 0, onResize
               aria-selected={state.active === HOOD}
               tabIndex={state.active === HOOD ? 0 : -1}
               onClick={() => show(HOOD)}
+              aria-label="Under the hood"
             >
-              Under the hood
+              {state.pages.length > 0 ? "Hood" : "Under the hood"}
             </button>
             <button
               role="tab"
@@ -210,18 +215,50 @@ export function SidePane({ state, onChange, hood, changes, changed = 0, onResize
         </div>
         {/* Every page stays mounted, so switching tabs doesn't reload it. */}
         {state.pages.map((page) => (
-          <PageView key={page.id} page={page} hidden={state.active !== page.id} onUrl={(url) => setUrl(page.id, url)} />
+          <PageView
+            key={page.id}
+            page={page}
+            hidden={state.active !== page.id}
+            onUrl={(url) => setUrl(page.id, url)}
+            onLive={(live) => setLive(page.id, live)}
+            fileChanges={fileChanges}
+          />
         ))}
       </aside>
     </>
   );
 }
 
-function PageView({ page, hidden, onUrl }: { page: PageTab; hidden: boolean; onUrl: (url: string) => void }) {
+interface PageProps {
+  page: PageTab;
+  hidden: boolean;
+  onUrl: (url: string) => void;
+  onLive: (live: boolean) => void;
+  fileChanges: number;
+}
+
+const LIVE_DELAY = 700; // ms after the last change before a live page reloads
+
+function PageView({ page, hidden, onUrl, onLive, fileChanges }: PageProps) {
   const [typed, setTyped] = useState(page.url);
   const [refused, setRefused] = useState(false);
   const [loads, setLoads] = useState(0); // a new number loads the page again
+  const [flash, setFlash] = useState(0); // a new number shows the "reloaded" flash
   const input = useRef<HTMLInputElement>(null);
+  const seen = useRef(fileChanges);
+
+  // A live page reloads a moment after the session changes files, so a dev server without
+  // hot reload, or a page that was built again, shows the change.
+  useEffect(() => {
+    if (fileChanges === seen.current) return;
+    seen.current = fileChanges;
+    if (!page.live || !page.url) return;
+    const reload = setTimeout(() => {
+      setLoads((n) => n + 1);
+      setFlash((n) => n + 1);
+    }, LIVE_DELAY);
+    return () => clearTimeout(reload);
+  }, [fileChanges, page.live, page.url]);
 
   useEffect(() => {
     if (!hidden && !page.url) input.current?.focus();
@@ -270,6 +307,17 @@ function PageView({ page, hidden, onUrl }: { page: PageTab; hidden: boolean; onU
           autoCapitalize="off"
           autoCorrect="off"
         />
+        <button
+          type="button"
+          className="button button-quiet icon-button pane-live"
+          data-on={page.live || undefined}
+          onClick={() => onLive(!page.live)}
+          aria-pressed={Boolean(page.live)}
+          aria-label="Reload when files change"
+          title={page.live ? "Live: reloads when Zwans changes files. Click to stop." : "Reload when Zwans changes files"}
+        >
+          <Radio size={13} aria-hidden="true" />
+        </button>
         {page.url && (
           <a
             className="button button-quiet icon-button"
@@ -290,6 +338,11 @@ function PageView({ page, hidden, onUrl }: { page: PageTab; hidden: boolean; onU
       )}
       {page.url ? (
         <>
+          {flash > 0 && (
+            <span key={flash} className="pane-reloaded" aria-hidden="true">
+              Reloaded
+            </span>
+          )}
           <iframe
             key={loads}
             className="pane-frame"
