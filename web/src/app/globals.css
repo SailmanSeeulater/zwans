@@ -1461,22 +1461,220 @@ html[data-desktop] .session-head a {
    panel beside the conversation, so it's left out. Inspect, in the header, still opens
    everything it showed. */
 @media (max-width: 1100px) {
-  .session > .inspector {
+  .session > .pane,
+  .session > .pane-resizer,
+  .pane-show {
     display: none;
   }
 }
 
-/* -- the inspector */
+/* -- the side pane: tabs beside the conversation, and the edge that resizes it.
+   The session's row holds the width as --pane-width. A drag writes it there once a frame
+   (SidePane.tsx), so nothing here may animate with it. */
+
+.pane {
+  flex: 0 0 var(--pane-width, 320px);
+  min-width: 280px;
+  max-width: calc(100% - 430px); /* the conversation keeps 420px and the gap */
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  overflow: hidden;
+  contain: layout; /* what's inside lays out without the rest of the page */
+}
+/* The edge sits in the row's 10px gap, taking no room of its own. */
+.pane-resizer {
+  flex: 0 0 10px;
+  margin: 0 -10px;
+  position: relative;
+  z-index: 5;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.pane-resizer::after {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: 18px;
+  left: 3.5px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.pane-resizer:hover::after,
+.pane-resizer:focus-visible::after,
+.session[data-resizing] .pane-resizer::after {
+  opacity: 0.7;
+}
+/* While dragging: the pointer keeps its shape wherever it is, nothing gets selected, and
+   a page in the pane doesn't swallow the pointer when it passes over. */
+.session[data-resizing] {
+  cursor: col-resize;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.session[data-resizing] .pane-frame {
+  pointer-events: none;
+}
+.pane-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 8px 8px 10px;
+  border-bottom: 1px solid var(--edge);
+}
+.pane-bar .icon-button {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+}
+.pane-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pane-tab-wrap {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 999px;
+}
+.pane-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pane-tab-wrap .pane-tab {
+  padding-right: 4px;
+}
+.pane-tab-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pane-tab:hover {
+  color: var(--ink);
+}
+.pane-tab[aria-selected="true"],
+.pane-tab-wrap[data-selected] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.pane-tab-wrap[data-selected] .pane-tab {
+  background: none;
+}
+.pane-tab-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 5px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.pane-tab-close:hover {
+  opacity: 1;
+  background: var(--code);
+}
+.pane-body,
+.pane-page {
+  flex: 1;
+  min-height: 0;
+}
+.pane-body {
+  overflow-y: auto;
+}
+.pane-page {
+  display: flex;
+  flex-direction: column;
+}
+.pane-body[hidden],
+.pane-page[hidden] {
+  display: none;
+}
+.pane-address {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+}
+.pane-address .icon-button {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+.pane-url {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+}
+.pane-url[aria-invalid="true"] {
+  border-color: var(--bad);
+}
+.pane-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--edge);
+  background: #fff; /* pages assume a white canvas unless they paint their own */
+}
+.pane-note {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 11.5px;
+}
+.pane-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+}
+.pane-empty p {
+  margin: 0;
+  max-width: 260px;
+}
+
+/* -- under the hood, the pane's first tab */
 
 .inspector {
-  flex: 0 0 320px;
-  min-width: 0;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   gap: 18px;
   padding: 16px;
-  border-radius: 18px;
-  overflow-y: auto;
 }
 .inspector h2 {
   margin: 0;

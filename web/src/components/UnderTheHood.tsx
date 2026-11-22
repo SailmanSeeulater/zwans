@@ -28,7 +28,7 @@ export function UnderTheHood({ data, status, onOpen }: Props) {
   const thisTurn = calls.filter((c) => c.turn === (latest?.turn ?? 0));
 
   return (
-    <aside className="inspector glass" aria-label="Under the hood">
+    <div className="inspector">
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h2>Under the hood</h2>
         {status && (
@@ -109,6 +109,6 @@ export function UnderTheHood({ data, status, onOpen }: Props) {
         <Maximize2 size={14} aria-hidden="true" />
         Open the inspector
       </button>
-    </aside>
+    </div>
   );
 }
