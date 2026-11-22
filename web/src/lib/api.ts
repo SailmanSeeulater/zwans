@@ -113,6 +113,7 @@ export interface SessionStatus {
   type: "status";
   id: string;
   title: string;
+  pinned?: boolean;
   workspace: string;
   model: string;
   mode: Mode;
@@ -218,7 +219,9 @@ export interface PromptImage {
 
 export interface SavedSession {
   id: string;
-  title: string;
+  title: string; // the person's name for it, or else from its first prompt
+  named: boolean; // whether the title is a name the person gave
+  pinned: boolean;
   workspace: string;
   model: string;
   turns: number;

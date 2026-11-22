@@ -41,6 +41,11 @@ SELECT sessions.*, MAX(sessions.turns, COALESCE(
     (SELECT MAX(turn) FROM messages WHERE session_id = sessions.id), 0)) AS last_turn
 FROM sessions
 """
+# Columns added after the first release, added to older databases when they're opened.
+LATER_COLUMNS = {
+    "name": "TEXT NOT NULL DEFAULT ''",  # the person's own name for it, kept over the title
+    "pinned": "INTEGER NOT NULL DEFAULT 0",
+}
 TITLE_CHARS = 80
 
 
@@ -59,6 +64,12 @@ class SessionInfo:
     usage: dict[str, Any] = field(default_factory=dict)  # a CostMeter snapshot
     created_at: str = ""
     updated_at: str = ""
+    name: str = ""  # given by the person; the title is from the first prompt
+    pinned: bool = False
+
+    @property
+    def label(self) -> str:
+        return self.name or self.title
 
 
 class SessionStore:
@@ -68,6 +79,11 @@ class SessionStore:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys = ON")
         self._db.executescript(SCHEMA)
+        have = {row["name"] for row in self._db.execute("PRAGMA table_info(sessions)")}
+        with self._db:
+            for column, kind in LATER_COLUMNS.items():
+                if column not in have:
+                    self._db.execute(f"ALTER TABLE sessions ADD COLUMN {column} {kind}")
 
     def close(self) -> None:
         self._db.close()
@@ -97,13 +113,14 @@ class SessionStore:
         return _info((exact or rows)[0])
 
     def recent(self, limit: int = 20) -> list[SessionInfo]:
-        """The latest sessions with something in them. Empty ones, which older versions left
-        behind whenever Zwans was opened and closed again, are left out. One rewound to before
-        its first turn has no messages, but its title says it had turns, and it's listed."""
+        """The pinned sessions, then the latest, with something in them. Empty ones, which
+        older versions left behind whenever Zwans was opened and closed again, are left out.
+        One rewound to before its first turn has no messages, but its title says it had turns,
+        and it's listed."""
         rows = self._db.execute(
             f"{SELECT} WHERE sessions.title != ''"
             " OR EXISTS (SELECT 1 FROM messages WHERE session_id = sessions.id)"
-            " ORDER BY updated_at DESC LIMIT ?",
+            " ORDER BY pinned DESC, updated_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
         return [_info(row) for row in rows]
@@ -134,6 +151,19 @@ class SessionStore:
                 "UPDATE sessions SET title = ?, turns = ?, usage = ?, updated_at = ? WHERE id = ?",
                 (title, turns, json.dumps(usage), _now(), session_id),
             )
+
+    def mark(self, session_id: str, *, name: str | None = None, pinned: bool | None = None) -> None:
+        """Rename or pin a session, or both. An empty name gives back the title from its
+        first prompt. Neither counts as using it, so it doesn't move up the recent list."""
+        with self._db:
+            if name is not None:
+                self._db.execute(
+                    "UPDATE sessions SET name = ? WHERE id = ?", (name_of(name), session_id)
+                )
+            if pinned is not None:
+                self._db.execute(
+                    "UPDATE sessions SET pinned = ? WHERE id = ?", (int(pinned), session_id)
+                )
 
     def set_model(self, session_id: str, model: str) -> None:
         """Record a /model switch, so resuming the session uses the new model."""
@@ -261,6 +291,11 @@ def title_of(prompt: str) -> str:
     return cut.rstrip(" ,.;:") + "…"
 
 
+def name_of(text: str) -> str:
+    """A name the person gave, on one line and no longer than a title."""
+    return " ".join(text.split())[:TITLE_CHARS]
+
+
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -276,4 +311,6 @@ def _info(row: sqlite3.Row) -> SessionInfo:
         usage=json.loads(row["usage"]),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        name=row["name"],
+        pinned=bool(row["pinned"]),
     )

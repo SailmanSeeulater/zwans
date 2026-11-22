@@ -678,3 +678,36 @@ def test_deleting_refuses_a_session_that_isnt_there_or_only_starts_alike(server:
     assert missing.status_code == 404
     assert prefix.status_code == 404  # the start of an id resumes a session; it never deletes one
     assert len(server.client.get("/api/sessions", headers=AUTH).json()["saved"]) == 1
+
+
+def test_a_session_is_renamed_and_pinned_open_or_not(server: Server) -> None:
+    first, second = _said_hello(server), _said_hello(server)
+    url = f"/api/sessions/{first}"
+
+    with connect(server, first) as ws:
+        handshake(ws)
+        renamed = server.client.patch(f"{url}/saved", json={"name": " Say\nhello "}, headers=AUTH)
+        assert renamed.status_code == 204
+        assert until(ws, "status")[-1]["title"] == "Say hello"  # its page hears the new name
+    pinned = server.client.patch(f"{url}/saved", json={"pinned": True}, headers=AUTH)
+    assert pinned.status_code == 204
+
+    saved = server.client.get("/api/sessions", headers=AUTH).json()["saved"]
+    # The pinned one comes first, though the other was used last.
+    assert [(s["id"], s["title"], s["named"], s["pinned"]) for s in saved] == [
+        (first, "Say hello", True, True),
+        (second, "Hello.", False, False),
+    ]
+
+    server.client.delete(url, headers=AUTH)  # closed, and its name taken off
+    server.client.patch(f"{url}/saved", json={"name": ""}, headers=AUTH)
+    top = server.client.get("/api/sessions", headers=AUTH).json()["saved"][0]
+    assert (top["title"], top["named"], top["pinned"]) == ("Hello.", False, True)
+
+
+def test_renaming_refuses_a_session_that_isnt_there_or_only_starts_alike(server: Server) -> None:
+    session_id = _said_hello(server)
+    body = {"name": "x"}
+    missing = server.client.patch("/api/sessions/20200101-0000-0000/saved", json=body, headers=AUTH)
+    prefix = server.client.patch(f"/api/sessions/{session_id[:6]}/saved", json=body, headers=AUTH)
+    assert (missing.status_code, prefix.status_code) == (404, 404)

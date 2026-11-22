@@ -350,3 +350,46 @@ def test_resuming_a_session_whose_folder_is_gone_says_so(tmp_path: Path) -> None
 
     store = SessionStore(tmp_path / "home" / "sessions.db")
     assert store.get(first.id).turns == 2  # nothing was rewound
+
+
+def test_a_name_given_mid_session_outlasts_later_turns(tmp_path: Path, ctx: ToolContext) -> None:
+    store = SessionStore(tmp_path / "sessions.db")
+    session = new_session(store, FakeProvider([reply("One."), reply("Two.")]), ctx)
+    asyncio.run(session.send("Fix the parser"))
+    before = store.get("s1").updated_at
+
+    store.mark("s1", name="Parser\tfix", pinned=True)
+    assert store.get("s1").updated_at == before  # renaming isn't using it
+    asyncio.run(session.send("And the tests"))
+
+    info = store.get("s1")
+    assert (info.name, info.title, info.label, info.pinned) == (
+        "Parser fix",
+        "Fix the parser",
+        "Parser fix",
+        True,
+    )
+    store.mark("s1", name="", pinned=False)
+    assert (store.get("s1").label, store.get("s1").pinned) == ("Fix the parser", False)
+
+
+def test_an_older_database_gets_names_and_pins(tmp_path: Path) -> None:
+    import sqlite3
+
+    path = tmp_path / "sessions.db"
+    old = sqlite3.connect(path)
+    old.executescript(
+        "CREATE TABLE sessions (id TEXT PRIMARY KEY, created_at TEXT NOT NULL,"
+        " updated_at TEXT NOT NULL, workspace TEXT NOT NULL, model TEXT NOT NULL,"
+        " system TEXT NOT NULL, title TEXT NOT NULL DEFAULT '',"
+        " turns INTEGER NOT NULL DEFAULT 0, usage TEXT NOT NULL DEFAULT '{}');"
+        "INSERT INTO sessions (id, created_at, updated_at, workspace, model, system, title)"
+        " VALUES ('old', 'x', 'x', '/w', 'm', 'S', 'Before names');"
+    )
+    old.commit()
+    old.close()
+
+    store = SessionStore(path)
+    assert [(i.label, i.pinned) for i in store.recent()] == [("Before names", False)]
+    store.mark("old", name="Now named")
+    assert SessionStore(path).get("old").label == "Now named"

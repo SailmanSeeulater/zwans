@@ -13,6 +13,7 @@ interface Command {
   group: string;
   label: string;
   hint?: string;
+  onlyWhenSearched?: boolean; // shown once something is typed
   run: () => void | Promise<void>;
 }
 
@@ -88,17 +89,19 @@ function Dialog({ close }: { close: () => void }) {
         run: go(`/session/?id=${encodeURIComponent(s.id)}`),
       });
     }
-    for (const s of (sessions?.saved ?? []).filter((x) => !x.live).slice(0, 8)) {
+    // Every saved session can be found by typing; the latest eight show before anything is.
+    (sessions?.saved ?? []).filter((x) => !x.live).forEach((s, i) => {
       list.push({
-        group: "Resume",
+        group: s.pinned ? "Pinned" : "Resume",
         label: s.title || "(no prompt)",
         hint: s.chat ? "Chat, no folder" : s.workspace,
+        onlyWhenSearched: i >= 8,
         run: async () => {
           await api<SessionStatus>(`/api/sessions/${encodeURIComponent(s.id)}/open`, { method: "POST" });
           router.push(`/session/?id=${encodeURIComponent(s.id)}`);
         },
       });
-    }
+    });
     list.push({
       group: "Start",
       label: "New chat",
@@ -129,6 +132,7 @@ function Dialog({ close }: { close: () => void }) {
   const shown = useMemo(() => {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     return commands.filter((c) => {
+      if (c.onlyWhenSearched && !words.length) return false;
       const text = `${c.group} ${c.label} ${c.hint ?? ""}`.toLowerCase();
       return words.every((w) => text.includes(w));
     });

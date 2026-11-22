@@ -622,8 +622,8 @@ html[data-desktop] .sidebar button {
   font-weight: 400;
   color: var(--ink-2);
 }
-/* A session's row: its link, and a delete button that shows on hover or focus and turns
-   into Delete / Keep when pressed. */
+/* A session's row: its link, and pin, rename and delete buttons that show on hover or
+   focus. Delete turns into Delete / Keep when pressed; rename turns the row into a field. */
 .sidebar-row {
   position: relative;
   display: flex;
@@ -634,27 +634,75 @@ html[data-desktop] .sidebar button {
   width: 100%;
   box-sizing: border-box;
 }
-.sidebar-delete {
+.sidebar-actions {
   position: absolute;
   top: 7px;
   right: 6px;
+  display: flex;
+  gap: 2px;
+  padding: 1px;
+  border-radius: 9px;
+  background: var(--raised);
+  opacity: 0;
+}
+.sidebar-row:hover > .sidebar-actions,
+.sidebar-actions:focus-within {
+  opacity: 1;
+}
+.sidebar-action {
   display: grid;
   place-items: center;
   width: 24px;
   height: 24px;
   border: 0;
   border-radius: 8px;
-  background: var(--raised);
+  background: transparent;
   color: var(--ink-2);
   cursor: pointer;
-  opacity: 0;
 }
-.sidebar-row:hover > .sidebar-delete,
-.sidebar-delete:focus-visible {
-  opacity: 1;
+.sidebar-action:hover {
+  color: var(--ink);
+  background: var(--accent-soft);
 }
-.sidebar-delete:hover {
+.sidebar-action.sidebar-delete:hover {
   color: var(--bad);
+}
+.sidebar-rename {
+  margin: 3px 4px;
+  padding: 7px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--base);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  min-width: 0;
+}
+.sidebar-rename:focus {
+  outline: none;
+}
+.sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 4px 2px;
+  padding: 5px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  color: var(--ink-2);
+}
+.sidebar-search:focus-within {
+  border-color: var(--accent);
+}
+.sidebar-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
 }
 .sidebar-confirm {
   display: flex;

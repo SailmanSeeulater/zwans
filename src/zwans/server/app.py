@@ -88,6 +88,11 @@ class ChooseModel(BaseModel):
     name: str
 
 
+class MarkSession(BaseModel):
+    name: str | None = None  # "" gives back the title from the first prompt
+    pinned: bool | None = None
+
+
 class RewindTo(BaseModel):
     turn: int  # the turn to undo, with every turn after it
 
@@ -152,7 +157,9 @@ def create_app(settings: ServerSettings) -> FastAPI:
             "saved": [
                 {
                     "id": info.id,
-                    "title": info.title,
+                    "title": info.label,
+                    "named": bool(info.name),
+                    "pinned": info.pinned,
                     "workspace": info.workspace,
                     "model": info.model,
                     "turns": info.turns,
@@ -265,6 +272,14 @@ def create_app(settings: ServerSettings) -> FastAPI:
             await hub.delete(session_id)
         except Busy as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        except SessionError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @api.patch("/sessions/{session_id}/saved", status_code=status.HTTP_204_NO_CONTENT)
+    async def mark_session(session_id: str, body: MarkSession) -> None:
+        """Rename or pin a session, open or not. Async, for the open session it tells."""
+        try:
+            hub.mark(session_id, name=body.name, pinned=body.pinned)
         except SessionError as exc:
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
