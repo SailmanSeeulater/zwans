@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { codeSpans, spent } from "./format";
+import { codeSpans, lastLine, spent } from "./format";
+
+describe("lastLine", () => {
+  it("is the last line with anything on it", () => {
+    expect(lastLine("First thought.\n\nThen the second.\n  \n")).toBe("Then the second.");
+    expect(lastLine("  only one  ")).toBe("only one");
+    expect(lastLine("\n \n")).toBe("");
+  });
+});
 
 describe("codeSpans", () => {
   it("marks the backticked parts as code", () => {

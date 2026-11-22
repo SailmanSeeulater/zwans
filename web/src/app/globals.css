@@ -800,6 +800,30 @@ html[data-desktop] .session-head a {
   margin: 6px 0;
   font-size: 13.5px;
 }
+/* The model's thinking: one line until it's opened. */
+.thinking {
+  margin: 6px 0;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+.thinking > summary {
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thinking-label {
+  font-weight: 600;
+  margin-right: 8px;
+}
+.thinking[open] .thinking-latest {
+  display: none; /* it's in the text below */
+}
+.thinking > .model-note {
+  margin: 6px 0 2px 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--edge);
+}
 .prompt-row {
   display: flex;
   align-items: flex-start;
@@ -1034,21 +1058,12 @@ html[data-desktop] .session-head a {
   flex-wrap: wrap;
 }
 
-/* In a narrow window the under-the-hood panel goes under the conversation. The conversation
-   keeps the whole window, and the session scrolls down to the panel; without that the
-   panel sat below the window's edge with nothing to scroll it into view. */
+/* A narrow window, such as one tiled to half the screen, has no room for the under-the-hood
+   panel beside the conversation, so it's left out. Inspect, in the header, still opens
+   everything it showed. */
 @media (max-width: 1100px) {
-  .session {
-    flex-direction: column;
-    overflow-y: auto;
-  }
-  .session > .session-main {
-    flex: none;
-    height: 100%;
-  }
   .session > .inspector {
-    flex: none;
-    overflow-y: visible; /* the session scrolls it, so it needs no scrolling of its own */
+    display: none;
   }
 }
 
