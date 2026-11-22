@@ -57,6 +57,7 @@ def result_of(events: list[Any]) -> ToolResult:
         "Based on the code in search.py, it imports Store. Now, I'll update the import.",
         "It seems users.py is not available. Let me proceed by focusing on the utils module.",
         "I'm going to rename the function next:",
+        "Starting with `ledger/invoice.py`.\n\n<tool_request>",
     ],
 )
 def test_a_reply_that_ends_by_saying_what_comes_next_announces_a_step(reply: str) -> None:

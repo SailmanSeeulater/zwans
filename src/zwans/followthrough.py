@@ -25,6 +25,8 @@ OFFER = re.compile(
     re.IGNORECASE,
 )
 CODE_BLOCK = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+# A reply that stops on the tag that should open a call: "<tool_request>", "<tool_call>".
+OPEN_TAG = re.compile(r"<(?:tool|function)[_ a-z]*>\s*\Z", re.IGNORECASE)
 TAIL_SENTENCES = 2  # how much of the end of the reply counts as how it ended
 MIN_CODE_LINES = 3  # a shorter block is an example or a command, not the change itself
 LOCAL_FOLLOW_THROUGH = 2  # times a turn sends a local model back to finish what it announced
@@ -43,6 +45,8 @@ ONLY_SHOWN = (
 
 def announces_a_step(text: str) -> bool:
     """Whether the reply ends by saying what the model is about to do."""
+    if OPEN_TAG.search(text):
+        return True
     without_code = CODE_BLOCK.sub(" ", text).strip()
     if not without_code or without_code.endswith("?"):
         return False  # a question hands the turn to the user, which is right

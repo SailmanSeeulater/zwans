@@ -332,6 +332,32 @@ other `ZWANS_*` variables. Add `--executor jail` on Linux to run commands in zwa
 The dated entries behind the sections above, newest first, as written at the time. Later
 entries sometimes correct earlier ones.
 
+### 2026-11-22: local models now act on their replies, and still mostly fail
+
+The same ten starter tasks, once each, before (345913b) and after the fixes for what the
+last entry's transcripts showed: sending a turn back when it ends by announcing a step,
+taking tool calls written as JSON in the text, and errors that say what a tool takes and
+where a guessed file is. Free, on Ollama:
+
+| Model | Before | After | Model calls before | after |
+|---|---|---|---|---|
+| qwen2.5-coder:7b | 0/10 | 0/10 | 1.0 | 3.5 |
+| qwen2.5:latest (7B) | 1/10 | 2/10 | 4.1 | 6.8 |
+
+The send-back fired 15 times in the 20 attempts after. qwen2.5-coder went from ending every
+task after one reply (its calls were text) to working through them, and fails now on
+what it does: a file overwritten with a fragment, an implementation shown but not
+written. 1 against 2 out of 10 is noise.
+qwen2.5-coder also stops on a bare `<tool_request>` tag with nothing after it; a reply
+ending that way now counts as an announced step too (added after this run, not measured).
+
+The first rerun measured nothing: eval sessions build their own `Session` and didn't pass
+`follow_through`, so no attempt was ever sent back. A test now runs an eval attempt that
+only announces its fix and checks it is sent back and passes.
+
+What's left is the model. The fixes stop Zwans from wasting a turn the model meant to
+take; they can't make a 7B model write the right code.
+
 ### 2026-11-21: a 7B local model passes none of ten starter tasks, new tools or not
 
 Ten starter tasks, once each, with `ollama/qwen2.5:latest` (7B) on this Mac, with every tool
