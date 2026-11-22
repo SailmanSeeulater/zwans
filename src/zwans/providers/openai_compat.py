@@ -5,6 +5,14 @@ LM Studio, llama.cpp, vLLM), hosted open models (OpenRouter, Together, Fireworks
 DeepInfra) and other labs' APIs. The conversation stays in Zwans's own shape, which mirrors
 the Messages API; this module translates it on the way out and the reply on the way back,
 so a session can switch between Claude and these models.
+
+Small models often get a tool call's input wrong: JSON that doesn't parse, a missing field,
+a number where a string goes. Such a call is repaired before the loop sees it: the model is
+asked again for just that input, with the tool's schema as the reply's required format,
+which servers that support it (Ollama, vLLM, llama.cpp, LM Studio) enforce token by token.
+Where the server can't, the call goes on as before: input that isn't JSON is asked for
+again whole, and input that doesn't fit the schema reaches the tool, whose error the model
+then reads.
 """
 
 import asyncio
@@ -16,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from pydantic import ValidationError
 
 from zwans.config import Effort
 from zwans.events import TextDelta, ThinkingDelta
@@ -138,18 +147,75 @@ class OpenAICompatProvider:
                 raise ProviderError(
                     f"The connection to {self.endpoint.name} kept dropping mid-reply ({exc!r})."
                 ) from exc
-            try:
-                response = reply.response(self.label, [tool.name for tool in tools])
-            except _BadToolInput as exc:
+            response = reply.response(self.label, [tool.name for tool in tools])
+            broken = reply.broken + _misfits(response, tools, reply.broken)
+            unfixed = [b for b in broken if not await self._repair(request, response, b, tools)]
+            not_json = [b for b in unfixed if b.kind == "json"]
+            if not_json:
                 bad_json += 1
                 if bad_json < JSON_ATTEMPTS:
                     attempt = 0
                     continue
                 raise ProviderError(
-                    f"{self.label} kept sending tool input that isn't a JSON object: {exc}"
-                ) from exc
+                    f"{self.label} kept sending tool input that isn't a JSON object: "
+                    f"{not_json[0].name}: {not_json[0].raw[:200]!r}"
+                )
             yield response
             return
+
+    async def _repair(
+        self,
+        request: dict[str, Any],
+        response: ModelResponse,
+        broken: "_Broken",
+        tools: Sequence[Tool[Any]],
+    ) -> bool:
+        """Ask again for `broken`'s input alone, in the tool's schema, and put it in the call.
+        False, changing nothing, when the server can't constrain its reply or the new input
+        doesn't fit either."""
+        tool = next((t for t in tools if t.name == broken.name), None)
+        if tool is None:
+            return False
+        said = "".join(b.text for b in response.content if isinstance(b, TextBlock))
+        messages = [
+            *request["messages"],
+            {"role": "assistant", "content": f"{said}\n\nCalling {broken.name} with: {broken.raw}"},
+            {
+                "role": "user",
+                "content": f"That input for {broken.name} isn't valid: {broken.problem}. Write "
+                f"the input for {broken.name} again, as JSON that fits its schema, and nothing "
+                "else.",
+            },
+        ]
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": broken.name, "schema": input_schema(tool)},
+            },
+        }
+        if self.endpoint.max_tokens:
+            body["max_tokens"] = self.endpoint.max_tokens
+        try:
+            http = await self._client.post("chat/completions", json=body)
+            if http.status_code >= 400:
+                return False  # no structured output here, or not for this model
+            data = http.json()
+            text = data["choices"][0]["message"]["content"]
+            fixed = json.loads(text)
+            tool.input_model.model_validate(fixed)
+        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, ValidationError):
+            return False
+        if not isinstance(fixed, dict):
+            return False
+        broken.block.input = fixed
+        usage = data.get("usage") or {}
+        response.input_tokens += int(usage.get("prompt_tokens") or 0)
+        response.output_tokens += int(usage.get("completion_tokens") or 0)
+        response.repairs += 1
+        return True
 
     def request(
         self, system: str, messages: Sequence[Message], tools: Sequence[Tool[Any]]
@@ -220,8 +286,41 @@ async def list_models(endpoint: Endpoint, timeout: float = 3.0) -> list[str]:
         raise ProviderError(f"{url} didn't answer with a list of models.") from exc
 
 
-class _BadToolInput(Exception):
-    pass
+@dataclass
+class _Broken:
+    """A tool call whose input is wrong, as the model sent it."""
+
+    block: ToolUseBlock  # in the response, given the repaired input if there is one
+    name: str
+    raw: str  # the input as sent
+    problem: str
+    kind: str  # "json": not a JSON object at all; "schema": JSON that doesn't fit the tool
+
+
+def _misfits(
+    response: ModelResponse, tools: Sequence[Tool[Any]], not_json: Sequence[_Broken]
+) -> list[_Broken]:
+    """The calls in `response` whose input is JSON but doesn't fit their tool's input (those
+    in `not_json` aside: their input isn't JSON at all)."""
+    by_name = {tool.name: tool for tool in tools}
+    skip = {id(b.block) for b in not_json}
+    found = []
+    for block in response.content:
+        if not isinstance(block, ToolUseBlock) or id(block) in skip:
+            continue
+        tool = by_name.get(block.name)
+        if tool is None:
+            continue
+        try:
+            tool.input_model.model_validate(block.input)
+        except ValidationError as exc:
+            problem = "; ".join(
+                f"{'.'.join(str(p) for p in e['loc']) or 'input'}: {e['msg']}"
+                for e in exc.errors()[:5]
+            )
+            raw = json.dumps(block.input, ensure_ascii=False)
+            found.append(_Broken(block, block.name, raw, problem, "schema"))
+    return found
 
 
 @dataclass
@@ -241,6 +340,7 @@ class _Reply:
         self.model = ""
         self.usage: dict[str, Any] = {}
         self.started = False  # something has been passed on to the user
+        self.broken: list[_Broken] = []  # calls whose input isn't a JSON object, by response()
 
     def add(self, chunk: dict[str, Any]) -> list[StreamItem]:
         items: list[StreamItem] = []
@@ -296,11 +396,17 @@ class _Reply:
                 continue
             try:
                 arguments = json.loads(call.arguments) if call.arguments.strip() else {}
-            except ValueError as exc:
-                raise _BadToolInput(f"{call.name}: {call.arguments[:200]!r}") from exc
+            except ValueError:
+                arguments = None
+            block = ToolUseBlock(
+                id=_tool_id(call.id),
+                name=call.name,
+                input=arguments if isinstance(arguments, dict) else {},
+            )
             if not isinstance(arguments, dict):
-                raise _BadToolInput(f"{call.name}: {call.arguments[:200]!r}")
-            content.append(ToolUseBlock(id=_tool_id(call.id), name=call.name, input=arguments))
+                problem = "it isn't a JSON object"
+                self.broken.append(_Broken(block, call.name, call.arguments, problem, "json"))
+            content.append(block)
         has_calls = any(isinstance(block, ToolUseBlock) for block in content)
         stop = "tool_use" if has_calls else STOP_REASONS.get(self.finish, "end_turn")
         prompt = int(self.usage.get("prompt_tokens") or 0)

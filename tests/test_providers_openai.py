@@ -198,10 +198,12 @@ def test_tool_input_that_isnt_json_is_asked_for_again_then_reported() -> None:
         finish("tool_calls"),
     )
     good = sse(delta(content="fine"), finish("stop"))
-    server = Server(bad, good)
+    # Each bad reply is first repaired (tests/test_tool_repair.py), which this server can't do.
+    no_schemas = httpx.Response(400, json={"error": {"message": "no structured output"}})
+    server = Server(bad, no_schemas, good)
     assert stream_all(server.provider(), [user("hi")])[-1].content == [TextBlock(text="fine")]
 
-    server = Server(bad, bad, bad)
+    server = Server(bad, no_schemas, bad, no_schemas, bad, no_schemas)
     with pytest.raises(ProviderError, match="isn't a JSON object"):
         stream_all(server.provider(), [user("hi")])
 

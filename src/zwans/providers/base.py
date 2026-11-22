@@ -22,6 +22,7 @@ class ModelResponse(BaseModel):
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     web_searches: int = 0  # searches the API ran for this reply, charged apart from tokens
+    repairs: int = 0  # tool calls whose input was asked for again, in the tool's schema
 
     def usage_event(self) -> UsageUpdated:
         return UsageUpdated(

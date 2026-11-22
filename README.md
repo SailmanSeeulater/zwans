@@ -164,6 +164,13 @@ Things to know:
   {...}}`) when the server's chat template doesn't turn it into one; qwen2.5-coder on Ollama
   does. Zwans makes the first such call to a tool it offered into a real one and drops the
   rest of the reply, which was written without that call's result.
+- A tool call whose input is broken (JSON cut off, a field misnamed, `"offset": "ten"`) is
+  repaired before it runs: Zwans asks the model again for just that input, with the tool's
+  schema as the required format, which Ollama, vLLM, llama.cpp and LM Studio enforce as the
+  model writes. On Ollama, `qwen3-coder:30b` and `qwen2.5-coder:7b` fixed every broken call
+  tried, in about a second each. A model the server can't constrain (Ollama says
+  "structured output is unavailable") gets the old treatment: input that isn't JSON is asked
+  for again whole, and input that doesn't fit reaches the tool, whose error it then reads.
 - A local model that ends its turn by announcing a step ("I'll now update the import.") or
   by showing code it never wrote to a file is sent back to do it, up to twice a turn
   (`follow_through`). Errors also say what a tool takes and where a guessed path's file
