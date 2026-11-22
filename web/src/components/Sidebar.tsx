@@ -1,6 +1,6 @@
 "use client";
 
-import { ChartColumn, Check, Monitor, Palette,Plus, Search, Users } from "lucide-react";
+import { ChartColumn, Check, Monitor, Palette, Plus, Search, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -19,7 +19,9 @@ export function Sidebar() {
   const router = useRouter();
   const hasToken = useHasToken();
   const mac = useIsMac();
-  const { data } = useApi<SessionList>(hasToken ? "/api/sessions" : null, REFRESH_MS);
+  const { data, reload } = useApi<SessionList>(hasToken ? "/api/sessions" : null, REFRESH_MS);
+  const [asking, setAsking] = useState<string | null>(null); // the session a delete is being confirmed for
+  const [problem, setProblem] = useState<string | null>(null);
 
   const live = data?.live ?? [];
   const recent = (data?.saved ?? []).filter((s) => !s.live).slice(0, RECENT);
@@ -32,6 +34,39 @@ export function Sidebar() {
     }
     router.push(`/session/?id=${encodeURIComponent(id)}`);
   };
+
+  const remove = async (id: string) => {
+    setAsking(null);
+    try {
+      await api<void>(`/api/sessions/${encodeURIComponent(id)}/saved`, { method: "DELETE" });
+      setProblem(null);
+      if (currentId === id && path.startsWith("/session")) router.push("/");
+    } catch (error) {
+      setProblem(`Couldn't delete it: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    reload();
+  };
+  // The row's own delete button, or the question it turns into.
+  const deleting = (id: string, title: string) =>
+    asking === id ? (
+      <span className="sidebar-confirm" role="group" aria-label={`Delete ${title}?`}>
+        <button className="button button-danger" onClick={() => void remove(id)} autoFocus>
+          Delete
+        </button>
+        <button className="button" onClick={() => setAsking(null)}>
+          Keep
+        </button>
+      </span>
+    ) : (
+      <button
+        className="sidebar-delete"
+        onClick={() => setAsking(id)}
+        aria-label={`Delete ${title}`}
+        title="Delete this session. The files it changed stay."
+      >
+        <Trash2 size={13} aria-hidden="true" />
+      </button>
+    );
 
   return (
     <nav className="sidebar glass" aria-label="Zwans">
@@ -55,8 +90,8 @@ export function Sidebar() {
 
       {live.length > 0 && <p className="sidebar-heading">Open</p>}
       {live.map((s) => (
+        <div key={s.id} className="sidebar-row" data-asking={asking === s.id || undefined}>
         <Link
-          key={s.id}
           href={`/session/?id=${encodeURIComponent(s.id)}`}
           className="sidebar-link"
           aria-current={path.startsWith("/session") && currentId === s.id ? "page" : undefined}
@@ -73,13 +108,15 @@ export function Sidebar() {
             </span>
           )}
         </Link>
+        {deleting(s.id, s.title || (s.chat ? "New chat" : "New session"))}
+        </div>
       ))}
 
       {recent.length > 0 && <p className="sidebar-heading sidebar-recent">Recent</p>}
       {recent.map((s) => (
+        <div key={s.id} className="sidebar-row sidebar-recent" data-asking={asking === s.id || undefined}>
         <button
-          key={s.id}
-          className="sidebar-link sidebar-recent"
+          className="sidebar-link"
           style={{ border: 0, background: "transparent", font: "inherit", cursor: "pointer", textAlign: "left" }}
           onClick={() => void resume(s.id)}
           title="Resume this session"
@@ -91,7 +128,14 @@ export function Sidebar() {
             </span>
           </span>
         </button>
+        {deleting(s.id, s.title || "(no prompt)")}
+        </div>
       ))}
+      {problem && (
+        <p className="sidebar-problem status-failed" role="alert">
+          {problem}
+        </p>
+      )}
 
       <p className="sidebar-heading">Workspace</p>
       <Link href="/room/" className="sidebar-link" aria-current={path.startsWith("/room") ? "page" : undefined}>

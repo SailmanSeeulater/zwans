@@ -7,8 +7,10 @@ turn; they all see the result, because it arrives as events.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
+import shutil
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -23,8 +25,8 @@ from zwans.messages import ImageBlock
 from zwans.policy.engine import Approval, PermissionRequest
 from zwans.providers.catalog import canonical
 from zwans.providers.router import ModelRouter
-from zwans.runtime import OpenedSession, ProviderFactory, open_session
-from zwans.store import SessionStore
+from zwans.runtime import OpenedSession, ProviderFactory, is_chat, open_session
+from zwans.store import SessionError, SessionStore
 
 log = logging.getLogger(__name__)
 
@@ -353,6 +355,36 @@ class SessionHub:
         live = self.live.pop(session_id, None)
         if live is not None:
             await live.close()
+
+    async def delete(self, session_id: str) -> None:
+        """Delete a saved session for good: its conversation, its transcript and the tool
+        output kept for it. An open one is closed first. Raises Busy while it's working, and
+        SessionError when there's no such session. The files it changed, and the checkpoints
+        that could undo them, stay."""
+        live = self.live.get(session_id)
+        if live is not None and live.running:
+            raise Busy("Stop the turn before deleting the session.")
+        await self.close(session_id)  # which already deletes one nothing was said in
+        home = self.settings.config.home
+        store = SessionStore(home / "sessions.db")
+        try:
+            try:
+                info = store.get(session_id)
+            except SessionError:
+                if live is None:
+                    raise
+                info = None
+            if info is not None and info.id != session_id:  # only the start of another's id
+                raise SessionError(f"No saved session has the id {session_id!r}.")
+            if info is not None:
+                store.delete(info.id)
+        finally:
+            store.close()
+        (home / "transcripts" / f"{session_id}.jsonl").unlink(missing_ok=True)
+        shutil.rmtree(home / "tool-output" / session_id, ignore_errors=True)
+        if info is not None and is_chat(info.workspace, home):
+            with contextlib.suppress(OSError):
+                Path(info.workspace).rmdir()  # a chat's folder is an empty placeholder
 
     async def close_all(self) -> None:
         for session_id in list(self.live):

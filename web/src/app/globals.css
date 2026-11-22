@@ -622,6 +622,60 @@ html[data-desktop] .sidebar button {
   font-weight: 400;
   color: var(--ink-2);
 }
+/* A session's row: its link, and a delete button that shows on hover or focus and turns
+   into Delete / Keep when pressed. */
+.sidebar-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sidebar-row > .sidebar-link {
+  width: 100%;
+  box-sizing: border-box;
+}
+.sidebar-delete {
+  position: absolute;
+  top: 7px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--ink-2);
+  cursor: pointer;
+  opacity: 0;
+}
+.sidebar-row:hover > .sidebar-delete,
+.sidebar-delete:focus-visible {
+  opacity: 1;
+}
+.sidebar-delete:hover {
+  color: var(--bad);
+}
+.sidebar-confirm {
+  display: flex;
+  gap: 6px;
+  padding: 2px 10px 8px;
+}
+.sidebar-confirm .button {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+.sidebar-confirm .button-danger {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: var(--base); /* light on a dark red, dark on a light one */
+}
+.sidebar-problem {
+  margin: 4px 10px;
+  font-size: 12px;
+}
 .sidebar-title {
   display: block;
   overflow: hidden;

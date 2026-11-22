@@ -202,8 +202,10 @@ def create_app(settings: ServerSettings) -> FastAPI:
         return {"request": json.loads(json.dumps(request, default=str)) if request else None}
 
     @api.post("/sessions/{session_id}/model")
-    def set_model(session_id: str, body: ChooseModel) -> Message:
-        """Switch the session's model, for its next turns."""
+    async def set_model(session_id: str, body: ChooseModel) -> Message:
+        """Switch the session's model, for its next turns. Async so it runs on the event
+        loop's thread: the session's SQLite connection only works on the thread that made it,
+        and a plain `def` route runs in a worker thread."""
         live = _live(hub, session_id)
         try:
             live.set_model(body.name)
@@ -253,6 +255,17 @@ def create_app(settings: ServerSettings) -> FastAPI:
     async def close_session(session_id: str) -> None:
         _live(hub, session_id)
         await hub.close(session_id)
+
+    @api.delete("/sessions/{session_id}/saved", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_session(session_id: str) -> None:
+        """Delete a session for good, open or not: the conversation, its transcript and the
+        tool output kept for it. Files it changed stay as they are."""
+        try:
+            await hub.delete(session_id)
+        except Busy as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        except SessionError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
     @api.get("/demo")
     def demo_prompts() -> dict[str, Any]:

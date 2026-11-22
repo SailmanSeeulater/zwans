@@ -695,6 +695,8 @@ one says so. A session that was open when the server stopped is resumed when you
   diff. When the policy asks, the question appears above the input box with Allow once,
   Always allow (only when it would take effect, as in the terminal) and Deny, and an Edit or
   Write shows the diff it would make. A Task call lists what its subagent did.
+  To delete a session, hover over it in the sidebar and press the bin, then Delete: its
+  conversation, transcript and kept tool output go, and the files it changed stay.
 - **Chat:** choose *Just chat* on the home screen, or *New chat* in the command palette, to
   talk to the model with no project folder. A chat has no tools for files or commands, so
   the model can't read your files or run anything on your machine. With `web = true` it can

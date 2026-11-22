@@ -18,6 +18,7 @@ from zwans.executor.seatbelt import SANDBOX_EXEC
 from zwans.messages import ImageBlock, Message, TextBlock, ToolUseBlock
 from zwans.providers.base import ModelResponse, StreamItem
 from zwans.providers.fake import FakeProvider
+from zwans.providers.router import ModelRouter
 from zwans.server.app import ServerSettings, create_app
 from zwans.tools.base import Tool
 
@@ -612,3 +613,68 @@ def test_the_demo_fixes_its_project_and_compacts_on_the_second_turn(tmp_path: Pa
     calls = [m for m in first + second if m["type"] == "model_call"]
     assert [c["purpose"] for c in calls].count("summary") == 1
     assert all(c["dollars"] for c in calls)
+
+
+# -- switching models, and deleting a session
+
+
+def test_a_session_on_claude_switches_to_a_local_model(server: Server, tmp_path: Path) -> None:
+    # The route once ran in a worker thread, where saving the choice failed: the session's
+    # SQLite connection only works on the thread that opened it.
+    env = {"ANTHROPIC_API_KEY": "sk-ant-test"}
+    router = ModelRouter(Config(home=tmp_path / "home"), env, "claude-haiku-5-5")
+    session_id = server.new_session(router)  # type: ignore[arg-type]
+    url = f"/api/sessions/{session_id}"
+
+    switched = server.client.post(f"{url}/model", json={"name": "ollama/qwen3:8b"}, headers=AUTH)
+    back = server.client.post(f"{url}/model", json={"name": "claude-opus-5-5"}, headers=AUTH)
+    unknown = server.client.post(f"{url}/model", json={"name": "nowhere/model"}, headers=AUTH)
+
+    assert (switched.status_code, switched.json()["model"]) == (200, "ollama/qwen3:8b")
+    assert (back.status_code, back.json()["model"]) == (200, "claude-opus-5-5")
+    assert unknown.status_code == 400
+    assert server.client.get(url, headers=AUTH).json()["model"] == "claude-opus-5-5"
+
+
+def _said_hello(server: Server) -> str:
+    """A session with one turn in it, so it's saved."""
+    said = ModelResponse(content=[TextBlock(text="Hi.")], stop_reason="end_turn")
+    session_id = server.new_session(FakeProvider([said]))
+    with connect(server, session_id) as ws:
+        handshake(ws)
+        ws.send_json({"type": "prompt", "text": "Hello."})
+        until(ws, "turn_ended")
+    return session_id
+
+
+def test_deleting_a_session_removes_it_and_what_was_kept_for_it(
+    server: Server, tmp_path: Path
+) -> None:
+    kept, gone = _said_hello(server), _said_hello(server)
+    transcript = tmp_path / "home" / "transcripts" / f"{gone}.jsonl"
+    assert transcript.exists()
+
+    # Open or closed, it goes: one is deleted while open, then the other after closing.
+    assert server.client.delete(f"/api/sessions/{gone}/saved", headers=AUTH).status_code == 204
+
+    sessions = server.client.get("/api/sessions", headers=AUTH).json()
+    assert [s["id"] for s in sessions["saved"]] == [kept]
+    assert [s["id"] for s in sessions["live"]] == [kept]
+    assert not transcript.exists()
+    assert server.client.post(f"/api/sessions/{gone}/open", headers=AUTH).status_code == 404
+
+    server.client.delete(f"/api/sessions/{kept}", headers=AUTH)  # closed, still saved
+    assert server.client.delete(f"/api/sessions/{kept}/saved", headers=AUTH).status_code == 204
+    assert server.client.get("/api/sessions", headers=AUTH).json()["saved"] == []
+
+
+def test_deleting_refuses_a_session_that_isnt_there_or_only_starts_alike(server: Server) -> None:
+    session_id = _said_hello(server)
+    server.client.delete(f"/api/sessions/{session_id}", headers=AUTH)
+
+    missing = server.client.delete("/api/sessions/20200101-0000-0000/saved", headers=AUTH)
+    prefix = server.client.delete(f"/api/sessions/{session_id[:6]}/saved", headers=AUTH)
+
+    assert missing.status_code == 404
+    assert prefix.status_code == 404  # the start of an id resumes a session; it never deletes one
+    assert len(server.client.get("/api/sessions", headers=AUTH).json()["saved"]) == 1
