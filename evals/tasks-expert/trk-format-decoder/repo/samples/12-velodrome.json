@@ -1,0 +1,39 @@
+{
+ "version": 1,
+ "device": "TR-310",
+ "records": [
+  {
+   "type": "lap",
+   "t": 1718803601,
+   "n": 126,
+   "seconds": 80.84
+  },
+  {
+   "type": "battery",
+   "t": 1718803602,
+   "percent": 51
+  },
+  {
+   "type": "lap",
+   "t": 1718803607,
+   "n": 127,
+   "seconds": 62.23
+  },
+  {
+   "type": "battery",
+   "t": 1718803609,
+   "percent": 60
+  },
+  {
+   "type": "lap",
+   "t": 1718803639,
+   "n": 128,
+   "seconds": 211.65
+  },
+  {
+   "type": "battery",
+   "t": 1718803649,
+   "percent": 89
+  }
+ ]
+}

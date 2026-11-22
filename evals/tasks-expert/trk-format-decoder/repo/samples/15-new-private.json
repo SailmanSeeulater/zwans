@@ -1,0 +1,53 @@
+{
+ "version": 2,
+ "device": "TR-400",
+ "records": [
+  {
+   "type": "note",
+   "t": 1719103610,
+   "text": "wet"
+  },
+  {
+   "type": "battery",
+   "t": 1719103640,
+   "percent": 55,
+   "mv": 3403
+  },
+  {
+   "type": "fix",
+   "t": 1719103642,
+   "lat": 46.961013,
+   "lon": 14.774564,
+   "alt": 552.5
+  },
+  {
+   "type": "note",
+   "t": 1719103702,
+   "text": "bridge"
+  },
+  {
+   "type": "battery",
+   "t": 1719103703,
+   "percent": 55,
+   "mv": 4070
+  },
+  {
+   "type": "fix",
+   "t": 1719103705,
+   "lat": 46.961944,
+   "lon": 14.774809,
+   "alt": 552.4
+  },
+  {
+   "type": "note",
+   "t": 1719103715,
+   "text": "ok"
+  },
+  {
+   "type": "battery",
+   "t": 1719103725,
+   "percent": 88,
+   "mv": 3824
+  }
+ ]
+}

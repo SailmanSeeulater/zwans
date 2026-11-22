@@ -3,6 +3,7 @@
 import asyncio
 from collections import Counter
 from collections.abc import AsyncIterator, Sequence
+from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
@@ -24,6 +25,7 @@ from zwans.events import (
     TurnStarted,
 )
 from zwans.ext.hooks import Hooks, HookSpec
+from zwans.followthrough import unfinished
 from zwans.messages import (
     ContentBlock,
     ImageBlock,
@@ -36,6 +38,7 @@ from zwans.policy.engine import Approval, PermissionRequest, Permissions, denial
 from zwans.policy.rules import Decision
 from zwans.providers.base import Provider, ProviderError, ServerBlock
 from zwans.tools.base import Tool, ToolContext, ToolError, ToolOutput
+from zwans.tools.hints import invalid_input, missing_path, workspace_root
 from zwans.web import web_calls, web_results
 
 INTERRUPTED = "Interrupted by the user before this finished."
@@ -54,12 +57,17 @@ async def run_turn(
     compactor: Compactor | None = None,
     permissions: Permissions | None = None,
     hooks: Hooks | None = None,
+    follow_through: int = 0,
 ) -> AsyncIterator[Event]:
     """Run one user turn and yield events as they happen.
 
     With `permissions`, every tool call is checked first: it runs, waits for the user's
     approval, or comes back to the model as an error saying why it didn't run. `hooks` run
     before that check, after each call, and when the model is about to finish.
+
+    `follow_through` is how many times a turn may send the model back when its final reply
+    says what it will do next, or only shows the code, without having done it (see
+    followthrough.py). 0 never does.
 
     `messages` must end with the user's message. The loop only ever appends to it: the
     model's replies, then the tool results. Earlier turns are never edited, which the API
@@ -76,6 +84,7 @@ async def run_turn(
 
     changed = False  # whether a tool that can change files has run this turn
     stop_blocks: Counter[HookSpec] = Counter()  # how often each stop hook sent the model back
+    sent_back = 0  # how often follow_through has sent the model back this turn
     for _ in range(max_steps):
         model_call = TimedCall()
         streamed: list[str] = []  # the reply's text so far, kept if Ctrl+C cuts it off
@@ -123,9 +132,11 @@ async def run_turn(
                 reason = f"Not run: the response stopped early ({response.stop_reason})."
                 skipped = ToolOutput(reason, is_error=True)
                 messages.append(_results_message(calls, {}, default=skipped))
-            elif hooks is not None and response.stop_reason == "end_turn":
+            elif response.stop_reason == "end_turn":
                 text = "".join(b.text for b in response.content if isinstance(b, TextBlock))
-                failures = await hooks.stop(response.stop_reason, text, changed=changed)
+                failures = []
+                if hooks is not None:
+                    failures = await hooks.stop(response.stop_reason, text, changed=changed)
                 for failure in failures:
                     yield HookReported(
                         event="stop", command=failure.spec.command, message=failure.message
@@ -137,6 +148,14 @@ async def run_turn(
                     said = "\n\n".join(failure.message for failure in retry)
                     note = f"A stop hook says the task isn't finished yet:\n{said}"
                     messages.append(Message(role="user", content=[TextBlock(text=note)]))
+                    continue
+                undone = None
+                if tools and sent_back < follow_through:
+                    undone = unfinished(text, changed)
+                if undone:
+                    sent_back += 1
+                    yield HookReported(event="follow_through", command="", message=undone)
+                    messages.append(Message(role="user", content=[TextBlock(text=undone)]))
                     continue
             yield TurnEnded(stop_reason=response.stop_reason, detail=response.stop_detail)
             return
@@ -371,16 +390,26 @@ async def _run_tool(
     try:
         args = tool.input_model.model_validate(call.input)
     except ValidationError as exc:
-        return ToolOutput(content=f"Invalid input for {call.name}: {exc}", is_error=True)
+        return ToolOutput(content=invalid_input(tool, call.input, exc, tools), is_error=True)
     try:
         output = await tool.run(args, ctx)
     except ToolError as exc:
         return ToolOutput(content=str(exc), is_error=True)
     except OSError as exc:  # missing file, permission denied, path outside the workspace, ...
-        return ToolOutput(content=_describe_os_error(exc), is_error=True)
+        return ToolOutput(content=_describe_os_error(exc, ctx), is_error=True)
     return await fit_output(output, call.id, ctx.executor)
 
 
-def _describe_os_error(exc: OSError) -> str:
+def _describe_os_error(exc: OSError, ctx: ToolContext) -> str:
     message = exc.strerror or str(exc)
-    return f"{message}: {exc.filename}" if exc.filename else message
+    if not exc.filename:
+        return message
+    if isinstance(exc, FileNotFoundError):
+        # Say where the file may be instead: a guessed path is the usual reason.
+        root = workspace_root(ctx)
+        missing = Path(str(exc.filename))
+        hint = missing_path(root, missing) if root is not None else ""
+        if root is not None and hint:
+            shown = missing.relative_to(root).as_posix()
+            return f"No such file or folder: {shown}. {hint}"
+    return f"{message}: {exc.filename}"

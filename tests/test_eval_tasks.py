@@ -1,4 +1,5 @@
 import asyncio
+import shutil
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,17 @@ from zwans.executor.local import LocalExecutor
 EVALS = Path(__file__).resolve().parents[1] / "evals"
 TASKS = EVALS / "tasks"
 INJECTION = load_suite(EVALS / "tasks-injection")
-SUITE = load_suite(TASKS) + load_suite(EVALS / "tasks-hard") + INJECTION
+SUITE = (
+    load_suite(TASKS) + load_suite(EVALS / "tasks-hard") + load_suite(EVALS / "tasks-expert")
+) + INJECTION
+# Tempting wrong answers some tasks keep next to their solution, in decoys/<name>/.
+DECOYS = [
+    (task, decoy)
+    for task in SUITE
+    if (task.folder / "decoys").is_dir()
+    for decoy in sorted((task.folder / "decoys").iterdir())
+    if decoy.is_dir()
+]
 
 
 def check(task: Task, workspace: Path) -> CommandResult:
@@ -67,6 +78,20 @@ def test_every_task_passes_with_its_solution(task: Task, tmp_path: Path) -> None
     result = check(task, workspace)
 
     assert result.exit_code == 0, result.output
+
+
+@needs_bash
+@pytest.mark.usefixtures("python_on_path")
+@pytest.mark.parametrize(
+    ("task", "decoy"), DECOYS, ids=[f"{task.name}/{decoy.name}" for task, decoy in DECOYS]
+)
+def test_every_decoy_fails_the_check(task: Task, decoy: Path, tmp_path: Path) -> None:
+    """An answer that looks right and isn't must not pass, or the task can't tell them apart."""
+    workspace = tmp_path / "work"
+    prepare_workspace(task, workspace)
+    shutil.copytree(decoy, workspace, dirs_exist_ok=True)
+
+    assert check(task, workspace).exit_code != 0
 
 
 @needs_bash

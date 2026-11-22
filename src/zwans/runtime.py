@@ -26,6 +26,7 @@ from zwans.executor.local import LocalExecutor, find_bash
 from zwans.executor.seatbelt import SEATBELT_OS, SeatbeltError, SeatbeltExecutor
 from zwans.ext.hooks import Hooks
 from zwans.ext.skills import find_skills, skill_folders
+from zwans.followthrough import follow_through_for
 from zwans.mcp.tools import McpServers, McpTool
 from zwans.messages import Message
 from zwans.policy.engine import Approver, Permissions
@@ -327,6 +328,7 @@ def open_session(
         permissions=permissions,
         # Hooks are about tools and a project's checks, and a chat has neither.
         hooks=Hooks(policy.hooks, root) if policy.hooks and not chat else None,
+        follow_through=follow_through_for(config, provider),
     )
     session.messages = messages
     session.turn = info.turns

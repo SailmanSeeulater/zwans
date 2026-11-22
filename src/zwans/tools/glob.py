@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from zwans.tools.base import ToolContext, ToolError, ToolOutput
 from zwans.tools.grep import skipped
+from zwans.tools.hints import raise_if_missing
 
 MAX_PATHS = 200
 
@@ -30,6 +31,7 @@ class GlobTool:
         argv += ["--sortr", "modified", "--glob", args.pattern, folder]
         result = await ctx.executor.run(argv, timeout=30)
         if result.exit_code not in (0, 1):  # ripgrep exits 1 when nothing matched
+            raise_if_missing(ctx, args.path, result.output)
             raise ToolError(f"Glob failed: {result.output.strip()}")
 
         paths = [line.removeprefix("./") for line in result.output.splitlines() if line]

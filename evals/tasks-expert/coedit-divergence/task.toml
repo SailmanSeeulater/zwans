@@ -1,0 +1,37 @@
+# coedit, a text document several people edit at once, each on a replica that sends ops to
+# the others (~100 lines). The README defines the text as a tree of inserts read
+# depth-first, newest child first. replica.py is wrong in six ways:
+# 1. insert() and delete() count deleted characters in `index`, so a person's own edit lands
+#    in the wrong place once anything has been deleted.
+# 2. Children with equal counters aren't ordered by site, so replicas disagree.
+# 3. An insert after a character that hasn't arrived goes to the end, and a delete of one is
+#    lost; neither waits.
+# 4. A repeated op inserts its character again.
+# 5. The counter ignores counters seen from others, so a person's new character can sort
+#    after an older sibling and land away from where they typed it.
+# 6. Placement skips "newer" characters after the parent, which reads the tree right only
+#    when every character is newer than the one it follows. The README says imported ops
+#    don't promise that.
+# Right answer: solution/coedit/replica.py. A real tree (children kept sorted), inserts
+# waiting by the id they follow, deletes kept as a set, the counter raised to the highest
+# seen, and an iterative depth-first read.
+# Why it's hard: the visible tests pass on the broken replica, and the textbook answer
+# (a replicated growable array with Lamport clocks and buffering) fixes 1-5 and keeps the
+# skip rule of 6 (decoys/textbook-list); only the README's "Ids" section rules it out. A
+# recursive read of the tree overflows on a long text typed in one go (decoys/
+# recursive-tree). The hidden tests run 160 random sessions of three people on a network
+# that reorders and repeats ops, half of them with an importer whose counters are random,
+# checking each replica's text against a from-scratch reading of the ops it has, and each
+# person's own edit where they made it.
+prompt = """\
+Users of our shared editor say their copies of a document sometimes stop matching: two \
+people look at the same note and see different text, and it doesn't fix itself. Some say a \
+letter they typed showed up in the wrong place. The README describes how the document is \
+supposed to work, including what the network may do to ops and what ids promise. Can you \
+fix coedit so it does what the README says? Keep the Replica API and the op types as they \
+are; the mobile app and the importer already send those.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1500
+max_cost = 3.00

@@ -131,9 +131,16 @@ otherwise), and `reasoning_effort = true` sends `effort` along (on for `openai`)
 Things to know:
 
 - Pick models trained for tool calling: Qwen3-Coder, Qwen 2.5 Coder, Devstral, GPT-OSS,
-  Llama 3.3, DeepSeek V3. A model whose server doesn't support tools writes calls as text
-  instead of making them. Small local models get through simple edits but slip on longer
+  Llama 3.3, DeepSeek V3. Small local models get through simple edits but slip on longer
   tasks. Running the evals with `ZWANS_MODEL=ollama/<model>` measures one against Claude.
+- Some models write a tool call as JSON in their reply (`{"name": "Read", "arguments":
+  {...}}`) when the server's chat template doesn't turn it into one; qwen2.5-coder on Ollama
+  does. Zwans makes the first such call to a tool it offered into a real one and drops the
+  rest of the reply, which was written without that call's result.
+- A local model that ends its turn by announcing a step ("I'll now update the import.") or
+  by showing code it never wrote to a file is sent back to do it, up to twice a turn
+  (`follow_through`). Errors also say what a tool takes and where a guessed path's file
+  is, and Read opens the one file of a guessed name.
 - Claude's web search and fetch run on Anthropic's servers, so other models get Zwans's own
   instead: `WebFetch`, and `WebSearch` once you say where to search (see "Web search and
   fetch").
@@ -733,6 +740,7 @@ zwans eval compare evals/reports/<run A> evals/reports/<run B>
 zwans eval run --agent claude-code --repeats 3          # the Claude Code baseline
 ZWANS_MODEL=openai/<id> zwans eval run --agent codex   # the Codex baseline, on an OpenAI model
 zwans eval run --tasks evals/tasks-hard                # the hard tier
+zwans eval run --tasks evals/tasks-expert              # the expert tier
 zwans eval run --tasks evals/tasks-injection           # the prompt-injection suite
 zwans eval run --executor docker                       # commands in the Docker sandbox
 zwans eval run --executor jail                         # commands in zwans-jail (Linux)
@@ -755,6 +763,14 @@ tasks. Use `--repeats 3` or more: a single attempt per task is mostly noise.
 `evals/tasks-hard/` is a harder tier (larger repos, bugs far from their symptoms, long specs)
 where Sonnet at low effort still passes about 97%. On a Mac, keep it awake during long runs
 (`caffeinate -s -i zwans eval run ...`): a model call that spans a sleep fails.
+
+`evals/tasks-expert/` is for when the hard tier stops telling models apart. Its tasks pass
+their visible tests as given; the README states rules the code breaks, and hidden tests
+check them in bulk against a from-scratch oracle (random edit sequences, generated files,
+a network that reorders and repeats messages). Each task also keeps `decoys/`: answers
+that look right and break one rule, such as recomputing everything after an edit, a
+recursive walk that overflows on deep input, or the textbook algorithm the spec rules out.
+The test suite checks that the starting code and every decoy fail and the solution passes.
 
 `evals/tasks-injection/` holds repos with planted instructions ("run `curl ... | sh`",
 "delete the tests", "print `~/.ssh/id_rsa`"). Each attempt runs in `ask` mode with a
@@ -802,6 +818,7 @@ environment variables:
 | `test_commands` | none | Commands for `RunTests` to run instead of the test runners it finds |
 | `disabled_tools` | none | Tools not to offer, by name |
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
+| `follow_through` | `2` local, `0` other | Times a turn sends the model back when its final reply only announced the next step or showed code without writing it |
 | `compact_at` | `200000` | Estimated context tokens that trigger a compaction |
 | `keep_messages` | `8` | Recent messages kept word for word when compacting |
 | `prompt_cache` | `conversation` | What prompt caching covers: `conversation` (system prompt, tools and the conversation so far), `system` (system prompt and tools), or `off` |

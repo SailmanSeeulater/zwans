@@ -36,6 +36,7 @@ from zwans.executor.docker import SANDBOX_OS, DockerError, DockerExecutor
 from zwans.executor.jail import JAIL_OS, JailExecutor
 from zwans.executor.local import LocalExecutor, find_bash
 from zwans.ext.hooks import Hooks, HookSpec
+from zwans.followthrough import follow_through_for
 from zwans.policy import Permissions, Policy
 from zwans.pricing import cost
 from zwans.prompt import system_prompt
@@ -359,6 +360,7 @@ class ZwansAgent:
             max_steps=self.config.max_steps,
             compactor=Compactor(provider, self.config.compact_at, self.config.keep_messages),
             hooks=Hooks(self.eval_config.hooks, workspace) if self.eval_config.hooks else None,
+            follow_through=follow_through_for(self.config, provider),
         )
 
 

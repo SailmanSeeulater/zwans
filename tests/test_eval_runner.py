@@ -217,6 +217,24 @@ def test_the_stop_check_config_sends_the_agent_back_while_the_tests_fail(tmp_pat
     assert "The tests still fail" in transcript
 
 
+def test_an_attempt_is_sent_back_when_it_only_announces_its_next_step(tmp_path: Path) -> None:
+    # The setting decides here; unset, it is on only for models on a local server.
+    settings = Config(home=tmp_path / "home", follow_through=1)
+    announces = ModelResponse(
+        content=[TextBlock(text="The average is off by one. I will now fix calc.py.")],
+        stop_reason="end_turn",
+    )
+    config = EvalConfig(name="default")
+    agent = ZwansAgent(settings, config, replay([announces, *FIXES_IT]))
+
+    report = asyncio.run(run_suite([BUGGY_CALC], agent, settings, config, tmp_path))
+
+    [attempt] = report.attempts
+    assert attempt.status == "passed"
+    assert attempt.model_calls == 3
+    assert "follow_through" in Path(attempt.transcript).read_text(encoding="utf-8")
+
+
 def test_a_config_rejects_unknown_tools_and_settings() -> None:
     with pytest.raises(EvalConfigError, match="Nope"):
         make_tools(EvalConfig(name="x", tool_descriptions={"Nope": "?"}), Config())

@@ -112,6 +112,8 @@ class Renderer:
                 self._subagent(task, event.inner())
             case HookReported(event="pre_tool"):
                 pass  # the blocked call's result says the same
+            case HookReported(event="follow_through"):
+                self._line("  [sent back: its reply left the work undone]", fg="yellow")
             case HookReported(event=hook_event, message=message):
                 self._line(f"  {hook_event} hook: {_first_line(message)}", fg="yellow")
             case Error(message=message):

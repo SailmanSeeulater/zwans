@@ -1,0 +1,18 @@
+{
+ "version": 1,
+ "device": "TR-200",
+ "records": [
+  {
+   "type": "note",
+   "t": 1718703600,
+   "text": "Stopped at the hut above the pass: fog coming in from the west, path iced over past the second marker, turning back to the car park and trying the lower route tomorrow."
+  },
+  {
+   "type": "fix",
+   "t": 1718703630,
+   "lat": 46.5586,
+   "lon": 8.5614,
+   "alt": 2106.4
+  }
+ ]
+}

@@ -120,6 +120,11 @@ class Config(BaseModel):
     # with fewer, or a project where one doesn't belong.
     disabled_tools: list[str] = []
     subagent_max_steps: int = 30  # model calls allowed in one subagent's task
+    # How many times a turn may send the model back when its final reply says what it will
+    # do next, or only shows the code, without having done it (see followthrough.py). Unset,
+    # that's 2 for a model on a local server, where small models stop early and another
+    # call costs nothing, and 0 for every other model.
+    follow_through: int | None = Field(default=None, ge=0, le=10)
     compact_at: int = 200_000  # estimated context tokens that trigger a compaction
     keep_messages: int = 8  # recent messages kept word for word when compacting
     prompt_cache: PromptCache = "conversation"

@@ -1,0 +1,37 @@
+# sheetcalc, a small spreadsheet engine (~400 lines). formulas.py (parsing and evaluating) is
+# right; engine.py, which keeps values up to date, is wrong in five ways that interact:
+# 1. _recalculate() recurses into each dependent once per path, so a cell reached by many
+#    paths is evaluated many times (2^n on a ladder of diamonds), and a deep column of
+#    formulas overflows the stack.
+# 2. set() records a reference only when the referenced cell already has text, so a formula
+#    written before the cell it uses (or a range with blank cells filled in later, or load()
+#    in another order) is never updated.
+# 3. set() never removes the edges of the formula it replaces, so a rewritten or cleared
+#    formula is still re-evaluated when its old inputs change.
+# 4. Only a direct self-reference is seen as a cycle; a longer one recurses until the stack
+#    runs out, and nothing downstream of a cycle is marked.
+# 5. There is no way back: once marked, nothing recomputes a cell when the cycle is broken.
+# Right answer: solution/sheetcalc/engine.py. Both directions of the graph, updated on every
+# set; an iterative walk for the affected cells; Kahn's algorithm over them, with what never
+# becomes ready marked #CYCLE!; and a static check for a cyclic precedent outside the
+# affected set (the README decides cycles by references, not by what an IF would read).
+# Why it's hard: the visible tests all pass on the broken engine. The README states the
+# rules, but each fix has a trap: full recomputation after each edit is right on values and
+# breaks "What an edit costs" (decoys/recompute-everything); a recursive walk passes
+# everything but the 3,000-5,000-row columns (decoys/recursive-walk); marking only the cells
+# on a cycle misses the cells that hang off it; and a cell such as =IF(C1 > 0, 1, A1) with
+# A1 cyclic must stay #CYCLE! when C1 is edited, though evaluating it would give 1. The
+# hidden tests replay 150 random edit sequences against a from-scratch oracle, checking
+# every value and an evaluation budget after each edit.
+prompt = """\
+People are complaining about sheetcalc on big sheets: editing one cell can hang the app for \
+seconds (one report says it crashed outright with a recursion error), and I've seen totals \
+that didn't update after a cell was filled in. The README says what the engine is supposed \
+to do, including what an edit is allowed to cost; the engine doesn't live up to it. Can you \
+make engine.py match the README? The parsing and evaluation rules in formulas.py are fine \
+as they are.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1500
+max_cost = 3.00

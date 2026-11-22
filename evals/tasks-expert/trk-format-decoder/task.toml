@@ -1,0 +1,31 @@
+# Work out an undocumented binary format from 24 sample files and what the vendor's tool
+# shows for each, and write the decoder. The format (hidden/tests/trk_encoder.py):
+#   "TRK\x1a", version (1 or 2), flags, device name (u8 length), record count (varint),
+#   records, and with flag 8 a u16 checksum (the sum of every byte before it).
+#   Flags: 1 big-endian numbers; 2 times after the first are zigzag varint steps; 4 strings
+#   XORed with 0x5A; 8 checksum. Records: fix (i32 lat, i32 lon in millionths of a degree,
+#   i16 altitude in tenths of a metre), note (varint length in version 1, u16 in version 2),
+#   battery (u8 percent, plus u16 millivolts in version 2), lap (varint number, u24
+#   hundredths of a second). Varints stay little-endian in big-endian files.
+# Right answer: solution/trkfile/decode.py.
+# Why it's hard: nothing describes the format, so every rule has to be inferred from bytes
+# and checked against the samples, and several show up in very few of them: a time step
+# backwards in two files (steps look like "the difference, doubled" everywhere else:
+# decoys/unsigned-deltas), a count or length over 127 in three, a negative altitude in one,
+# a three-byte number, the version 2 note length, the checksum's byte order following the
+# flag. Reading the 24 samples is not the goal and the README says so: the hidden tests
+# decode 300 fresh files with every mix of version and flags and whatever the logger could
+# record, then cut files short, append bytes, and flip bits in checksummed files, all of
+# which must raise TrkError (decoys/trusts-the-file reads every good file and fails here).
+prompt = """\
+We have a pile of .trk exports from the old TR loggers and no documentation for the format: \
+the vendor is gone. samples/ has 24 exports with a .json next to each showing what the \
+vendor's tool displays for it, and samples/bad/ has four files the tool refuses. \
+trkfile/decode.py only reads the simplest files. Can you work out the rest of the format \
+and finish the decoder? It needs to read any file these loggers write, not only these 24, \
+and refuse damaged ones the way the README describes.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 1500
+max_cost = 3.00

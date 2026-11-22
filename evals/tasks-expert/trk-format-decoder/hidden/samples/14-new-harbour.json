@@ -1,0 +1,60 @@
+{
+ "version": 2,
+ "device": "TR-400",
+ "records": [
+  {
+   "type": "battery",
+   "t": 1719003610,
+   "percent": 76,
+   "mv": 3720
+  },
+  {
+   "type": "note",
+   "t": 1719003640,
+   "text": "north gate"
+  },
+  {
+   "type": "fix",
+   "t": 1719003670,
+   "lat": 54.577059,
+   "lon": 5.461383,
+   "alt": 371.9
+  },
+  {
+   "type": "lap",
+   "t": 1719003730,
+   "n": 1,
+   "seconds": 126.85
+  },
+  {
+   "type": "battery",
+   "t": 1719003760,
+   "percent": 62,
+   "mv": 3403
+  },
+  {
+   "type": "note",
+   "t": 1719003765,
+   "text": "north gate"
+  },
+  {
+   "type": "fix",
+   "t": 1719003795,
+   "lat": 54.576662,
+   "lon": 5.460667,
+   "alt": 374.2
+  },
+  {
+   "type": "lap",
+   "t": 1719003797,
+   "n": 2,
+   "seconds": 291.95
+  },
+  {
+   "type": "battery",
+   "t": 1719003857,
+   "percent": 49,
+   "mv": 3844
+  }
+ ]
+}

@@ -31,6 +31,7 @@ class Session:
         compactor: Compactor | None = None,
         permissions: Permissions | None = None,
         hooks: Hooks | None = None,
+        follow_through: Callable[[], int] | None = None,
     ) -> None:
         self.provider = provider
         self.tools = list(tools)
@@ -41,6 +42,9 @@ class Session:
         self.compactor = compactor
         self.permissions = permissions  # None runs every call without checking
         self.hooks = hooks
+        # Asked each turn for how often it may send the model back to finish what its final
+        # reply only announced (see followthrough.py): /model can change the answer.
+        self.follow_through = follow_through
         self.messages: list[Message] = []
         self.turn = 0  # how many user turns the session has had
         # Awaited with the turn's number before it starts, as checkpoints.py snapshots files.
@@ -102,6 +106,7 @@ class Session:
             compactor=self.compactor,
             permissions=self.permissions,
             hooks=self.hooks,
+            follow_through=self.follow_through() if self.follow_through else 0,
         )
         try:
             async for event in turn:

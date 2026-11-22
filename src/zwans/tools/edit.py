@@ -9,7 +9,6 @@ from zwans.tools.text import TextFile, unified_diff
 class EditInput(BaseModel):
     path: str = Field(description="Path to the file, relative to the workspace root.")
     old_string: str = Field(
-        min_length=1,
         description="The exact text to replace, including indentation. It must appear once "
         "in the file unless replace_all is true.",
     )
@@ -53,6 +52,12 @@ def replace_in(text: str, args: EditInput) -> tuple[str, int]:
     # TextFile.text always uses "\n", so normalize the model's strings the same way.
     old = args.old_string.replace("\r\n", "\n")
     new = args.new_string.replace("\r\n", "\n")
+    if not old:
+        raise ToolError(
+            "old_string is empty, so there is nothing to replace. To create a file, or to "
+            "replace everything in one, use Write. To add text to a file, put the line before "
+            "it in old_string, and that line followed by the new text in new_string."
+        )
     if old == new:
         raise ToolError("old_string and new_string are the same, so there is nothing to do.")
     count = text.count(old)

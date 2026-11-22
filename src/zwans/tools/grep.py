@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from zwans.checkpoints import EXCLUDED
 from zwans.tools.base import ToolContext, ToolError, ToolOutput
+from zwans.tools.hints import raise_if_missing
 
 
 def skipped(*patterns: str | None) -> list[str]:
@@ -71,6 +72,7 @@ class GrepTool:
         if result.exit_code == 1:  # ripgrep exits 1 when nothing matched
             return ToolOutput(content="No matches.")
         if result.exit_code != 0:
+            raise_if_missing(ctx, args.path, result.output)
             raise ToolError(f"Grep failed: {result.output.strip()}")
         lines = [line.removeprefix("./") for line in result.output.splitlines()]
         return ToolOutput(content="\n".join(lines))

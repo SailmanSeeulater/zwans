@@ -101,7 +101,9 @@ function ItemView({ item, onAnswer }: { item: Item; onAnswer?: Props["onAnswer"]
     case "hook":
       return (
         <div className="notice notice-warn">
-          {item.event} hook: {item.message}
+          {item.event === "follow_through"
+            ? "Sent back: its reply left the work undone."
+            : `${item.event} hook: ${item.message}`}
         </div>
       );
   }

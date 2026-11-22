@@ -28,6 +28,7 @@ from zwans.messages import (
     ToolUseBlock,
 )
 from zwans.providers.base import ModelResponse, ProviderError, StreamItem
+from zwans.providers.text_calls import find_call
 from zwans.tools.base import Tool, input_schema
 
 STOP_REASONS = {
@@ -138,7 +139,7 @@ class OpenAICompatProvider:
                     f"The connection to {self.endpoint.name} kept dropping mid-reply ({exc!r})."
                 ) from exc
             try:
-                response = reply.response(self.label)
+                response = reply.response(self.label, [tool.name for tool in tools])
             except _BadToolInput as exc:
                 bad_json += 1
                 if bad_json < JSON_ATTEMPTS:
@@ -279,9 +280,16 @@ class _Reply:
         self.started = self.started or bool(items)
         return items
 
-    def response(self, label: str) -> ModelResponse:
+    def response(self, label: str, tools: Sequence[str] = ()) -> ModelResponse:
         content: list[TextBlock | ToolUseBlock | RawBlock] = []
-        if self.text.strip():
+        written = None if self.calls else find_call(self.text, tools)
+        if written is not None:
+            # A call written in the text: what came before it stays text, the call becomes
+            # a real one, and what followed (written without its result) is dropped.
+            if written.before.strip():
+                content.append(TextBlock(text=written.before))
+            content.append(ToolUseBlock(id=_tool_id(""), name=written.name, input=written.input))
+        elif self.text.strip():
             content.append(TextBlock(text=self.text))
         for _, call in sorted(self.calls.items()):
             if not call.name:
