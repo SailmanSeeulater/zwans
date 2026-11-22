@@ -28,6 +28,7 @@ import { DEFAULT_PANE, readPane, savePane, type PaneState } from "@/lib/pane";
 import { currentTodos } from "@/lib/todos";
 import { livenessOf, phaseOf, tabTitle, turnStartedAt } from "@/lib/working";
 import { AskBar, Conversation, type Answer } from "./Conversation";
+import { JumpToLatest, typing } from "./Actions";
 import { ActivityStrip, ContextMeter } from "./Glance";
 import { WorkingLine } from "./Working";
 import { Inspector, isTab, type InspectorTab } from "./inspector/Inspector";
@@ -69,6 +70,10 @@ export function SessionView() {
   const scroller = useRef<HTMLDivElement | null>(null);
   const pinned = useRef(true); // whether to follow new output to the bottom
   const autoResumed = useRef(""); // the session this page has already tried to resume by itself
+  const resend = useRef<string | null>(null); // a prompt to send once the session reconnects: a retry
+  const composer = useRef<HTMLTextAreaElement | null>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  const [fresh, setFresh] = useState(false); // something arrived while scrolled up
 
   const resume = useCallback(async () => {
     setResuming(true);
@@ -105,6 +110,10 @@ export function SessionView() {
           // A session started from the home screen arrives with its first task to send.
           const first = backlog.length === 0 ? takeFirstPrompt(id) : null;
           if (first) ws.send(JSON.stringify({ type: "prompt", text: first }));
+          else if (resend.current) {
+            ws.send(JSON.stringify({ type: "prompt", text: resend.current }));
+            resend.current = null;
+          }
         } else if (data.type === "server_error") setNotice(String(data.message));
         else setEvents((previous) => [...previous, data]);
       };
@@ -195,7 +204,17 @@ export function SessionView() {
   useLayoutEffect(() => {
     const box = scroller.current;
     if (box && pinned.current) box.scrollTop = box.scrollHeight;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- marks what arrived out of view
+    else if (events.length) setFresh(true);
   }, [events.length, waiting.length, tab]);
+
+  const jumpToLatest = useCallback(() => {
+    const box = scroller.current;
+    if (!box) return;
+    pinned.current = true;
+    setFresh(false);
+    box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
+  }, []);
 
   const send = useCallback((message: Record<string, unknown>) => {
     socket.current?.send(JSON.stringify(message));
@@ -243,7 +262,7 @@ export function SessionView() {
     if (added.length) setImages((previous) => [...previous, ...added]);
   };
 
-  const undo = async (turn: number) => {
+  const undo = async (turn: number, again = false) => {
     setUndoBusy(true);
     try {
       const result = await api<RewindResult>(`/api/sessions/${encodeURIComponent(id)}/rewind`, {
@@ -254,10 +273,16 @@ export function SessionView() {
       setStatus(result.status);
       setEvents([]);
       setUndoable(null);
-      setDraft(result.draft);
       const hadImages = turns.find((t) => t.number === turn)?.images ?? 0;
-      const reattach = hadImages ? " Its images weren't kept: attach them again to resend it." : "";
-      setNotice(`Went back to before turn ${turn}. ${describeUndo(result.undone)}${reattach}`);
+      if (again && !hadImages && result.draft.trim()) {
+        resend.current = result.draft; // sent as soon as the session is back
+        pinned.current = true;
+        setNotice(null);
+      } else {
+        setDraft(result.draft);
+        const reattach = hadImages ? " Its images weren't kept: attach them again to resend it." : "";
+        setNotice(`Went back to before turn ${turn}. ${describeUndo(result.undone)}${reattach}`);
+      }
       setGeneration((g) => g + 1);
     } catch (error) {
       setNotice(`Couldn't undo: ${error instanceof Error ? error.message : String(error)}`);
@@ -274,6 +299,33 @@ export function SessionView() {
     [id, router],
   );
   const closeInspector = useCallback(() => openTab(null), [openTab]);
+
+  // Esc stops a turn, / goes to the message box, J to the latest message, and the
+  // platform's modifier with \\ shows or hides the side pane.
+  const runningNow = status?.running ?? false;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.key === "Escape" && runningNow && (!typing(event) || event.target === composer.current)) {
+        send({ type: "interrupt" });
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === "\\") {
+        event.preventDefault();
+        changePane({ ...pane, open: !pane.open });
+        return;
+      }
+      if (typing(event) || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === "/") {
+        event.preventDefault();
+        composer.current?.focus();
+      } else if (event.key === "j") {
+        jumpToLatest();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [runningNow, send, pane, changePane, jumpToLatest]);
 
   if (hasToken === false) {
     return (
@@ -374,6 +426,8 @@ export function SessionView() {
           onScroll={(e) => {
             const box = e.currentTarget;
             pinned.current = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+            if (pinned.current !== atBottom) setAtBottom(pinned.current);
+            if (pinned.current && fresh) setFresh(false);
           }}
         >
           <div className="session-column">
@@ -396,6 +450,7 @@ export function SessionView() {
                 onUndo={connection === "open" ? setUndoing : undefined}
                 streaming={running}
                 animate={animate}
+                onRetry={connection === "open" && !running ? (turn) => void undo(turn, true) : undefined}
               />
             )}
             {running && waiting.length === 0 && !question && (
@@ -407,6 +462,7 @@ export function SessionView() {
             )}
           </div>
         </div>
+        <JumpToLatest shown={!atBottom} fresh={fresh} onJump={jumpToLatest} />
         </div>
 
         {connection === "closed" && (
@@ -476,6 +532,7 @@ export function SessionView() {
             </div>
           )}
           <textarea
+            ref={composer}
             className="textarea"
             rows={1}
             placeholder={

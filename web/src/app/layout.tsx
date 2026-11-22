@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { ShortcutHelp } from "@/components/Actions";
 import { Palette } from "@/components/Palette";
 import { Sidebar } from "@/components/Sidebar";
 import { THEME_SCRIPT } from "@/lib/theme";
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Suspense>
           <Palette />
         </Suspense>
+        <ShortcutHelp />
       </body>
     </html>
   );

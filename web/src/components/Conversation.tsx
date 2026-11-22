@@ -1,6 +1,6 @@
 "use client";
 
-import { ImageIcon, RotateCcw } from "lucide-react";
+import { ImageIcon, RefreshCw, RotateCcw } from "lucide-react";
 import {
   canAlwaysAllow,
   diffOf,
@@ -11,7 +11,9 @@ import {
   type Turn,
 } from "@/lib/events";
 import { lastLine } from "@/lib/format";
+import { replyText } from "@/lib/reply";
 import { TODO_TOOL, todosOf } from "@/lib/todos";
+import { ActionButton, CopyButton } from "./Actions";
 import { DiffBody } from "./DiffBody";
 import { DiffCount } from "./Glance";
 import { Markdown } from "./Markdown";
@@ -32,9 +34,11 @@ interface Props {
   streaming?: boolean;
   /** Set once the backlog has been shown: what arrives after eases in. */
   animate?: boolean;
+  /** Send the last turn's prompt again, in place of that turn. */
+  onRetry?: (turn: number) => void;
 }
 
-export function Conversation({ turns, onAnswer, undoable, onUndo, streaming = false, animate = false }: Props) {
+export function Conversation({ turns, onAnswer, undoable, onUndo, streaming = false, animate = false, onRetry }: Props) {
   if (turns.length === 0) return <p className="muted">Nothing yet.</p>;
   return (
     <div>
@@ -53,6 +57,11 @@ export function Conversation({ turns, onAnswer, undoable, onUndo, streaming = fa
                   <RotateCcw size={13} aria-hidden="true" />
                   Undo
                 </button>
+              )}
+              {turn.prompt && (
+                <span className="msg-actions msg-actions-prompt">
+                  <CopyButton text={turn.prompt} label="Copy the prompt" />
+                </span>
               )}
               <div className="prompt">
                 {turn.prompt}
@@ -76,7 +85,14 @@ export function Conversation({ turns, onAnswer, undoable, onUndo, streaming = fa
             </Enter>
           ))}
           <Enter live={animate}>
-            <TurnFoot turn={turn} />
+            <TurnFoot
+              turn={turn}
+              onRetry={
+                onRetry && i === turns.length - 1 && turn.prompt && undoable?.has(turn.number)
+                  ? () => onRetry(turn.number)
+                  : undefined
+              }
+            />
           </Enter>
         </section>
       ))}
@@ -84,13 +100,26 @@ export function Conversation({ turns, onAnswer, undoable, onUndo, streaming = fa
   );
 }
 
-function TurnFoot({ turn }: { turn: Turn }) {
+function TurnFoot({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
   if (!turn.stop) return null;
   const parts = [`${turn.modelCalls} model ${turn.modelCalls === 1 ? "call" : "calls"}`];
   if (turn.stop.reason !== "end_turn") {
     parts.unshift(`Stopped: ${turn.stop.reason}${turn.stop.detail ? `, ${turn.stop.detail}` : ""}`);
   }
-  return <div className="turn-foot">{parts.join(" · ")}</div>;
+  const reply = replyText(turn);
+  return (
+    <div className="turn-foot">
+      <span className="msg-actions">
+        {reply && <CopyButton text={reply} label="Copy the reply" />}
+        {onRetry && (
+          <ActionButton label="Retry: undo this turn and send its prompt again" onClick={onRetry}>
+            <RefreshCw size={13} aria-hidden="true" />
+          </ActionButton>
+        )}
+      </span>
+      <span>{parts.join(" · ")}</span>
+    </div>
+  );
 }
 
 function ItemView({ item, onAnswer, streaming }: { item: Item; onAnswer?: Props["onAnswer"]; streaming: boolean }) {

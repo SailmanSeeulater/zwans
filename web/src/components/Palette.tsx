@@ -80,6 +80,12 @@ function Dialog({ close }: { close: () => void }) {
       { group: "Go to", label: "Leaderboard", hint: "Pass rate against cost, for everything run", run: go("/evals/leaderboard/") },
       { group: "Go to", label: "Usage", hint: "Tokens and cost by day, week, month and year", run: go("/usage/") },
       { group: "Help", label: "Wtf is Zwans", hint: "What it is, what it has, its tools", run: go("/about/") },
+      {
+        group: "Help",
+        label: "Keyboard shortcuts",
+        hint: "Or press ? anywhere",
+        run: () => void window.dispatchEvent(new Event("zwans:shortcuts")),
+      },
     );
     for (const s of sessions?.live ?? []) {
       list.push({
