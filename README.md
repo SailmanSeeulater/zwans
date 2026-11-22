@@ -57,6 +57,7 @@ zwans run "make the tests pass" -w path/to/project
 zwans sessions                               # list saved sessions
 zwans --resume 20261008-1412                 # continue one (the start of its id is enough)
 zwans --resume 20261008-1412 --rewind 3      # continue from the end of turn 3
+zwans room "Monorepo or not?" -a ada=claude-haiku-5-5 -a bo=ollama/qwen3:8b  # agents talk
 python examples/run_demo.py --scripted       # demo with a scripted model: free, offline
 python examples/run_demo.py                  # the same demo with the real model
 ```
@@ -414,6 +415,29 @@ conversation, a subset of the tools if the model names one, and at most
 many files costs the main conversation one result. Several `Task` calls in one response run
 at the same time. A subagent's calls go through the same policy and hooks (other than stop
 hooks), and show in the terminal as indented lines. Set `subagents = false` to turn it off.
+
+### Rooms
+
+A room is a conversation between several agents, each on a model of its own, about a topic
+you give it. Agents speak one at a time: the next is whoever the last line mentions as
+`@Name`, or else whoever has waited longest. Each agent sees the conversation from its own
+side, with its own lines as its turns and everyone else's tagged `[Name]: ...`, so Claude,
+OpenAI-compatible servers and local models can share a room.
+
+```bash
+zwans room "Should a three-person startup use a monorepo?" \
+  -a ada=claude-haiku-5-5 -a bo=claude-sonnet-5-5 -a cy=ollama/qwen2.5 \
+  --persona bo="a skeptical staff engineer" --turns 6 --budget 0.25
+zwans room --list                              # saved rooms
+zwans room --resume 20261121-1852              # carry on with one
+```
+
+After each run of turns you can say something (mention `@Name` to choose who answers),
+press Enter for another run, or type `/quit`. Ctrl+C stops the agent that's speaking, and
+what it had said is kept, marked as cut off. `--budget` stops the room before a turn once it
+has spent that much in all. Rooms have no tools, so agents only talk (and search the web,
+where their provider offers it). Each room is saved in `~/.zwans/rooms/` after every line.
+In the web UI, Rooms in the sidebar sets one up, with a model menu for each agent.
 
 ### Instruction files
 

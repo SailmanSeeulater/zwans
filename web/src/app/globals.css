@@ -582,6 +582,7 @@ h2 {
 .session-main {
   flex: 1;
   min-width: 0;
+  min-height: 0; /* below 1100px .session is a column; without this it grows with its content */
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1939,4 +1940,104 @@ td.wf-time {
       opacity: 0.35;
     }
   }
+}
+
+/* Rooms: each agent has a hue, lighter on the dark themes. */
+.room-line,
+.room-chip,
+.room-agent-row {
+  --speaker: hsl(var(--hue) 62% 40%);
+}
+[data-theme="graphite"] :is(.room-line, .room-chip, .room-agent-row),
+[data-theme="slate"] :is(.room-line, .room-chip, .room-agent-row),
+[data-theme="mustard"] :is(.room-line, .room-chip, .room-agent-row) {
+  --speaker: hsl(var(--hue) 70% 72%);
+}
+.room-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--speaker);
+  flex-shrink: 0;
+}
+.room-line {
+  margin: 18px 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--speaker);
+}
+.room-speaker {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.room-speaker .room-dot {
+  align-self: center;
+}
+.room-name {
+  font-weight: 650;
+  color: var(--speaker);
+}
+.room-line .markdown {
+  margin: 4px 0 0;
+}
+/* A cursor at the end of a reply that's still being written. */
+.room-live .markdown > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 3px;
+  vertical-align: -2px;
+  border-radius: 2px;
+  background: var(--speaker);
+}
+.room-chip .mono {
+  font-weight: 400;
+}
+.room-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.room-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.room-agent-name {
+  width: 96px;
+  font-weight: 600;
+  color: var(--speaker);
+}
+.room-agent-persona {
+  flex: 1;
+  min-width: 180px;
+}
+.room-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.room-field .input {
+  width: auto;
+  padding: 4px 8px;
+}
+.room-mentions {
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.room-recent-topic {
+  display: block;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.room-roster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
 }

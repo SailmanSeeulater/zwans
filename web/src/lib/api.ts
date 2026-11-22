@@ -87,8 +87,17 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 /** A session's event stream. The token goes in the first message, as the server expects. */
 export function sessionSocket(id: string): WebSocket {
+  return socketTo(`/api/sessions/${encodeURIComponent(id)}/events`);
+}
+
+/** A room's event stream, authenticated the same way. */
+export function roomSocket(id: string): WebSocket {
+  return socketTo(`/api/rooms/${encodeURIComponent(id)}/events`);
+}
+
+function socketTo(path: string): WebSocket {
   const base = API_BASE || window.location.origin;
-  const url = base.replace(/^http/, "ws") + `/api/sessions/${encodeURIComponent(id)}/events`;
+  const url = base.replace(/^http/, "ws") + path;
   const ws = new WebSocket(url);
   ws.addEventListener("open", () => {
     ws.send(JSON.stringify({ type: "auth", token: readToken() ?? "" }));
@@ -332,4 +341,63 @@ export interface Comparison {
   only_in_b: string[];
   differences: Difference[];
   task_pass_rates: Record<string, [number, number]>;
+}
+
+// -- rooms: several agents, each on its own model, talking to each other
+
+export interface RoomAgent {
+  name: string;
+  model: string;
+  /** Who they are in the room, as "a skeptical security reviewer". */
+  persona: string;
+}
+
+export interface RoomLine {
+  /** An agent's name, or "User" for the person. */
+  speaker: string;
+  text: string;
+  /** The model that wrote it; empty for the user. */
+  model: string;
+  /** Null when the model's price isn't known. */
+  dollars: number | null;
+  /** Stopped partway through. */
+  cut: boolean;
+}
+
+/** The whole room, as the server sends it on connecting and after every run. */
+export interface RoomStatus {
+  type: "room";
+  id: string;
+  topic: string;
+  agents: RoomAgent[];
+  lines: RoomLine[];
+  dollars: number;
+  unpriced: string[];
+  budget: number | null;
+  created_at: string;
+  updated_at: string;
+  running: boolean;
+  /** The reply being written, when one is. */
+  speaking: { speaker: string; model: string; text: string } | null;
+  /** Who speaks next unless someone is mentioned. */
+  next: string;
+}
+
+export type RoomMessage =
+  | RoomStatus
+  | { type: "speaker_started"; speaker: string; model: string }
+  | { type: "speaker_text"; speaker: string; text: string }
+  | { type: "line_added"; line: RoomLine; dollars: number }
+  | { type: "room_stopped"; reason: "turns" | "budget" | "stopped" | "error"; detail: string }
+  | { type: "server_error"; message: string };
+
+export interface SavedRoom {
+  id: string;
+  topic: string;
+  agents: RoomAgent[];
+  lines: number;
+  dollars: number;
+  updated_at: string;
+  live: boolean;
+  running: boolean;
 }

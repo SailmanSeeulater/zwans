@@ -36,7 +36,7 @@ from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, WebSocke
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketDisconnect
 
 from zwans import __version__
@@ -47,9 +47,12 @@ from zwans.images import ImageError, image_block
 from zwans.messages import ImageBlock
 from zwans.policy.rules import Mode, PolicyError
 from zwans.providers.catalog import canonical, list_all, resolve
+from zwans.room import AgentSpec, RoomError
 from zwans.runtime import is_chat
 from zwans.server import evals
 from zwans.server.live import Busy, HubSettings, LiveSession, Message, RewindError, SessionHub
+from zwans.server.rooms import MAX_TURNS, LiveRoom, RoomHub
+from zwans.server.rooms import act as act_in_room
 from zwans.store import SessionError, SessionStore
 
 AUTH_TIMEOUT = 10.0  # seconds a WebSocket has to send the token
@@ -92,18 +95,28 @@ class OpenSession(BaseModel):
     mode: Mode | None = None
 
 
+class NewRoom(BaseModel):
+    topic: str
+    agents: list[AgentSpec]
+    turns: int = Field(default=6, ge=0, le=MAX_TURNS)  # to run at once; 0 waits for the user
+    budget: float | None = Field(default=None, ge=0)
+
+
 def create_app(settings: ServerSettings) -> FastAPI:
     hub = SessionHub(settings)
+    rooms = RoomHub(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
+        await rooms.close_all()
         await hub.close_all()
 
     app = FastAPI(
         title="Zwans", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None
     )
     app.state.hub = hub
+    app.state.rooms = rooms
     if settings.dev_origin:
         app.add_middleware(
             CORSMiddleware,
@@ -284,13 +297,44 @@ def create_app(settings: ServerSettings) -> FastAPI:
         except evals.ReportNotFound as exc:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"No transcript {exc}") from exc
 
+    @api.get("/rooms")
+    def list_rooms() -> dict[str, Any]:
+        return {"saved": rooms.saved()}
+
+    @api.post("/rooms", status_code=status.HTTP_201_CREATED)
+    async def create_room(body: NewRoom) -> Message:
+        """A room of agents, each on its own model, that starts talking about the topic."""
+        try:
+            live = await rooms.create(body.topic, body.agents, body.turns, body.budget)
+        except RoomError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        return live.status()
+
+    @api.post("/rooms/{room_id}/open")
+    async def open_room(room_id: str) -> Message:
+        try:
+            live = await rooms.open(room_id)
+        except RoomError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        return live.status()
+
+    @api.get("/rooms/{room_id}")
+    def get_room(room_id: str) -> Message:
+        return _live_room(rooms, room_id).status()
+
+    @api.delete("/rooms/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
+    async def close_room(room_id: str) -> None:
+        _live_room(rooms, room_id)
+        await rooms.close(room_id)
+
     app.include_router(api)
 
-    @app.websocket("/api/sessions/{session_id}/events")
-    async def session_events(ws: WebSocket, session_id: str) -> None:
+    async def authorized(ws: WebSocket) -> bool:
+        """Accept the socket if it comes from the UI's own page and its first message carries
+        the token; close it otherwise."""
         if not _same_origin(ws, settings.dev_origin):
             await ws.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
+            return False
         await ws.accept()
         try:
             first = await asyncio.wait_for(ws.receive_json(), AUTH_TIMEOUT)
@@ -300,6 +344,41 @@ def create_app(settings: ServerSettings) -> FastAPI:
             first.get("token")
         ):
             await ws.close(code=CLOSE_UNAUTHORIZED)
+            return False
+        return True
+
+    @app.websocket("/api/rooms/{room_id}/events")
+    async def room_events(ws: WebSocket, room_id: str) -> None:
+        if not await authorized(ws):
+            return
+        live = rooms.live.get(room_id)
+        if live is None:
+            await ws.close(code=CLOSE_NOT_FOUND, reason="That room isn't open.")
+            return
+        queue = live.subscribe()
+        try:
+            await ws.send_json(live.status())
+            async with anyio.create_task_group() as tasks:
+
+                async def send() -> None:
+                    try:
+                        await _send(ws, queue)
+                    except (WebSocketDisconnect, RuntimeError):
+                        pass
+                    finally:
+                        tasks.cancel_scope.cancel()
+
+                tasks.start_soon(send)
+                await _listen_in_room(ws, live, queue)
+                tasks.cancel_scope.cancel()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            live.unsubscribe(queue)
+
+    @app.websocket("/api/sessions/{session_id}/events")
+    async def session_events(ws: WebSocket, session_id: str) -> None:
+        if not await authorized(ws):
             return
         live = hub.live.get(session_id)
         if live is None:
@@ -352,6 +431,26 @@ def _live(hub: SessionHub, session_id: str) -> LiveSession:
     if live is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "That session isn't open.")
     return live
+
+
+def _live_room(rooms: RoomHub, room_id: str) -> LiveRoom:
+    live = rooms.live.get(room_id)
+    if live is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "That room isn't open.")
+    return live
+
+
+async def _listen_in_room(ws: WebSocket, live: LiveRoom, replies: asyncio.Queue[Message]) -> None:
+    with contextlib.suppress(WebSocketDisconnect):
+        while True:
+            try:
+                message = await ws.receive_json()
+            except ValueError:
+                replies.put_nowait({"type": "server_error", "message": "That wasn't JSON."})
+                continue
+            problem = act_in_room(live, message if isinstance(message, dict) else {})
+            if problem:
+                replies.put_nowait({"type": "server_error", "message": problem})
 
 
 def _same_origin(ws: WebSocket, dev_origin: str | None) -> bool:

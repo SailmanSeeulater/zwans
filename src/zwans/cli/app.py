@@ -20,6 +20,7 @@ from zwans.cli.commands import COMMANDS, Commands, Quit, Reopen, is_command
 from zwans.cli.evals import eval_app
 from zwans.cli.input import MENTIONED, Composer, echoing, expand_mentions
 from zwans.cli.render import Renderer
+from zwans.cli.room import room
 from zwans.cli.serve import read_server_file, serve
 from zwans.cli.terminal_text import printable
 from zwans.config import ConfigError, load_settings
@@ -37,6 +38,7 @@ from zwans.store import SessionError, SessionStore
 app = typer.Typer(add_completion=False)
 app.add_typer(eval_app, name="eval")
 app.command()(serve)
+app.command()(room)
 
 EXIT_INTERRUPTED = 130  # the usual exit code after Ctrl+C
 REPLAYED_TURNS = 3  # of a resumed session, shown again in the chat
