@@ -4,12 +4,34 @@ A coding agent built from scratch: the loop that calls the model, the tools it u
 (in later phases) the sandbox and the evals that prove it works. See [SPEC.md](SPEC.md) for
 the full plan.
 
-**Status:** Phases 0 to 5 are done and Phase 6 (server and web UI) is in review. Zwans can
-read, search, and edit a project and run its tests; it saves and resumes sessions, compacts
-long ones, and caches prompts. It asks before changing anything unless you loosen its policy,
-and it can run commands in a Docker container with filtered network access. It reads `CLAUDE.md`
-and `AGENTS.md` and Claude Code's skills, searches and reads the web, and keeps a to-do list
-for long tasks. Hooks, skills, MCP servers and subagents extend it, and a web UI shows sessions and eval runs.
+**Status:** Phases 0 to 6 are done, and Phase 7 (its own runtime and hardening) is under way,
+with the Linux jail and a Seatbelt sandbox on macOS. Zwans reads, searches and edits a
+project, runs its tests, and asks before changing anything unless you loosen its policy. It
+saves, resumes and compacts sessions, caches prompts, and runs commands on your machine, in
+Docker or in a sandbox. It works with Claude and with any model behind an OpenAI-compatible
+API, local ones included. Hooks, skills, MCP servers and subagents extend it. A web UI and a
+desktop app show sessions, chats and eval runs, and evals measure it against Claude Code and
+Codex.
+
+## Screenshots
+
+A session fixing a bug: thinking, tool calls, the edit's diff, and what each model call
+cost in the panel on the right.
+
+![A Zwans session in the web UI fixing an invoice bug](docs/screenshots/session.png)
+
+Before a change, Zwans asks, and shows the diff it would make:
+
+![Zwans asking before an edit, with the diff it would make](docs/screenshots/approval.png)
+
+The evals leaderboard ranks everything run on the same tasks by pass rate, then cost, with
+a 95% range for each:
+
+![The evals leaderboard: pass rate against cost per attempt](docs/screenshots/leaderboard.png)
+
+Fourteen themes, three of them dark. This is Graphite:
+
+![The same session in the Graphite dark theme](docs/screenshots/dark.png)
 
 ## Setup
 
@@ -131,8 +153,13 @@ otherwise), and `reasoning_effort = true` sends `effort` along (on for `openai`)
 Things to know:
 
 - Pick models trained for tool calling: Qwen3-Coder, Qwen 2.5 Coder, Devstral, GPT-OSS,
-  Llama 3.3, DeepSeek V3. Small local models get through simple edits but slip on longer
-  tasks. Running the evals with `ZWANS_MODEL=ollama/<model>` measures one against Claude.
+  Llama 3.3, DeepSeek V3. Running the evals with `ZWANS_MODEL=ollama/<model>` measures one
+  against Claude.
+- Size matters more than tools. On a 32 GB Mac, `ollama/qwen3-coder:30b` (18 GB, about 3B
+  parameters active per token, so fast enough) passed 7 of 10 starter tasks, with 3% of its
+  tool calls failing; the 7B Qwen models passed 0 to 2 of the same ten, with a third of
+  their tool calls failing. Below about 30B, expect a local model to manage one-step
+  fixes at best. Details in [docs/findings.md](docs/findings.md).
 - Some models write a tool call as JSON in their reply (`{"name": "Read", "arguments":
   {...}}`) when the server's chat template doesn't turn it into one; qwen2.5-coder on Ollama
   does. Zwans makes the first such call to a tool it offered into a real one and drops the
