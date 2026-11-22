@@ -4,7 +4,7 @@
 // (so the server finds its .env and eval reports), and stops it on quit. Everything you see
 // is the web UI in web/out; the one native thing it adds is a folder picker (preload.cjs).
 
-const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, screen, shell } = require("electron");
 const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const net = require("node:net");
@@ -20,6 +20,7 @@ const CONDA_ROOTS = [
 const READY_TIMEOUT_MS = 30_000;
 const STOP_TIMEOUT_MS = 3_000;
 const LOG_CHARS = 4_000; // of the server's output, kept to show if it fails
+const SHOWING_PX = 100; // how much of a restored window must be on a screen to grab it
 
 let window = null;
 let server = null;
@@ -33,6 +34,37 @@ function checkout() {
     return fs.readFileSync(path.join(__dirname, "checkout.txt"), "utf8").trim();
   } catch {
     return path.resolve(__dirname, "..");
+  }
+}
+
+function boundsFile() {
+  return path.join(app.getPath("userData"), "window.json");
+}
+
+/** The window's size from last time, and its place too if that is still on a screen. */
+function savedBounds() {
+  try {
+    const { x, y, width, height } = JSON.parse(fs.readFileSync(boundsFile(), "utf8"));
+    if (![x, y, width, height].every(Number.isFinite)) return {};
+    const area = screen.getDisplayMatching({ x, y, width, height }).workArea;
+    const reachable =
+      x + width > area.x + SHOWING_PX &&
+      x < area.x + area.width - SHOWING_PX &&
+      y >= area.y &&
+      y < area.y + area.height - SHOWING_PX;
+    return reachable ? { x, y, width, height } : { width, height };
+  } catch {
+    return {}; // no file yet, or not one of ours
+  }
+}
+
+function saveBounds() {
+  if (!window || window.isDestroyed()) return;
+  try {
+    // The size it returns to, not a maximized or full-screen one.
+    fs.writeFileSync(boundsFile(), JSON.stringify(window.getNormalBounds()));
+  } catch {
+    // Next time it opens at the default size.
   }
 }
 
@@ -192,6 +224,7 @@ function createWindow() {
   window = new BrowserWindow({
     width: 1320,
     height: 880,
+    ...savedBounds(),
     minWidth: 900,
     minHeight: 600,
     title: "Zwans",
@@ -213,6 +246,7 @@ function createWindow() {
   });
   keepWindowHome(window.webContents);
   window.on("page-title-updated", (event) => event.preventDefault());
+  window.on("close", saveBounds);
   window.on("closed", () => {
     window = null;
   });

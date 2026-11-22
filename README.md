@@ -492,7 +492,9 @@ zwans attach 20261102-2049                    # join one that's open in the brow
 
 The link carries a token after `#`, which the browser keeps; every API call and WebSocket
 needs it, and the server listens on 127.0.0.1 only. The server also leaves its address and
-token in `~/.zwans/server.json`, readable only by you, for `zwans attach`.
+token in `~/.zwans/server.json`, readable only by you, for `zwans attach`. Each start makes a
+new token, so after restarting the server open the new link; a page still holding the old
+one says so. A session that was open when the server stopped is resumed when you open it.
 
 - **Sessions:** start one in a folder, or resume a saved one. Text streams in as the model
   writes it; each tool call is a card with its input and result, and Edit and Write show a
@@ -510,9 +512,16 @@ token in `~/.zwans/server.json`, readable only by you, for `zwans attach`.
   or answer a question. `zwans attach` asks the same way the chat does, with the same preview. Ctrl+C in `zwans attach` interrupts the turn; with nothing running,
   it detaches and the session keeps going in the server.
 - **Evals:** every run in `evals/reports/` with a pass-rate chart per suite, each run's
-  attempts and transcripts, and `compare` with its confidence intervals. Pick a task to see
+  attempts and transcripts (a failed attempt's shows what its check printed), and `compare`
+  with its confidence intervals. Pick a task to see
   two attempts' transcripts side by side, lined up step by step, with the first step where
   they differ marked: that's where a regression starts.
+- **Leaderboard:** for each set of tasks, everything that was run on it (agent, model,
+  effort, executor and config, with repeat runs pooled), ranked by pass rate and then by
+  cost per attempt, over a chart of the two. Each row has a 95% range for its pass rate and
+  says whether a task-by-task comparison can tell it from the top row, so a few lucky
+  attempts don't read as a win. Runs with `--agent claude-code` or `--agent codex` land on
+  the same board as Zwans's.
 
 While working on the UI, `zwans serve --dev-origin http://localhost:3000` lets `npm run dev`
 (with `NEXT_PUBLIC_ZWANS_API=http://localhost:8765`) call the API.
@@ -530,8 +539,8 @@ npm run pack   # or build desktop/dist/Zwans-darwin-arm64/Zwans.app
 
 `Zwans.app` can go in Applications or the Dock, but it keeps pointing at this checkout: after
 changing the web UI, `npm --prefix web run build` is enough; after moving the repo or changing
-`desktop/`, run `npm run pack` again. Closing the window stops its sessions, which you can
-resume from the sidebar. Commands run directly on the Mac (the jail is Linux-only), so
+`desktop/`, run `npm run pack` again. The window opens at the size and place you left it.
+Closing it stops its sessions, which you can resume from the sidebar. Commands run directly on the Mac (the jail is Linux-only), so
 stay in `ask` mode unless you trust the task.
 
 ## Evals

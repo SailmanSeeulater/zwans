@@ -63,9 +63,7 @@ export function ContextMap({ events, data, status }: InspectorProps) {
                 onChange={(e) => setPicked(Number(e.target.value))}
                 aria-label="Which model call to show"
               />
-              <span className="mono">
-                {index + 1} of {main.length}
-              </span>
+              <span className="mono">#{call.n}</span>
             </label>
           )}
         </div>
@@ -125,7 +123,8 @@ export function ContextMap({ events, data, status }: InspectorProps) {
         </ul>
         <h3>Cached prefix</h3>
         <p>
-          <span className="stat-value">{tokens(call.cacheRead)}</span> <span className="muted">· {pct(cachedShare)}</span>
+          <span className="stat-value">{tokens(call.cacheRead)}</span>{" "}
+          <span className="muted">tokens, {pct(cachedShare)} of the request</span>
         </p>
         <p className="muted small">
           Everything up to the last cache breakpoint was read from the cache

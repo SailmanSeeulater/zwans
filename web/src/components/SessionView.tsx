@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowUp, ImagePlus, Maximize2, RotateCcw, Square, X } from "lucide-react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -47,6 +48,8 @@ export function SessionView() {
   const [status, setStatus] = useState<SessionStatus | null>(null);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [closedWhy, setClosedWhy] = useState("");
+  const [resumable, setResumable] = useState(false); // closed because the server doesn't have it open
+  const [resuming, setResuming] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [demo, setDemo] = useState<DemoInfo | null>(null);
@@ -59,6 +62,21 @@ export function SessionView() {
   const socket = useRef<WebSocket | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
   const pinned = useRef(true); // whether to follow new output to the bottom
+  const autoResumed = useRef(""); // the session this page has already tried to resume by itself
+
+  const resume = useCallback(async () => {
+    setResuming(true);
+    try {
+      await api<SessionStatus>(`/api/sessions/${encodeURIComponent(id)}/open`, { method: "POST" });
+      setNotice(null);
+      setConnection("connecting");
+      setGeneration((g) => g + 1);
+    } catch (error) {
+      setNotice(`Couldn't resume it: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setResuming(false);
+    }
+  }, [id]);
 
   useEffect(() => {
     if (!id || !hasToken) return;
@@ -85,11 +103,17 @@ export function SessionView() {
         if (stopped) return;
         if (event.code === 4401 || event.code === 4404) {
           setConnection("closed");
+          setResumable(event.code === 4404);
           setClosedWhy(
             event.code === 4401
               ? "The server refused this browser's token. Open the link zwans serve printed."
-              : "That session isn't open in the server. Resume it from the sidebar.",
+              : "This session isn't open in the server, which happens after the server restarts.",
           );
+          // A saved session only needs opening again, so try that once without being asked.
+          if (event.code === 4404 && autoResumed.current !== id) {
+            autoResumed.current = id;
+            void resume();
+          }
           return;
         }
         // A laptop's sleep or a network blip. The backlog on reconnecting fills in what was missed.
@@ -103,7 +127,7 @@ export function SessionView() {
       clearTimeout(retry);
       ws.close();
     };
-  }, [id, hasToken, generation]);
+  }, [id, hasToken, generation, resume]);
 
   useEffect(() => {
     if (!status?.demo || demo) return;
@@ -237,7 +261,9 @@ export function SessionView() {
     <div className="session">
       <div className="session-main">
         <header className="session-head glass">
-          <h1>{status?.title || "New session"}</h1>
+          <h1 title={status?.title || undefined}>
+            {status?.title || (connection === "closed" ? "Session" : "New session")}
+          </h1>
           {status && (
             <>
               <span className="pill pill-quiet mono" title={status.workspace}>
@@ -286,13 +312,14 @@ export function SessionView() {
                 {warning}
               </div>
             ))}
-            {connection === "closed" && <div className="notice notice-bad">{closedWhy}</div>}
-            <Conversation
-              turns={turns}
-              onAnswer={connection === "open" ? answer : undefined}
-              undoable={running ? undefined : new Set(undoable?.turns.map((t) => t.turn) ?? [])}
-              onUndo={connection === "open" ? setUndoing : undefined}
-            />
+            {(turns.length > 0 || connection !== "closed") && (
+              <Conversation
+                turns={turns}
+                onAnswer={connection === "open" ? answer : undefined}
+                undoable={running ? undefined : new Set(undoable?.turns.map((t) => t.turn) ?? [])}
+                onUndo={connection === "open" ? setUndoing : undefined}
+              />
+            )}
             {running && waiting.length === 0 && (
               <p className="muted small pulse" aria-live="polite">
                 Working…
@@ -301,8 +328,25 @@ export function SessionView() {
           </div>
         </div>
 
+        {connection === "closed" && (
+          <div className="composer glass">
+            <div className="notice notice-bad">{closedWhy}</div>
+            {notice && <div className="notice notice-warn">{notice}</div>}
+            {resumable && (
+              <div className="row">
+                <button className="button button-primary" onClick={() => void resume()} disabled={resuming}>
+                  {resuming ? "Resuming…" : "Try again"}
+                </button>
+                <Link className="button" href="/">
+                  New session
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
         <div
           className="composer glass"
+          style={connection === "closed" ? { display: "none" } : undefined}
           onDragOver={(e) => {
             if (e.dataTransfer.types.includes("Files")) e.preventDefault();
           }}
@@ -428,7 +472,7 @@ export function SessionView() {
           </div>
         </div>
       </div>
-      <UnderTheHood data={hood} status={status} onOpen={openTab} />
+      {(status || connection !== "closed") && <UnderTheHood data={hood} status={status} onOpen={openTab} />}
     </div>
   );
 }

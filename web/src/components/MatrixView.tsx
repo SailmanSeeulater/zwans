@@ -78,6 +78,7 @@ export function MatrixView() {
         </p>
       )}
       {problem && <div className="notice notice-bad">{problem}</div>}
+      {!reports && !problem && <p className="muted">Loading…</p>}
       {runs && names.length === 0 && <p className="muted">No runs yet.</p>}
 
       {reports && configs && (

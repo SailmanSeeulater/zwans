@@ -8,9 +8,11 @@ simulation of 25 tasks x 3 repeats, this flags about 5% of same-config pairs as 
 (as a 95% interval should) and catches a 15-point drop about 60% of the time.
 """
 
+import math
 import random
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from statistics import NormalDist
 
 from zwans.eval.runner import AttemptResult, Report, cache_hit_rate
 
@@ -79,6 +81,33 @@ def compare(a: Report, b: Report, seed: int = 0) -> Comparison:
             t: (_mean(by_task_a[t], pass_rate), _mean(by_task_b[t], pass_rate)) for t in tasks
         },
     )
+
+
+def pass_rate_difference(
+    a: Sequence[AttemptResult], b: Sequence[AttemptResult], seed: int = 0
+) -> Difference:
+    """How b's pass rate differs from a's over the tasks both attempted, measured the way
+    `compare` does. The attempts may be pooled from several runs."""
+    by_task_a, by_task_b = _counted_by_task(a), _counted_by_task(b)
+    tasks = sorted(by_task_a.keys() & by_task_b.keys())
+    pass_rate = METRICS["pass rate"]
+    return _difference("pass rate", pass_rate, tasks, by_task_a, by_task_b, random.Random(seed))
+
+
+def wilson(passed: int, attempts: int) -> tuple[float, float]:
+    """The interval for a pass rate seen in this many attempts (the Wilson score interval).
+
+    It stays wide when every attempt passed or failed, so three out of three doesn't read
+    as certain. It treats attempts as independent, which repeats of one task aren't quite,
+    so it is for showing a range; `pass_rate_difference` is what tells two rows apart."""
+    if attempts == 0:
+        return 0.0, 1.0
+    z = NormalDist().inv_cdf(1 - (1 - CONFIDENCE) / 2)
+    rate = passed / attempts
+    scale = 1 + z * z / attempts
+    middle = (rate + z * z / (2 * attempts)) / scale
+    half = z * math.sqrt(rate * (1 - rate) / attempts + z * z / (4 * attempts * attempts)) / scale
+    return max(0.0, middle - half), min(1.0, middle + half)
 
 
 def _counted_by_task(attempts: Sequence[AttemptResult]) -> dict[str, list[AttemptResult]]:

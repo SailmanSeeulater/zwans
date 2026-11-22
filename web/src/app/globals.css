@@ -589,7 +589,6 @@ h2 {
   position: relative;
   z-index: 10; /* above the conversation and composer, for the model menu */
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
@@ -602,10 +601,27 @@ html[data-desktop] .session-head button,
 html[data-desktop] .session-head a {
   -webkit-app-region: no-drag;
 }
+/* One line: a long title is cut short, and the pills and buttons beside it keep their size. */
 .session-head h1 {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-head > :not(h1):not(.inspect-back) {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.inspect-back {
+  min-width: 0;
+}
+.inspect-back > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pill {
   display: inline-flex;
@@ -1070,13 +1086,20 @@ html[data-desktop] .session-head a {
 .call-row {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: 0 8px;
   align-items: baseline;
   padding: 7px 0;
   border-top: 1px solid var(--edge);
 }
+.call-row-name,
 .call-row-sub {
-  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The token counts get the row's full width under the name, so they stay on one line. */
+.call-row-sub {
+  grid-column: 2 / -1;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-2);
@@ -1137,8 +1160,9 @@ html[data-desktop] .session-head a {
 /* -- charts and comparisons */
 
 .chart {
+  display: block;
   width: 100%;
-  height: 220px;
+  height: auto; /* from the viewBox, so a narrow window shrinks the chart instead of padding it */
   background: var(--glass);
   border: 1px solid var(--edge);
   border-radius: 14px;
@@ -1235,6 +1259,9 @@ html[data-desktop] .session-head a {
 .callout-warn {
   background: color-mix(in srgb, var(--warn) 12%, transparent);
 }
+.callout-warn .callout-title {
+  color: var(--warn);
+}
 .composer .textarea {
   field-sizing: content;
   max-height: 200px;
@@ -1267,6 +1294,13 @@ html[data-desktop] .session-head a {
 }
 .table-scroll {
   overflow-x: auto;
+}
+/* A failed check's output can run to hundreds of lines; it scrolls in place. */
+.compacted > pre {
+  max-height: 420px;
+  overflow: auto;
+  margin: 10px 0 0;
+  color: var(--ink);
 }
 
 /* -- the side panel's cards: each opens a view of the inspector */

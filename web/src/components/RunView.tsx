@@ -1,11 +1,11 @@
 "use client";
 
+import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { Report } from "@/lib/api";
+import { pct, plural, spent } from "@/lib/format";
 import { TokenMissing, useApi, useHasToken } from "./useApi";
-
-const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 export function RunView() {
   const name = useSearchParams().get("name") ?? "";
@@ -21,23 +21,24 @@ export function RunView() {
   }
   return (
     <main className="page page-wide">
-      <p>
-        <Link href="/evals/">← Evals</Link>
-      </p>
+      <Link href="/evals/" className="back-link">
+        <ChevronLeft size={14} aria-hidden="true" /> Eval runs
+      </Link>
       <h1>{name}</h1>
       {error && <div className="notice notice-bad">{error}</div>}
+      {!report && !error && <p className="muted">Loading…</p>}
       {report && (
         <>
           <p className="muted">
             {report.agent} · {report.model} · effort {report.effort} · config {report.config.name} · {report.executor} ·
-            started {report.started_at.replace("T", " ")} · ×{report.repeats}
+            started {report.started_at.replace("T", " ").slice(0, 16)} · {plural(report.repeats, "attempt")} per task
             {report.out_of_budget && " · stopped when the budget ran out"}
           </p>
           <p>
             <strong>
               {report.summary.passed}/{report.summary.attempts} passed ({pct(report.summary.pass_rate)})
             </strong>{" "}
-            · ${report.summary.dollars.toFixed(2)} · {report.summary.mean_model_calls.toFixed(1)} model calls and{" "}
+            · {spent(report.summary.dollars)} · {report.summary.mean_model_calls.toFixed(1)} model calls and{" "}
             {report.summary.mean_tool_calls.toFixed(1)} tool calls per attempt
           </p>
 
@@ -76,8 +77,9 @@ export function RunView() {
                     {attempt.transcript && (
                       <Link
                         href={`/evals/transcript/?run=${encodeURIComponent(name)}&file=${encodeURIComponent(attempt.transcript)}`}
+                        aria-label={`Transcript of ${attempt.task}, attempt ${attempt.repeat}`}
                       >
-                        view
+                        Open
                       </Link>
                     )}
                   </td>

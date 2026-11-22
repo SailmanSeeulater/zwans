@@ -49,11 +49,11 @@ export function Inspector({ tab, onTab, onClose, ...props }: Props) {
   return (
     <div className="inspect">
       <header className="session-head glass">
-        <button className="button button-quiet" onClick={onClose} title="Back to the conversation (Esc)">
+        <button className="button button-quiet inspect-back" onClick={onClose} title="Back to the conversation (Esc)">
           <ChevronLeft size={16} aria-hidden="true" />
-          {props.status?.title || "Session"}
+          <span>{props.status?.title || "Session"}</span>
         </button>
-        <nav className="segmented" aria-label="Inspector views" style={{ marginLeft: "auto" }}>
+        <nav className="segmented" aria-label="Inspector views">
           {TABS.map((t) => (
             <button key={t.id} aria-current={tab === t.id ? "page" : undefined} onClick={() => onTab(t.id)} title={t.about}>
               {t.label}

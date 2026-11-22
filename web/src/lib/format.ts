@@ -17,6 +17,11 @@ export function dollars(n: number | null | undefined): string {
   return `$${n.toFixed(2)}`;
 }
 
+/** A run's total, to the cent, without rounding a small amount down to nothing. */
+export function spent(n: number): string {
+  return n > 0 && n < 0.005 ? "<$0.01" : `$${n.toFixed(2)}`;
+}
+
 export function seconds(n: number): string {
   if (n < 1) return `${n.toFixed(2)} s`;
   if (n < 60) return `${n.toFixed(1)} s`;
@@ -27,4 +32,12 @@ export const pct = (x: number): string => `${Math.round(x * 100)}%`;
 
 export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n.toLocaleString()} ${n === 1 ? one : many}`;
+}
+
+/** Text split at its `backticks`, so the parts between a pair can be shown as code. Text
+ * with an unpaired backtick comes back whole. */
+export function codeSpans(text: string): { text: string; code: boolean }[] {
+  const parts = text.split("`");
+  if (parts.length % 2 === 0) return [{ text, code: false }];
+  return parts.map((part, i) => ({ text: part, code: i % 2 === 1 })).filter((span) => span.text);
 }

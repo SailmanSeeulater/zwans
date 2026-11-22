@@ -64,6 +64,7 @@ export function CompareView() {
         </p>
       )}
       {error && <div className="notice notice-bad">{error}</div>}
+      {!error && !(comparison && reportA && reportB) && <p className="muted">Loading…</p>}
       {comparison && reportA && reportB && (
         <>
           <div className="kpis">
