@@ -27,6 +27,7 @@ import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlsplit
@@ -39,14 +40,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketDisconnect
 
-from zwans import __version__
+from zwans import __version__, usage
 from zwans import demo as zwans_demo
 from zwans.config import ConfigError
 from zwans.executor.docker import DockerError
 from zwans.images import ImageError, image_block
 from zwans.messages import ImageBlock
 from zwans.policy.rules import Mode, PolicyError
-from zwans.providers.catalog import canonical, list_all, resolve
+from zwans.providers.catalog import canonical, list_all, register_prices, resolve
 from zwans.room import AgentSpec, RoomError
 from zwans.runtime import is_chat
 from zwans.server import evals
@@ -266,6 +267,13 @@ def create_app(settings: ServerSettings) -> FastAPI:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
         except SessionError as exc:
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @api.get("/usage")
+    def usage_over_time() -> dict[str, Any]:
+        """Tokens and dollars by day, week, month and year, in this machine's timezone."""
+        register_prices(settings.config)  # the config's, known before any session opens
+        calls = usage.read_calls(settings.config.home)
+        return usage.summarize(calls, datetime.now().astimezone())
 
     @api.get("/demo")
     def demo_prompts() -> dict[str, Any]:

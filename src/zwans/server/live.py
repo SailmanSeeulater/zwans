@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from zwans import demo as zwans_demo
+from zwans import usage
 from zwans.checkpoints import Change, CheckpointError
 from zwans.config import Config, ConfigError
 from zwans.events import Error, Event
@@ -380,6 +381,7 @@ class SessionHub:
                 store.delete(info.id)
         finally:
             store.close()
+        usage.archive(home, session_id)  # what it spent stays counted
         (home / "transcripts" / f"{session_id}.jsonl").unlink(missing_ok=True)
         shutil.rmtree(home / "tool-output" / session_id, ignore_errors=True)
         if info is not None and is_chat(info.workspace, home):

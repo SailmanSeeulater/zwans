@@ -2761,3 +2761,60 @@ td.wf-time {
 .about-try {
   overflow-x: auto;
 }
+
+/* -- usage: tokens and cost over time */
+
+.usage-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+.usage-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.usage-controls {
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.usage-chart {
+  position: relative;
+}
+.usage-chart rect {
+  outline: none;
+}
+.usage-bar {
+  fill: var(--accent);
+  opacity: 0.82;
+}
+.usage-bar-on {
+  opacity: 1;
+}
+.usage-tip {
+  position: absolute;
+  top: 10px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--raised);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.usage-tip[data-side="right"] {
+  transform: translateX(14px);
+}
+.usage-tip[data-side="left"] {
+  transform: translateX(calc(-100% - 14px));
+}
+.usage-table td.num,
+.usage-table th:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
