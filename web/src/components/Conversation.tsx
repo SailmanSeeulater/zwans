@@ -13,6 +13,7 @@ import {
 import { lastLine } from "@/lib/format";
 import { TODO_TOOL, todosOf } from "@/lib/todos";
 import { DiffBody } from "./DiffBody";
+import { DiffCount } from "./Glance";
 import { Markdown } from "./Markdown";
 import { Ticks } from "./Ticks";
 import { TodoList } from "./TodoList";
@@ -167,7 +168,11 @@ export function ToolCard({ call, onAnswer }: { call: ToolCall; onAnswer?: Props[
   const asking = call.permission?.state === "asking";
   return (
     <>
-      <details className={`tool ${call.result?.isError ? "tool-error" : ""}`} open={Boolean(diff) || asking}>
+      <details
+        id={`call-${call.id}`}
+        className={`tool ${call.result?.isError ? "tool-error" : ""}`}
+        open={Boolean(diff) || asking}
+      >
         <summary>
           <span className={`tool-mark ${state.tone}`} aria-hidden="true">
             {state.mark}
@@ -176,6 +181,7 @@ export function ToolCard({ call, onAnswer }: { call: ToolCall; onAnswer?: Props[
           <span className="tool-arg" title={keyArgument(call)}>
             {keyArgument(call)}
           </span>
+          {diff && <DiffCount diff={diff} />}
           <span className={`tool-state ${state.tone === "tone-bad" ? "status-failed" : ""}`}>{state.text}</span>
         </summary>
         <div className="tool-body">

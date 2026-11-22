@@ -27,6 +27,7 @@ import { buildTurns, pendingQuestion, waitingCalls, type RawEvent } from "@/lib/
 import { DEFAULT_PANE, readPane, savePane, type PaneState } from "@/lib/pane";
 import { currentTodos } from "@/lib/todos";
 import { AskBar, Conversation, type Answer } from "./Conversation";
+import { ActivityStrip, ContextMeter } from "./Glance";
 import { Inspector, isTab, type InspectorTab } from "./inspector/Inspector";
 import { ModelPicker } from "./ModelPicker";
 import { TodoList } from "./TodoList";
@@ -327,6 +328,13 @@ export function SessionView() {
             </>
           )}
           <span style={{ flex: 1 }} />
+          {status && status.context_tokens > 0 && (
+            <ContextMeter
+              tokens={status.context_tokens}
+              compactAt={status.compact_at ?? 200_000}
+              onOpen={() => openTab("context")}
+            />
+          )}
           <button className="button button-quiet" onClick={() => openTab("context")} title="Open the inspector">
             <Maximize2 size={14} aria-hidden="true" />
             Inspect
@@ -343,6 +351,8 @@ export function SessionView() {
           )}
         </header>
 
+        <div className="session-body">
+        <ActivityStrip turns={turns} />
         <div
           className="session-scroll"
           ref={scroller}
@@ -377,6 +387,7 @@ export function SessionView() {
               </p>
             )}
           </div>
+        </div>
         </div>
 
         {connection === "closed" && (

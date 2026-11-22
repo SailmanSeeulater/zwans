@@ -2866,3 +2866,157 @@ td.wf-time {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+/* Small pictures of a session (Glance.tsx). */
+.context-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.context-meter:hover {
+  background: var(--accent-soft);
+}
+.context-meter-track {
+  position: relative;
+  width: 56px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--edge);
+  overflow: hidden;
+}
+.context-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 400ms ease;
+}
+.context-meter[data-soon] .context-meter-fill {
+  background: var(--warn);
+}
+.context-meter[data-soon] {
+  color: var(--warn);
+}
+
+.session-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.activity {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  right: 4px;
+  z-index: 1;
+  width: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  overflow: hidden;
+}
+.activity-mark {
+  flex: 0 1 6px;
+  min-height: 2px;
+  width: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--ink-2);
+  opacity: 0.55;
+  cursor: pointer;
+  transition: width 120ms ease, opacity 120ms ease;
+}
+.activity-mark[data-kind="read"],
+.activity-mark[data-kind="other"] {
+  width: 5px;
+  opacity: 0.3;
+}
+.activity-mark[data-kind="edit"] {
+  width: 12px;
+  background: var(--accent);
+  opacity: 1;
+}
+.activity-mark[data-outcome="passed"] {
+  width: 12px;
+  background: var(--ok);
+  opacity: 1;
+}
+.activity-mark[data-outcome="failed"],
+.activity-mark[data-outcome="error"] {
+  width: 12px;
+  background: var(--bad);
+  opacity: 1;
+}
+.activity-mark[data-new-turn] {
+  margin-top: 6px;
+}
+.activity-mark:hover,
+.activity-mark:focus-visible {
+  width: 16px;
+  opacity: 1;
+}
+.tool-flash > summary {
+  animation: tool-flash 1.2s ease-out;
+}
+@keyframes tool-flash {
+  from {
+    background: var(--accent-soft);
+  }
+  to {
+    background: transparent;
+  }
+}
+@media (max-width: 700px) {
+  .activity {
+    display: none;
+  }
+}
+
+.diff-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.diff-count-add {
+  color: var(--ok);
+}
+.diff-count-del {
+  color: var(--bad);
+}
+.diff-blocks {
+  display: inline-flex;
+  gap: 1px;
+}
+.diff-blocks > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--edge);
+}
+.diff-blocks > [data-block="add"] {
+  background: var(--ok);
+}
+.diff-blocks > [data-block="del"] {
+  background: var(--bad);
+}
+/* Room for the strip, so it never sits over the cards. */
+.session-body:has(.activity) .session-scroll {
+  padding-right: 22px;
+}
