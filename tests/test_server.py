@@ -513,6 +513,48 @@ def test_a_race_runs_two_models_in_copies_and_keeps_the_chosen_result(server: Se
     assert refused.status_code == 400 and "takes 2 models" in refused.json()["detail"]
 
 
+def _ended(server: Server, session_id: str) -> dict[str, Any]:
+    with connect(server, session_id) as ws:
+        _, backlog = handshake(ws)
+        ended = [e for e in backlog if e["type"] == "turn_ended"]
+        return ended[-1] if ended else until(ws, "turn_ended")[-1]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_race_budget_is_shared_by_both_models(server: Server) -> None:
+    def costly(name: str) -> ModelResponse:
+        reply = write(f"{name}.txt", name)
+        return reply.model_copy(update={"model": "claude-opus-5-5", "output_tokens": 100_000})
+
+    server.scripts += [
+        FakeProvider([costly("a"), say("A done.")]),
+        FakeProvider([costly("b"), say("B done.")]),
+    ]
+    body = {
+        "workspace": str(server.workspace),
+        "prompt": "Write a file",
+        "models": ["claude-opus-5-5", "claude-sonnet-5-5"],
+        "mode": "auto",
+        "budget": 0.5,
+    }
+
+    race = server.client.post("/api/races", json=body, headers=AUTH).json()
+    ended = [_ended(server, lane["session_id"]) for lane in race["lanes"]]
+    status = server.client.get(f"/api/races/{race['id']}", headers=AUTH).json()
+    listed = server.client.get("/api/races", headers=AUTH).json()["races"]
+    free = {**body, "budget": 0}
+    refused = server.client.post("/api/races", json=free, headers=AUTH)
+
+    assert race["budget"] == 0.5
+    assert [e["stop_reason"] for e in ended] == ["budget", "budget"]
+    assert "race's $0.50 budget" in ended[0]["detail"]
+    assert status["dollars"] >= 0.5
+    assert status["dollars"] == sum(lane["dollars"] for lane in status["lanes"])
+    assert all(lane["live"] and not lane["running"] for lane in status["lanes"])
+    assert [r["id"] for r in listed] == [race["id"]]
+    assert refused.status_code == 400 and "more than $0" in refused.json()["detail"]
+
+
 def test_a_loop_runs_over_the_websocket_and_a_budget_stops_it(server: Server) -> None:
     priced = ModelResponse(
         content=[TextBlock(text="Tried.")],

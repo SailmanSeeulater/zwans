@@ -46,6 +46,7 @@ class Race:
     created_at: str
     lanes: list[Lane] = field(default_factory=list)
     kept: str = ""  # the session whose result was copied back, once one was
+    budget: float | None = None  # the most both sessions may cost between them
 
     def as_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -100,6 +101,20 @@ def load(home: Path, race_id: str) -> Race:
     data = json.loads(path.read_text())
     lanes = [Lane(**lane) for lane in data.pop("lanes", [])]
     return Race(**data, lanes=lanes)
+
+
+def recent(home: Path, limit: int = 30) -> list[Race]:
+    """The races saved under `home`, newest first."""
+    folder = home / RACES
+    if not folder.is_dir():
+        return []
+    found: list[Race] = []
+    for path in sorted(folder.glob("*.json"), reverse=True)[:limit]:
+        try:
+            found.append(load(home, path.stem))
+        except (RaceError, ValueError, TypeError):
+            continue  # a file from an older or newer Zwans, or half written
+    return found
 
 
 def keep(race: Race, lane: Lane, changes: list[Change]) -> list[Change]:

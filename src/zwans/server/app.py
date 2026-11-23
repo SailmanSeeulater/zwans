@@ -92,6 +92,7 @@ class NewRace(BaseModel):
     prompt: str
     models: list[str]
     mode: Mode | None = None
+    budget: float | None = None  # dollars, between both models
 
 
 class KeepResult(BaseModel):
@@ -206,16 +207,24 @@ def create_app(settings: ServerSettings) -> FastAPI:
         """One task, given to two models at once, each in its own copy of the folder."""
         try:
             race = await hub.race(
-                Path(body.workspace).expanduser(), body.prompt, body.models, body.mode
+                Path(body.workspace).expanduser(),
+                body.prompt,
+                body.models,
+                body.mode,
+                body.budget,
             )
         except (FileNotFoundError, RaceError, ConfigError, PolicyError, DockerError) as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
-        return race.as_json()
+        return hub.race_status(race)
+
+    @api.get("/races")
+    def list_races() -> dict[str, Any]:
+        return {"races": [hub.race_status(race) for race in races.recent(settings.config.home)]}
 
     @api.get("/races/{race_id}")
     def get_race(race_id: str) -> dict[str, Any]:
         try:
-            return races.load(settings.config.home, race_id).as_json()
+            return hub.race_status(races.load(settings.config.home, race_id))
         except RaceError as exc:
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 

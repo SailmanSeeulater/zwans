@@ -518,6 +518,23 @@ has spent that much in all. Rooms have no tools, so agents only talk (and search
 where their provider offers it). Each room is saved in `~/.zwans/rooms/` after every line.
 In the web UI, Rooms in the sidebar sets one up, with a model menu for each agent.
 
+### Races
+
+A race gives one task to two models at once, each in its own copy of the folder, so you can
+watch them side by side and keep the better result. The copies live in `~/.zwans/races/`,
+made with the project's files and git history; dependency folders such as `node_modules`
+and `.venv` are linked rather than copied. Your folder isn't touched until you keep one
+side: Keep this result copies the files that model changed (and deletes the ones it deleted)
+into it.
+
+Races are in the web UI: Races in the sidebar takes the task, the folder, a model for each
+side and a budget. The budget is shared, so with $5 both sides stop before their next model
+call once they've spent $5 between them; each side's own `budget` from the config still
+applies too. The race page shows each side's conversation live, a bar of what each has spent,
+and answers each side's permission questions in place. A race costs what the two sessions
+cost: there's no extra model call for running one. The shared cap is held by the running
+server, so after `zwans serve` restarts, only each side's own `budget` applies.
+
 ### Instruction files
 
 Standing instructions go in `~/.zwans/ZWANS.md` for all projects, and for one project in

@@ -412,6 +412,28 @@ export type RoomMessage =
   | { type: "room_stopped"; reason: "turns" | "budget" | "stopped" | "error"; detail: string }
   | { type: "server_error"; message: string };
 
+export interface RaceLane {
+  model: string;
+  folder: string; // the copy it works in
+  session_id: string;
+  live: boolean;
+  running: boolean;
+  waiting: boolean;
+  turns: number;
+  dollars: number;
+}
+
+export interface RaceStatus {
+  id: string;
+  prompt: string;
+  workspace: string;
+  created_at: string;
+  lanes: RaceLane[];
+  kept: string; // the session whose result was copied back, once one was
+  budget: number | null; // dollars, between both models
+  dollars: number; // what both have spent
+}
+
 export interface SavedRoom {
   id: string;
   topic: string;

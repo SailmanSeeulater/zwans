@@ -11,8 +11,8 @@ import contextlib
 import json
 import logging
 import shutil
-from collections.abc import Coroutine, Mapping, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Coroutine, Mapping, Sequence
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -347,6 +347,23 @@ class LiveSession:
             queue.put_nowait(message)
 
 
+def share_budget(budget: float, lanes: list[LiveSession]) -> None:
+    """Cap what a race's sessions spend between them, on top of each one's own cap: once
+    their costs add up to `budget`, neither makes another model call."""
+
+    def cap(own: Callable[[], str | None] | None) -> Callable[[], str | None]:
+        def limit() -> str | None:
+            spent = sum(lane.opened.meter.session_dollars for lane in lanes)
+            if spent >= budget:
+                return f"${spent:.2f} of the race's ${budget:.2f} budget spent"
+            return own() if own is not None else None
+
+        return limit
+
+    for lane in lanes:
+        lane.opened.session.limit = cap(lane.opened.session.limit)
+
+
 @dataclass
 class HubSettings:
     config: Config
@@ -378,10 +395,18 @@ class SessionHub:
             return await self._open(workspace=Path("."), resume=session_id, mode=mode)
 
     async def race(
-        self, workspace: Path, prompt: str, models: Sequence[str], mode: str | None = None
+        self,
+        workspace: Path,
+        prompt: str,
+        models: Sequence[str],
+        mode: str | None = None,
+        budget: float | None = None,
     ) -> races.Race:
-        """Give `prompt` to each of `models` at once, each in its own copy of `workspace`.
-        Raises FileNotFoundError, RaceError, or ConfigError for a model that can't be used."""
+        """Give `prompt` to each of `models` at once, each in its own copy of `workspace`,
+        with `budget` dollars between them when it's set. Raises FileNotFoundError,
+        RaceError, or ConfigError for a model that can't be used."""
+        if budget is not None and not budget > 0:
+            raise races.RaceError("A race's budget is more than $0, or none.")
         if not workspace.is_dir():
             raise FileNotFoundError(f"{workspace} isn't a folder")
         if len(models) != len(races.LANES):
@@ -394,6 +419,7 @@ class SessionHub:
             prompt=prompt.strip(),
             workspace=str(workspace.resolve()),
             created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+            budget=budget,
         )
         folder = home / races.RACES / race.id
         opened: list[LiveSession] = []
@@ -412,9 +438,54 @@ class SessionHub:
             shutil.rmtree(folder, ignore_errors=True)
             raise
         races.save(home, race)
+        if budget is not None:
+            share_budget(budget, opened)
         for live in opened:
             live.prompt(race.prompt)
         return race
+
+    def race_status(self, race: races.Race) -> dict[str, Any]:
+        """A race as saved, with where each of its sessions stands and what they've cost."""
+        lanes: list[dict[str, Any]] = []
+        store = SessionStore(self.settings.config.home / "sessions.db")
+        try:
+            for lane in race.lanes:
+                live = self.live.get(lane.session_id)
+                if live is not None:
+                    status = live.status()
+                    lanes.append(
+                        {
+                            **asdict(lane),
+                            "live": True,
+                            "running": status["running"],
+                            "waiting": bool(status["waiting_for"]),
+                            "turns": status["turns"],
+                            "dollars": status["dollars"],
+                        }
+                    )
+                    continue
+                try:
+                    info = store.get(lane.session_id)
+                    turns, spent = info.turns, float(info.usage.get("dollars", 0.0))
+                except SessionError:
+                    turns, spent = 0, 0.0
+                lanes.append(
+                    {
+                        **asdict(lane),
+                        "live": False,
+                        "running": False,
+                        "waiting": False,
+                        "turns": turns,
+                        "dollars": spent,
+                    }
+                )
+        finally:
+            store.close()
+        return {
+            **race.as_json(),
+            "lanes": lanes,
+            "dollars": sum(lane["dollars"] for lane in lanes),
+        }
 
     async def keep_race(self, race_id: str, session_id: str) -> list[Change]:
         """Copy what one of a race's sessions changed back into the race's project. Raises
