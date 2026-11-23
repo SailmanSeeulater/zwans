@@ -129,6 +129,28 @@ function socketTo(path: string): WebSocket {
 
 export type Mode = "read-only" | "ask" | "auto";
 
+export interface GitInfo {
+  state: {
+    repo: boolean;
+    branch: string;
+    base: string;
+    remote: string;
+    github: boolean;
+    gh: boolean;
+    on_base: boolean;
+    problem: string;
+  };
+  draft?: { branch: string; title: string; body: string };
+  files?: FileChange[];
+}
+
+export interface Shipped {
+  steps: { name: string; ok: boolean; detail: string }[];
+  branch: string;
+  commit: string;
+  url: string; // the pull request's, once one is open
+}
+
 export interface CustomCommandInfo {
   name: string;
   description: string;

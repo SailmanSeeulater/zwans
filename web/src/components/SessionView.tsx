@@ -926,6 +926,8 @@ export function SessionView() {
               data={changes}
               undoable={undoable}
               onUndo={connection === "open" && !running ? setUndoing : undefined}
+              sessionId={status?.demo || status?.chat ? undefined : id}
+              canShip={connection === "open" && !running}
             />
           }
           changed={changes?.changes.length ?? 0}

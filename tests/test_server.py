@@ -3,6 +3,7 @@ import base64
 import json
 import os
 import shutil
+import subprocess
 import sys
 from collections.abc import AsyncIterator, Iterator, Sequence
 from pathlib import Path
@@ -624,6 +625,44 @@ def test_commands_from_files_run_over_the_websocket(server: Server) -> None:
     assert asked["check"].startswith("test -f done.txt") and asked["path"].endswith("finish.md")
     assert looped[-1]["reason"] == "passed"
     assert missing["message"] == "There's no /nope."
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_sessions_work_ships_as_a_commit_on_a_branch(server: Server) -> None:
+    ws = server.workspace
+    for args in (
+        ["init", "--initial-branch=main"],
+        ["config", "user.email", "test@example.com"],
+        ["config", "user.name", "Test"],
+    ):
+        subprocess.run(["git", *args], cwd=ws, check=True, capture_output=True)
+    (ws / "keep.txt").write_text("old\n")
+    subprocess.run(["git", "add", "."], cwd=ws, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "Start"], cwd=ws, check=True, capture_output=True)
+    session_id = server.new_session(FakeProvider([write("new.txt", "hi\n"), say("Added new.txt.")]))
+    _run(server, session_id, "Add a new file")
+
+    found = server.client.get(f"/api/sessions/{session_id}/git", headers=AUTH).json()
+    body = {"branch": found["draft"]["branch"], "title": "Add new.txt", "push": False}
+    shipped = server.client.post(f"/api/sessions/{session_id}/ship", json=body, headers=AUTH)
+    on_main = {**body, "branch": "main", "push": True}
+    refused = server.client.post(f"/api/sessions/{session_id}/ship", json=on_main, headers=AUTH)
+
+    assert found["state"]["branch"] == "main" and found["state"]["on_base"] is True
+    assert found["draft"]["branch"] == "zwans/add-a-new-file"
+    assert "Added new.txt." in found["draft"]["body"]
+    assert found["files"] == [{"status": "added", "path": "new.txt"}]
+    assert shipped.status_code == 200, shipped.text
+    assert [s["name"] for s in shipped.json()["steps"]] == ["branch", "commit"]
+    log = subprocess.run(
+        ["git", "log", "--format=%s", "-1", "zwans/add-a-new-file"],
+        cwd=ws,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert log.stdout.strip() == "Add new.txt"
+    assert refused.status_code == 400 and "other than main" in refused.json()["detail"]
 
 
 def test_a_new_session_needs_a_real_folder(server: Server, tmp_path: Path) -> None:

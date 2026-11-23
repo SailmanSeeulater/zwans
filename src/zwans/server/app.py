@@ -42,7 +42,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketDisconnect
 
-from zwans import __version__, races, replay, transcript, usage
+from zwans import __version__, races, replay, shipping, transcript, usage
 from zwans import demo as zwans_demo
 from zwans.config import ConfigError
 from zwans.executor.docker import DockerError
@@ -101,6 +101,14 @@ class NewRace(BaseModel):
     models: list[str]
     mode: Mode | None = None
     budget: float | None = None  # dollars, between both models
+
+
+class Ship(BaseModel):
+    branch: str
+    title: str
+    body: str = ""
+    push: bool = True
+    pull_request: bool = True
 
 
 class KeepResult(BaseModel):
@@ -320,6 +328,24 @@ def create_app(settings: ServerSettings) -> FastAPI:
         )
         name = replay.filename(info.id)
         return HTMLResponse(page, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @api.get("/sessions/{session_id}/git")
+    async def session_git(session_id: str) -> dict[str, Any]:
+        """The project's branch and remote, with a branch, title and body to ship with."""
+        return await _live(hub, session_id).git()
+
+    @api.post("/sessions/{session_id}/ship")
+    async def session_ship(session_id: str, body: Ship) -> dict[str, Any]:
+        """Commit what the session changed on a branch, then push it and open a PR."""
+        try:
+            shipped = await _live(hub, session_id).ship(
+                body.branch, body.title, body.body, body.push, body.pull_request
+            )
+        except Busy as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        except shipping.ShipError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        return shipped.as_json()
 
     @api.get("/sessions/{session_id}/changes")
     async def session_changes(session_id: str) -> dict[str, Any]:

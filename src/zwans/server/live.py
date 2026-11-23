@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from zwans import custom_commands, pricing, races, transcript, usage
+from zwans import custom_commands, pricing, races, shipping, transcript, usage
 from zwans import demo as zwans_demo
 from zwans.budget import parse_dollars
 from zwans.checkpoints import Change, CheckpointError
@@ -209,6 +209,56 @@ class LiveSession:
             "cut": cut,
             "problem": None,
         }
+
+    async def git(self) -> dict[str, Any]:
+        """Where the project's git stands, and a branch, title and body to start shipping
+        from."""
+        if self.demo or self.opened.chat:
+            return {
+                "state": shipping.GitState(repo=False, problem="Nothing here to ship.").as_json()
+            }
+        folder = Path(self.opened.info.workspace)
+        state = await shipping.state(folder)
+        changes = await self._session_changes()
+        draft = shipping.draft(
+            self.opened.info.label or self._first_prompt(),
+            changes,
+            shipping.summary_of(self.events),
+        )
+        if not state.on_base and state.branch:
+            draft["branch"] = state.branch  # carry on with the branch it's on
+        return {
+            "state": state.as_json(),
+            "draft": draft,
+            "files": [{"status": c.status, "path": c.path} for c in changes],
+        }
+
+    async def ship(
+        self, branch: str, title: str, body: str, push: bool, pull_request: bool
+    ) -> shipping.Shipped:
+        """Commit what the session changed on `branch`, and push it and open a PR, as asked.
+        Raises Busy while a turn runs, or ShipError."""
+        if self.running:
+            raise Busy("Wait for the turn to end before shipping its work.")
+        if self.demo or self.opened.chat:
+            raise shipping.ShipError("Nothing here to ship.")
+        changes = await self._session_changes()
+        return await shipping.ship(
+            Path(self.opened.info.workspace),
+            changes,
+            branch=branch,
+            title=title,
+            body=body,
+            push=push,
+            pull_request=pull_request,
+        )
+
+    async def _session_changes(self) -> list[Change]:
+        checkpoints = self.opened.checkpoints
+        if checkpoints is None or not checkpoints.available:
+            return []
+        changes, _ = await checkpoints.since_start()
+        return list(changes)
 
     def undo_problem(self) -> str | None:
         """Why turns can't be undone in this session at all, if they can't."""

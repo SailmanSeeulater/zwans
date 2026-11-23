@@ -520,6 +520,22 @@ has spent that much in all. Rooms have no tools, so agents only talk (and search
 where their provider offers it). Each room is saved in `~/.zwans/rooms/` after every line.
 In the web UI, Rooms in the sidebar sets one up, with a model menu for each agent.
 
+### Shipping a session's work
+
+In the web UI, the Changes tab beside a session has a Ship button: it commits the files the
+session changed on a branch, pushes the branch, and opens a pull request, in one go. The
+branch name, commit title and description start from the session (its title, its last
+reply and the files it changed, made without a model call, so it costs nothing) and you
+edit them before pressing the button. Only the session's files go in the commit: anything
+else changed in the folder, such as your own work in progress, stays as it was.
+
+Working on the repository's main branch, it makes a new branch (`zwans/<title>`); on
+another branch, it commits there. Pushing needs a remote called `origin`, and the pull
+request needs it on GitHub with GitHub's `gh` command installed and signed in (`gh auth
+login`). Each step reports what it did, so a refused push leaves the commit in place and
+says why. Git and gh run in the project's folder with your own setup, so commit signing,
+hooks and credentials work as they do in your terminal.
+
 ### Replays
 
 `zwans replay <id>` writes a session as one HTML file, `zwans-replay-<id>.html` (or where

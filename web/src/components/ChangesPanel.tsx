@@ -1,17 +1,22 @@
 "use client";
 
-import { ChevronRight, RotateCcw } from "lucide-react";
+import { ChevronRight, GitPullRequest, RotateCcw } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { SessionChanges, UndoableTurns } from "@/lib/api";
 import { splitDiff } from "@/lib/diff";
 import { DiffBody } from "./DiffBody";
 import { DiffCount } from "./Glance";
+import { ShipBox } from "./ShipBox";
 
 interface Props {
   data: SessionChanges | null;
   undoable: UndoableTurns | null;
   /** Unset while a turn runs: nothing can be undone then. */
   onUndo?: (turn: number) => void;
+  /** The session, to ship its changes as a commit, a push and a pull request. */
+  sessionId?: string;
+  /** False while a turn runs. */
+  canShip?: boolean;
 }
 
 const MARK = { added: "A", changed: "M", deleted: "D" } as const;
@@ -21,7 +26,8 @@ const MARK = { added: "A", changed: "M", deleted: "D" } as const;
  * checkpoint to now, each opening to its diff, and the turns it can be put back to. It comes
  * from the checkpoints, so what Bash changed is here as well as what the edit tools did.
  */
-export function ChangesPanel({ data, undoable, onUndo }: Props) {
+export function ChangesPanel({ data, undoable, onUndo, sessionId, canShip = false }: Props) {
+  const [shipping, setShipping] = useState(false);
   const diffs = useMemo(() => {
     const byPath = new Map<string, string>();
     for (const part of splitDiff(data?.diff ?? "")) if (part.path) byPath.set(part.path, part.text);
@@ -53,8 +59,20 @@ export function ChangesPanel({ data, undoable, onUndo }: Props) {
     <div className="inspector changes">
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h2>Changes</h2>
-        {files.length > 0 && <DiffCount diff={data.diff} />}
+        <span className="row" style={{ gap: 8 }}>
+          {files.length > 0 && <DiffCount diff={data.diff} />}
+          {sessionId && files.length > 0 && !shipping && (
+            <button
+              className="button button-small ship-open"
+              onClick={() => setShipping(true)}
+              title="Commit these changes on a branch, push it, and open a pull request"
+            >
+              <GitPullRequest size={13} aria-hidden="true" /> Ship
+            </button>
+          )}
+        </span>
       </div>
+      {sessionId && shipping && <ShipBox sessionId={sessionId} ready={canShip} onClose={() => setShipping(false)} />}
       {files.length === 0 ? (
         <div className="changes-empty">
           <p>Nothing changed yet.</p>
