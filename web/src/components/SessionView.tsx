@@ -1,11 +1,12 @@
 "use client";
 
-import { ArrowUp, CornerDownRight, ImagePlus, Maximize2, MonitorPlay, PanelRightOpen, RotateCcw, Square, X } from "lucide-react";
+import { ArrowUp, Check, CornerDownRight, ImagePlus, Maximize2, MonitorPlay, PanelRightOpen, RotateCcw, Share2, Square, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   api,
+  download,
   sessionSocket,
   takeFirstPrompt,
   type DemoInfo,
@@ -357,6 +358,21 @@ export function SessionView() {
     [id, router],
   );
   const closeInspector = useCallback(() => openTab(null), [openTab]);
+  const [sharing, setSharing] = useState(false);
+  const [shared, setShared] = useState(false);
+  const shareReplay = async () => {
+    setSharing(true);
+    try {
+      const name = await download(`/api/sessions/${encodeURIComponent(id)}/replay`, `zwans-replay-${id}.html`);
+      setNotice(`Saved ${name}: it plays this session back in any browser, so you can send it to anyone. Keys and tokens are masked.`);
+      setShared(true);
+      setTimeout(() => setShared(false), 2_400);
+    } catch (error) {
+      setNotice(`Couldn't make the replay: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setSharing(false);
+    }
+  };
   const loop = useMemo(() => loopState(events), [events]);
   const menu = matching(draft);
 
@@ -513,6 +529,17 @@ export function SessionView() {
               onOpen={() => openTab("context")}
             />
           )}
+          <button
+            className="button button-quiet icon-button share-button"
+            onClick={() => void shareReplay()}
+            disabled={turnCount === 0 || sharing}
+            title="Share a replay: save this session as one HTML file that plays it back, to send to anyone"
+            aria-label={shared ? "Replay saved" : "Share a replay"}
+            data-saved={shared || undefined}
+            style={shared ? { color: "var(--ok)" } : undefined}
+          >
+            {shared ? <Check size={14} aria-hidden="true" /> : <Share2 size={14} aria-hidden="true" />}
+          </button>
           <button className="button button-quiet" onClick={() => openTab("context")} title="Open the inspector">
             <Maximize2 size={14} aria-hidden="true" />
             Inspect

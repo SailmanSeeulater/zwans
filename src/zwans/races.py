@@ -103,6 +103,17 @@ def load(home: Path, race_id: str) -> Race:
     return Race(**data, lanes=lanes)
 
 
+def project_of(home: Path, folder: str) -> str:
+    """The project a race copy was made from, or `folder` itself when it isn't one."""
+    path = Path(folder)
+    if path.resolve().parent.parent != (home / RACES).resolve():
+        return folder
+    try:
+        return load(home, path.parent.name).workspace
+    except (RaceError, ValueError, TypeError):
+        return folder
+
+
 def recent(home: Path, limit: int = 30) -> list[Race]:
     """The races saved under `home`, newest first."""
     folder = home / RACES

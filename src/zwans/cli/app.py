@@ -14,7 +14,7 @@ import typer
 from prompt_toolkit.input import Input, create_input
 from prompt_toolkit.input.typeahead import get_typeahead
 
-from zwans import __version__
+from zwans import __version__, races, replay, transcript
 from zwans.cli.approval import (
     can_prompt,
     load_with_trust,
@@ -142,6 +142,46 @@ def run(
 ) -> None:
     """Do one task, then exit. The exit code is 0 when the model finished normally."""
     raise typer.Exit(_start(task, workspace, model, resume, rewind, mode, fake_script))
+
+
+@app.command("replay")
+def replay_command(
+    session: Annotated[
+        str, typer.Argument(help="The session's id from `zwans sessions`, or its start.")
+    ],
+    out: Annotated[
+        Path | None,
+        typer.Option(
+            "--out", "-o", help="Where to write it. Defaults to zwans-replay-<id>.html here."
+        ),
+    ] = None,
+) -> None:
+    """Write a session as one HTML file that plays it back, to share. Keys and tokens that
+    look like secrets are masked, and your home folder shows as ~."""
+    try:
+        config, _ = load_settings()
+    except ConfigError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(2) from exc
+    store = SessionStore(config.home / "sessions.db")
+    try:
+        info = store.get(session)
+    except SessionError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(2) from exc
+    finally:
+        store.close()
+    page = replay.build(
+        transcript.read(config.home / "transcripts" / f"{info.id}.jsonl"),
+        title=info.label,
+        model=info.model,
+        workspace=races.project_of(config.home, info.workspace),
+        created_at=info.created_at,
+        home=str(Path.home()),
+    )
+    target = out or Path(replay.filename(info.id))
+    target.write_text(page, encoding="utf-8")
+    typer.echo(f"Wrote {target} ({len(page.encode()) / 1024:,.0f} KB). Open it in any browser.")
 
 
 @app.command()

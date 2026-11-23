@@ -582,6 +582,20 @@ def test_a_loop_runs_over_the_websocket_and_a_budget_stops_it(server: Server) ->
     assert "Usage: /loop" in refused["message"]
 
 
+def test_a_session_downloads_as_a_replay_page(server: Server) -> None:
+    session_id = server.new_session(FakeProvider([write("a.txt", "1"), say("Wrote a.")]))
+    _run(server, session_id, "Write a")
+
+    page = server.client.get(f"/api/sessions/{session_id}/replay", headers=AUTH)
+    missing = server.client.get("/api/sessions/nope/replay", headers=AUTH)
+
+    assert page.status_code == 200
+    assert page.headers["content-type"].startswith("text/html")
+    assert f'filename="zwans-replay-{session_id}.html"' in page.headers["content-disposition"]
+    assert '"prompt": "Write a"' in page.text and '"text": "Wrote a."' in page.text
+    assert missing.status_code == 404
+
+
 def test_a_new_session_needs_a_real_folder(server: Server, tmp_path: Path) -> None:
     body = {"workspace": str(tmp_path / "missing")}
     response = server.client.post("/api/sessions", json=body, headers=AUTH)

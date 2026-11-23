@@ -85,6 +85,26 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** Fetch a file the server makes, with the token, and save it under the name it gives.
+ * Returns that name. */
+export async function download(path: string, fallback: string): Promise<string> {
+  const token = readToken();
+  const response = await fetch(API_BASE + path, { headers: { Authorization: `Bearer ${token ?? ""}` } });
+  if (response.status === 401) forgetToken(token);
+  if (!response.ok) throw new ApiError(response.statusText || `HTTP ${response.status}`, response.status);
+  const named = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "");
+  const name = named?.[1] ?? fallback;
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return name;
+}
+
 /** A session's event stream. The token goes in the first message, as the server expects. */
 export function sessionSocket(id: string): WebSocket {
   return socketTo(`/api/sessions/${encodeURIComponent(id)}/events`);

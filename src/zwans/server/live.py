@@ -8,7 +8,6 @@ turn; they all see the result, because it arrives as events.
 
 import asyncio
 import contextlib
-import json
 import logging
 import shutil
 from collections.abc import Callable, Coroutine, Mapping, Sequence
@@ -18,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from zwans import demo as zwans_demo
-from zwans import pricing, races, usage
+from zwans import pricing, races, transcript, usage
 from zwans.budget import parse_dollars
 from zwans.checkpoints import Change, CheckpointError
 from zwans.config import Config, ConfigError
@@ -62,7 +61,7 @@ class LiveSession:
         self.opened = opened
         self.warnings = warnings  # MCP servers that didn't start, an untrusted policy, ...
         self.demo = demo  # the scripted replay, with no API calls
-        self.events: list[Message] = _earlier_events(opened.transcript.path)
+        self.events: list[Message] = transcript.read(opened.transcript.path)
         self.clients: set[asyncio.Queue[Message]] = set()
         self.turn: asyncio.Task[None] | None = None
         self.pending: dict[str, asyncio.Future[Approval]] = {}
@@ -651,36 +650,3 @@ class SessionHub:
     async def close_all(self) -> None:
         for session_id in list(self.live):
             await self.close(session_id)
-
-
-def _earlier_events(path: Path) -> list[Message]:
-    """What a resumed session did before, from its transcript, without the turns a rewind
-    dropped."""
-    events: list[Message] = []
-    if not path.exists():
-        return events
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            record = json.loads(line)
-        except ValueError:
-            continue  # a line cut short when Zwans was killed
-        if not isinstance(record, dict):
-            continue
-        if record.get("type") == "rewound":
-            cut = _first_turn_after(events, int(record.get("turn") or 0))
-            del events[cut:]
-        else:
-            events.append(record)
-    return events
-
-
-def _first_turn_after(events: list[Message], turn: int) -> int:
-    """Where the first turn after `turn` starts in `events`, or the end when there's none.
-    Transcripts from before turns were numbered count them instead."""
-    count = 0
-    for index, event in enumerate(events):
-        if event.get("type") == "turn_started":
-            count += 1
-            if (event.get("turn") or count) > turn:
-                return index
-    return len(events)

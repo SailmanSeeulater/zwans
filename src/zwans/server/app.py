@@ -42,7 +42,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketDisconnect
 
-from zwans import __version__, races, usage
+from zwans import __version__, races, replay, transcript, usage
 from zwans import demo as zwans_demo
 from zwans.config import ConfigError
 from zwans.executor.docker import DockerError
@@ -290,6 +290,28 @@ def create_app(settings: ServerSettings) -> FastAPI:
         """The turns that can be undone, newest first, each with the files it changed."""
         live = _live(hub, session_id)
         return {"turns": await live.undoable_turns(), "problem": live.undo_problem()}
+
+    @api.get("/sessions/{session_id}/replay", response_class=HTMLResponse)
+    def session_replay(session_id: str) -> HTMLResponse:
+        """The session as one HTML file that plays it back, to share: open or not."""
+        home = settings.config.home
+        store = SessionStore(home / "sessions.db")
+        try:
+            info = store.get(session_id)
+        except SessionError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        finally:
+            store.close()
+        page = replay.build(
+            transcript.read(home / "transcripts" / f"{info.id}.jsonl"),
+            title=info.label,
+            model=info.model,
+            workspace=races.project_of(home, info.workspace),
+            created_at=info.created_at,
+            home=str(Path.home()),
+        )
+        name = replay.filename(info.id)
+        return HTMLResponse(page, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @api.get("/sessions/{session_id}/changes")
     async def session_changes(session_id: str) -> dict[str, Any]:

@@ -79,6 +79,7 @@ zwans run "make the tests pass" -w path/to/project
 zwans sessions                               # list saved sessions
 zwans --resume 20261008-1412                 # continue one (the start of its id is enough)
 zwans --resume 20261008-1412 --rewind 3      # continue from the end of turn 3
+zwans replay 20261008-1412                   # save it as an HTML page that plays it back
 zwans room "Monorepo or not?" -a ada=claude-haiku-5-5 -a bo=ollama/qwen3:8b  # agents talk
 python examples/run_demo.py --scripted       # demo with a scripted model: free, offline
 python examples/run_demo.py                  # the same demo with the real model
@@ -517,6 +518,24 @@ what it had said is kept, marked as cut off. `--budget` stops the room before a 
 has spent that much in all. Rooms have no tools, so agents only talk (and search the web,
 where their provider offers it). Each room is saved in `~/.zwans/rooms/` after every line.
 In the web UI, Rooms in the sidebar sets one up, with a model menu for each agent.
+
+### Replays
+
+`zwans replay <id>` writes a session as one HTML file, `zwans-replay-<id>.html` (or where
+`-o` says), and the Share button in a session's header in the web UI saves the same file.
+It plays the session back in any browser with nothing else needed, so you can send it to
+anyone: prompts, replies as they streamed, tool calls with their output and diffs,
+approvals, steering and `/loop` checks, timed as they happened. Waits longer than a few
+seconds are shortened, so a slow command or time spent reading doesn't stall the replay.
+There's play and pause, a track to scrub with a mark at each turn, 1× to 8× speed, and
+`#t=30` at the end of the file's address starts it 30 seconds in. Space plays and pauses,
+and ← and → skip 5 seconds.
+
+Before anything goes in, it's scrubbed: provider keys, GitHub, Slack, AWS and Google keys,
+bearer tokens, private keys, and `NAME=value` where the name says key, token, secret or
+password are masked, and your home folder shows as `~`. Thinking isn't included. Masking
+goes by what secrets usually look like, so read the replay before you share it if the session
+handled anything sensitive.
 
 ### Races
 
