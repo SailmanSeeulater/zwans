@@ -17,6 +17,7 @@ from zwans.cli.commands import (
     Commands,
     Quit,
     Reopen,
+    Send,
     _describe,
     _describe_undo,
     is_command,
@@ -379,3 +380,26 @@ def test_file_names_with_escape_codes_are_shown_as_text() -> None:
 
     assert _describe_undo([Change("deleted", evil)]) == "Removed a\\x1b[2K\\x0d.py, which was new."
     assert _describe([Change("changed", evil)]) == "a\\x1b[2K\\x0d.py (changed)"
+
+
+def test_a_command_of_your_own_sends_its_text_and_shows_in_help(
+    tmp_path: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    folder = workspace / ".zwans" / "commands"
+    folder.mkdir(parents=True)
+    review = "---\ndescription: Review a file\nargs: <path>\n---\nReview $1."
+    (folder / "review.md").write_text(review)
+    (folder / "check.md").write_text("---\nloop: pytest\n---\nFix the tests.")
+    opened = opened_session(tmp_path, workspace, [])
+    commands = Commands(opened)
+
+    sent = asyncio.run(commands.run("/review app.py"))
+    asyncio.run(commands.run("/help"))
+    untrusted = asyncio.run(commands.run("/check"))  # nobody here to say yes
+
+    out = capsys.readouterr().out
+    assert sent == Send("Review app.py.")
+    assert "/review <path>" in out and "Review a file (project)" in out
+    assert untrusted is None and "came with this project and runs `pytest`" in out
+    assert opened.session.turn == 0
+    asyncio.run(opened.close())

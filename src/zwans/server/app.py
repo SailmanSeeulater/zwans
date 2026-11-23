@@ -54,7 +54,15 @@ from zwans.races import RaceError
 from zwans.room import AgentSpec, RoomError
 from zwans.runtime import is_chat
 from zwans.server import evals
-from zwans.server.live import Busy, HubSettings, LiveSession, Message, RewindError, SessionHub
+from zwans.server.live import (
+    Busy,
+    HubSettings,
+    LiveSession,
+    Message,
+    NeedsTrust,
+    RewindError,
+    SessionHub,
+)
 from zwans.server.rooms import MAX_TURNS, LiveRoom, RoomHub
 from zwans.server.rooms import act as act_in_room
 from zwans.store import SessionError, SessionStore
@@ -593,12 +601,15 @@ async def _listen(ws: WebSocket, live: LiveSession, replies: asyncio.Queue[Messa
                 replies.put_nowait({"type": "server_error", "message": "That wasn't JSON."})
                 continue
             problem = _act(live, message if isinstance(message, dict) else {})
-            if problem:
+            if isinstance(problem, dict):
+                replies.put_nowait(problem)
+            elif problem:
                 replies.put_nowait({"type": "server_error", "message": problem})
 
 
-def _act(live: LiveSession, message: dict[str, Any]) -> str | None:
-    """Do what a client asked. Returns why not, when it can't."""
+def _act(live: LiveSession, message: dict[str, Any]) -> str | Message | None:
+    """Do what a client asked. Returns why not, when it can't: a message to show, or one
+    asking a question, such as whether to trust a project's command."""
     kind = message.get("type")
     if kind == "prompt":
         text = str(message.get("text", "")).strip()
@@ -615,6 +626,22 @@ def _act(live: LiveSession, message: dict[str, Any]) -> str | None:
     elif kind == "loop":
         try:
             live.loop(str(message.get("argument", "")))
+        except (Busy, ValueError) as exc:
+            return str(exc)
+    elif kind == "command":
+        name = str(message.get("name", ""))
+        argument = str(message.get("argument", ""))
+        try:
+            live.command(name, argument, trusted=message.get("trust") is True)
+        except NeedsTrust as exc:
+            return {
+                "type": "command_needs_trust",
+                "name": name,
+                "argument": argument,
+                "check": exc.command.check,
+                # Where it is in the project, which is all a reader needs to find it.
+                "path": f".zwans/commands/{exc.command.path.name}",
+            }
         except (Busy, ValueError) as exc:
             return str(exc)
     elif kind == "budget":

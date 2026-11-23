@@ -134,3 +134,8 @@ def _discard_typeahead() -> None:
             termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
     except (OSError, ValueError):
         pass  # not a real terminal after all; nothing to drop
+
+
+def prompt_line(text: str) -> str:
+    """Ask a question on the terminal and return the answer, stripped."""
+    return _prompt(text).strip()

@@ -596,6 +596,36 @@ def test_a_session_downloads_as_a_replay_page(server: Server) -> None:
     assert missing.status_code == 404
 
 
+def test_commands_from_files_run_over_the_websocket(server: Server) -> None:
+    folder = server.workspace / ".zwans" / "commands"
+    folder.mkdir(parents=True)
+    (folder / "review.md").write_text("---\ndescription: Review a file\n---\nReview $1.")
+    (folder / "finish.md").write_text(
+        "---\nloop: test -f done.txt || (echo missing; exit 1)\nrounds: 2\n---\nFinish."
+    )
+    script = [say("Reviewed."), write("done.txt", "ok"), say("Done.")]
+    session_id = server.new_session(FakeProvider(script))
+
+    with connect(server, session_id) as ws:
+        status, _ = handshake(ws)
+        ws.send_json({"type": "command", "name": "review", "argument": "app.py"})
+        reviewed = until(ws, "turn_ended")
+        ws.send_json({"type": "command", "name": "finish", "argument": ""})
+        asked = until(ws, "command_needs_trust")[-1]
+        ws.send_json({"type": "command", "name": "finish", "argument": "", "trust": True})
+        looped = until(ws, "loop_ended")
+        ws.send_json({"type": "command", "name": "nope", "argument": ""})
+        missing = until(ws, "server_error")[-1]
+
+    assert [c["name"] for c in status["commands"]] == ["finish", "review"]
+    assert status["commands"][1]["description"] == "Review a file"
+    started = next(m for m in reviewed if m["type"] == "turn_started")
+    assert started["prompt"] == "Review app.py."
+    assert asked["check"].startswith("test -f done.txt") and asked["path"].endswith("finish.md")
+    assert looped[-1]["reason"] == "passed"
+    assert missing["message"] == "There's no /nope."
+
+
 def test_a_new_session_needs_a_real_folder(server: Server, tmp_path: Path) -> None:
     body = {"workspace": str(tmp_path / "missing")}
     response = server.client.post("/api/sessions", json=body, headers=AUTH)

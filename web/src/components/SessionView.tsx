@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, Check, CornerDownRight, ImagePlus, Maximize2, MonitorPlay, PanelRightOpen, RotateCcw, Share2, Square, X } from "lucide-react";
+import { ArrowUp, Check, CornerDownRight, ImagePlus, Maximize2, MonitorPlay, PanelRightOpen, Repeat, RotateCcw, Share2, ShieldAlert, Square, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -10,6 +10,7 @@ import {
   sessionSocket,
   takeFirstPrompt,
   type DemoInfo,
+  type TrustQuestion,
   type FileChange,
   type RewindResult,
   type SessionStatus,
@@ -29,7 +30,7 @@ import { buildTurns, pendingQuestion, waitingCalls, type RawEvent } from "@/lib/
 import { CHANGES, DEFAULT_PANE, readPane, savePane, tabLabel, withNewPage, type PaneState } from "@/lib/pane";
 import { fileChanges, latestServer } from "@/lib/preview";
 import { handoffPrompt, modelName, stuckReason } from "@/lib/handoff";
-import { budgetLevel, COMMANDS, loopState, matching, parseCommand, type Parsed } from "@/lib/commands";
+import { budgetLevel, COMMANDS, fromFiles, loopState, matching, parseCommand, type Parsed } from "@/lib/commands";
 import { dollars as money } from "@/lib/format";
 import { currentTodos } from "@/lib/todos";
 import { livenessOf, phaseOf, tabTitle, turnStartedAt } from "@/lib/working";
@@ -64,6 +65,7 @@ export function SessionView() {
   const [resumable, setResumable] = useState(false); // closed because the server doesn't have it open
   const [resuming, setResuming] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [trustAsk, setTrustAsk] = useState<TrustQuestion | null>(null);
   const [draft, setDraft] = useState("");
   const [demo, setDemo] = useState<DemoInfo | null>(null);
   const [images, setImages] = useState<Attachment[]>([]);
@@ -123,6 +125,7 @@ export function SessionView() {
             resend.current = null;
           }
         } else if (data.type === "server_error") setNotice(String(data.message));
+        else if (data.type === "command_needs_trust") setTrustAsk(data as unknown as TrustQuestion);
         else setEvents((previous) => [...previous, data]);
       };
       ws.onclose = (event) => {
@@ -164,6 +167,7 @@ export function SessionView() {
 
   const turns = useMemo(() => buildTurns(events), [events]);
   const turnCount = turns.length;
+  const custom = fromFiles(status?.commands); // commands from .zwans/commands files
   const idle = status !== null && !status.running;
 
   // What can be undone changes as turns finish, so ask again whenever the session settles.
@@ -253,11 +257,16 @@ export function SessionView() {
 
   const runCommand = (command: Parsed) => {
     if (command.name === "unknown") {
-      setNotice(`There's no ${command.typed}. The commands are ${COMMANDS.map((c) => `/${c.name}`).join(" and ")}.`);
+      const names = [...COMMANDS, ...custom].map((c) => `/${c.name}`);
+      const broken = status?.command_problems?.find((p) => p.startsWith(`${command.typed.slice(1)}.md`));
+      setNotice(broken ?? `There's no ${command.typed}. The commands are ${names.join(", ")}.`);
       return;
     }
     setNotice(null);
-    if (command.name === "loop") {
+    if (command.name === "custom") {
+      pinned.current = true;
+      send({ type: "command", name: command.command, argument: command.argument });
+    } else if (command.name === "loop") {
       if (!command.argument) {
         setNotice("Say what to check: /loop until pytest -q, or /loop 8 until \"npm test\" fix the dates.");
         return;
@@ -281,7 +290,7 @@ export function SessionView() {
 
   const prompt = (text: string) => {
     if (!text.trim() && images.length === 0) return;
-    const command = images.length === 0 ? parseCommand(text) : null;
+    const command = images.length === 0 ? parseCommand(text, custom) : null;
     if (command) {
       runCommand(command);
       return;
@@ -374,7 +383,7 @@ export function SessionView() {
     }
   };
   const loop = useMemo(() => loopState(events), [events]);
-  const menu = matching(draft);
+  const menu = matching(draft, custom);
 
   // Local first: when a turn on a model on this machine gets stuck, offer to hand the task
   // to the stronger model the config names. Nothing is sent until the person says so.
@@ -681,6 +690,32 @@ export function SessionView() {
               </span>
             </div>
           )}
+          {trustAsk && (
+            <div className="trust-ask" role="alertdialog" aria-label="Trust this command?">
+              <ShieldAlert size={16} aria-hidden="true" />
+              <div className="trust-ask-text">
+                <strong>/{trustAsk.name} runs a command from this project</strong>
+                <span className="muted small">
+                  <span className="mono">{trustAsk.path}</span> came with the folder and runs{" "}
+                  <code>{trustAsk.check}</code> after each turn. Trust it as it is now? A change to the file asks again.
+                </span>
+              </div>
+              <button className="button button-quiet" onClick={() => setTrustAsk(null)}>
+                Cancel
+              </button>
+              <button
+                className="button button-primary"
+                onClick={() => {
+                  pinned.current = true;
+                  send({ type: "command", name: trustAsk.name, argument: trustAsk.argument, trust: true });
+                  setTrustAsk(null);
+                  setDraft("");
+                }}
+              >
+                Trust and run
+              </button>
+            </div>
+          )}
           {menu.length > 0 && (
             <ul className="slash-menu" role="listbox" aria-label="Commands">
               {menu.map((command) => (
@@ -697,6 +732,12 @@ export function SessionView() {
                     <span className="mono slash-name">/{command.name}</span>
                     <span className="mono muted small">{command.args}</span>
                     <span className="slash-about">{command.about}</span>
+                    {command.scope && (
+                      <span className="slash-scope" title={command.check ? `Loops until ${command.check} passes` : undefined}>
+                        {command.check ? <Repeat size={11} aria-hidden="true" /> : null}
+                        {command.scope === "project" ? "project" : "yours"}
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}

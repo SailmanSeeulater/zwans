@@ -1,7 +1,10 @@
 /**
- * Slash commands typed in a session's message box: /loop works until a check passes, and
- * /budget shows or sets the spending cap. Everything else goes to the model as typed.
+ * Slash commands typed in a session's message box: /loop works until a check passes,
+ * /budget shows or sets the spending cap, and commands from Markdown files in
+ * .zwans/commands (the project's) or ~/.zwans/commands (yours) send their text.
+ * Everything else goes to the model as typed.
  */
+import type { CustomCommandInfo } from "./api";
 import type { RawEvent } from "./events";
 
 export interface SlashCommand {
@@ -9,6 +12,22 @@ export interface SlashCommand {
   args: string;
   about: string;
   example: string;
+  /** Where a command from a file came from; none for Zwans's own. */
+  scope?: "project" | "user";
+  /** A file's command that loops until this passes. */
+  check?: string;
+}
+
+/** Commands from files, in the shape the menu shows. */
+export function fromFiles(commands: CustomCommandInfo[] | undefined): SlashCommand[] {
+  return (commands ?? []).map((c) => ({
+    name: c.name,
+    args: c.args,
+    about: c.description,
+    example: `/${c.name}`,
+    scope: c.scope,
+    check: c.check || undefined,
+  }));
 }
 
 export const COMMANDS: SlashCommand[] = [
@@ -26,28 +45,33 @@ export const COMMANDS: SlashCommand[] = [
   },
 ];
 
-export type Parsed = { name: "loop" | "budget"; argument: string } | { name: "unknown"; typed: string };
+export type Parsed =
+  | { name: "loop" | "budget"; argument: string }
+  | { name: "custom"; command: string; argument: string }
+  | { name: "unknown"; typed: string };
 
 /**
  * The command a message is, or null when it's a message for the model. As in the terminal,
  * a command is "/" and a name as the first word; "/etc/hosts is wrong" has a second slash,
  * so it's a message.
  */
-export function parseCommand(text: string): Parsed | null {
+export function parseCommand(text: string, custom: SlashCommand[] = []): Parsed | null {
   const trimmed = text.trim();
   const first = trimmed.split(/\s+/, 1)[0] ?? "";
-  if (!/^\/[a-z][a-z-]*$/i.test(first)) return null;
+  if (!/^\/[a-z][a-z0-9-]*$/i.test(first)) return null;
   const name = first.slice(1).toLowerCase();
   const argument = trimmed.slice(first.length).trim();
   if (name === "loop" || name === "budget") return { name, argument };
+  if (custom.some((c) => c.name === name)) return { name: "custom", command: name, argument };
   return { name: "unknown", typed: first };
 }
 
-/** The commands to offer while a "/" and the start of a name are being typed. */
-export function matching(draft: string): SlashCommand[] {
-  if (!/^\/[a-z-]*$/i.test(draft)) return [];
+/** The commands to offer while a "/" and the start of a name are being typed: Zwans's own
+ * first, then the project's and yours. */
+export function matching(draft: string, custom: SlashCommand[] = []): SlashCommand[] {
+  if (!/^\/[a-z0-9-]*$/i.test(draft)) return [];
   const typed = draft.slice(1).toLowerCase();
-  return COMMANDS.filter((c) => c.name.startsWith(typed));
+  return [...COMMANDS, ...custom].filter((c) => c.name.startsWith(typed));
 }
 
 export interface LoopState {

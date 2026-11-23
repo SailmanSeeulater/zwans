@@ -16,8 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from zwans import custom_commands, pricing, races, transcript, usage
 from zwans import demo as zwans_demo
-from zwans import pricing, races, transcript, usage
 from zwans.budget import parse_dollars
 from zwans.checkpoints import Change, CheckpointError
 from zwans.config import Config, ConfigError
@@ -43,6 +43,14 @@ DIFF_CHARS = 400_000  # what the Changes panel is sent of a session's diff
 
 class Busy(Exception):
     """The session is already running a turn."""
+
+
+class NeedsTrust(Exception):
+    """A project's command would run a check nobody has trusted yet."""
+
+    def __init__(self, command: custom_commands.CustomCommand) -> None:
+        super().__init__(f"{command.path} runs `{command.check}`, and isn't trusted yet.")
+        self.command = command
 
 
 class RewindError(Exception):
@@ -96,6 +104,8 @@ class LiveSession:
             "executor": opened.config.executor,
             "running": self.running,
             "budget": opened.budget.dollars if opened.budget else None,  # the cap, in $
+            # Slash commands from Markdown files, and what's wrong with any that aren't.
+            **self._commands_status(),
             "queued": list(opened.session.steering),  # sent mid-turn, not yet read
             "turns": opened.session.turn,
             "dollars": opened.meter.session_dollars,
@@ -110,6 +120,15 @@ class LiveSession:
             # Who a stuck local session can hand its task to, when anyone.
             "handoff_model": opened.config.handoff_model if self._local() else None,
             "compact_at": opened.session.compact_at(opened.config.compact_at),
+        }
+
+    def _commands_status(self) -> Message:
+        if self.opened.chat:
+            return {"commands": [], "command_problems": []}
+        found, problems = self.slash_commands()
+        return {
+            "commands": [command.as_json() for command in found.values()],
+            "command_problems": problems,
         }
 
     def _local(self) -> bool:
@@ -261,6 +280,38 @@ class LiveSession:
             raise Busy("A loop needs a project to run its check in.")
         spec = parse_loop(argument)
         work = run_loop(self.opened.session, self.opened.executor, spec)
+        self.turn = asyncio.create_task(self._run_work(work))
+        self._broadcast(self.status())
+
+    def slash_commands(self) -> tuple[dict[str, custom_commands.CustomCommand], list[str]]:
+        """Your slash commands and the project's, read again each time so edits show."""
+        workspace = None if self.opened.chat else Path(self.opened.info.workspace)
+        return custom_commands.load(workspace, self.opened.config.home)
+
+    def command(self, name: str, argument: str, trusted: bool = False) -> None:
+        """Run /<name>, a command from a Markdown file: send its text, or loop until its
+        check passes. With `trusted`, a project's check runs and is trusted from now on.
+        Raises ValueError for one that doesn't exist, NeedsTrust, or Busy."""
+        found, problems = self.slash_commands()
+        command = found.get(name)
+        if command is None:
+            broken = [p for p in problems if p.startswith(f"{name}.md")]
+            raise ValueError(broken[0] if broken else f"There's no /{name}.")
+        if not command.check:
+            self.prompt(custom_commands.expand(command, argument))
+            return
+        if self.running:
+            raise Busy("Wait for the turn to end, or stop it, before starting a loop.")
+        home = self.opened.config.home
+        if command.needs_trust(home):
+            if not trusted:
+                raise NeedsTrust(command)
+            command.trust(home)
+        work = run_loop(
+            self.opened.session,
+            self.opened.executor,
+            custom_commands.loop_spec(command, argument),
+        )
         self.turn = asyncio.create_task(self._run_work(work))
         self._broadcast(self.status())
 

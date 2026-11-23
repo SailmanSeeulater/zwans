@@ -236,6 +236,7 @@ file instead of refusing it. Images can be up to 3.75 MB, and each costs about 1
 | `/cost` | What the session has cost, and how full its context is |
 | `/budget [dollars]` | Shows the session's spending cap, or sets one (`/budget 2`, `/budget off`); turns stop before the model call that would go past it |
 | `/loop [rounds] until <check> [task]` | Keeps working until a check passes: Zwans runs the check (say `pytest -q`) after each turn and sends the model what fails, for at most 5 turns unless `rounds` says otherwise. Quote a check with spaces when a task follows: `/loop 8 until "npm test" fix the dates` |
+| `/<name> [arguments]` | Runs a command of your own, from `.zwans/commands/<name>.md` or `~/.zwans/commands/<name>.md` (see [Your own commands](#your-own-commands)) |
 | `/resume [n]` | Lists recent sessions in this workspace, or switches to one |
 | `/exit` | Quits |
 
@@ -553,6 +554,33 @@ applies too. The race page shows each side's conversation live, a bar of what ea
 and answers each side's permission questions in place. A race costs what the two sessions
 cost: there's no extra model call for running one. The shared cap is held by the running
 server, so after `zwans serve` restarts, only each side's own `budget` applies.
+
+### Your own commands
+
+A Markdown file in `.zwans/commands/` becomes a slash command in that project, and one in
+`~/.zwans/commands/` works in every project; the project's wins when both have the same
+name. `review.md` is `/review`: typing `/review src/app.py` sends the file's text, with
+what follows the name put in for `$ARGUMENTS`, or its words for `$1`, `$2` and so on. With
+neither in the file, what you typed goes after its text. Commands show in `/help` and Tab
+completes them in the terminal, and in the web UI's `/` menu, marked as the project's or
+yours. Files are read again each time, so an edit works at once.
+
+```markdown
+---
+description: Fix what the linter reports
+args: [path]
+loop: ruff check .
+rounds: 6
+---
+Fix everything `ruff check $ARGUMENTS` reports, without changing behaviour.
+```
+
+The header is optional. `description` and `args` show in the menus (without a description,
+the first line is used). With `loop`, the command runs as `/loop` does, up to `rounds` turns.
+A `loop` check in a project's file is a command that came with the folder, so Zwans asks
+before running it, in the terminal or the web UI, and remembers the answer for that file
+as it is: a change to the file asks again. Your own files in `~/.zwans/commands` aren't
+asked about. A file can't take the name of one of Zwans's own commands.
 
 ### Instruction files
 

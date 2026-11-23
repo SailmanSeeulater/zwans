@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { budgetLevel, loopState, matching, parseCommand } from "./commands";
+import { budgetLevel, fromFiles, loopState, matching, parseCommand } from "./commands";
 
 describe("parseCommand", () => {
   it("reads /loop and /budget, and leaves paths and plain messages to the model", () => {
@@ -34,4 +34,24 @@ describe("loopState", () => {
 
 it("says how close a session is to its budget", () => {
   expect([budgetLevel(0.5, 2), budgetLevel(1.7, 2), budgetLevel(2, 2)]).toEqual(["ok", "near", "spent"]);
+});
+
+describe("commands from files", () => {
+  const custom = fromFiles([
+    { name: "fix-lint", description: "Fix the lint", args: "[path]", scope: "project", check: "ruff check ." },
+    { name: "explain", description: "Explain it", args: "", scope: "user", check: "" },
+  ]);
+
+  it("are commands only once a file defines them", () => {
+    expect(parseCommand("/fix-lint src", custom)).toEqual({ name: "custom", command: "fix-lint", argument: "src" });
+    expect(parseCommand("/explain", custom)).toEqual({ name: "custom", command: "explain", argument: "" });
+    expect(parseCommand("/explain")).toEqual({ name: "unknown", typed: "/explain" });
+    expect(parseCommand("/loop until x", custom)).toEqual({ name: "loop", argument: "until x" });
+  });
+
+  it("show in the menu after Zwans's own, with where they came from", () => {
+    expect(matching("/", custom).map((c) => c.name)).toEqual(["loop", "budget", "fix-lint", "explain"]);
+    expect(matching("/fi", custom)).toMatchObject([{ name: "fix-lint", scope: "project", check: "ruff check ." }]);
+    expect(matching("/ex", custom)[0]?.check).toBeUndefined();
+  });
 });

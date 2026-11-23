@@ -3,11 +3,14 @@
 import shlex
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 import typer
 
+from zwans import custom_commands
 from zwans.budget import parse_dollars
 from zwans.checkpoints import Change, CheckpointError
+from zwans.cli.approval import can_prompt, prompt_line
 from zwans.cli.input import MENTIONED, Command
 from zwans.cli.terminal_text import printable
 from zwans.config import Config, ConfigError
@@ -63,7 +66,14 @@ class Quit:
     pass
 
 
-type Outcome = Reopen | Quit | None
+@dataclass(frozen=True)
+class Send:
+    """Send this to the model, as if it had been typed: what a command of your own says."""
+
+    text: str
+
+
+type Outcome = Reopen | Quit | Send | None
 
 
 def is_command(line: str) -> bool:
@@ -82,6 +92,8 @@ class Commands:
         first, _, rest = line.strip().partition("\n")
         name, _, argument = first[1:].partition(" ")
         argument = argument.strip()
+        if name not in KNOWN:
+            return await self._custom(name, f"{argument}\n{rest}".strip())
         if rest.strip() and name in KNOWN:
             # Likely lines typed ahead that ran together: doing only part of it would surprise.
             _say(f"/{name} goes on a line of its own, so nothing was done.", fg="yellow")
@@ -165,10 +177,55 @@ class Commands:
             "turns from the conversation."
         )
 
+    def custom(self) -> tuple[dict[str, custom_commands.CustomCommand], list[str]]:
+        """Your commands and the project's, read again each time so an edit shows at once."""
+        workspace = None if self.opened.chat else Path(self.opened.info.workspace)
+        return custom_commands.load(workspace, self.opened.config.home, KNOWN)
+
+    async def _custom(self, name: str, argument: str) -> Outcome:
+        found, problems = self.custom()
+        command = found.get(name)
+        if command is None:
+            broken = [p for p in problems if p.startswith(f"{name}.md")]
+            _say(
+                broken[0] if broken else f"There's no /{name}. /help lists the commands.",
+                fg="yellow",
+            )
+            return None
+        if not command.check:
+            return Send(custom_commands.expand(command, argument))
+        home = self.opened.config.home
+        if command.needs_trust(home):
+            _say(
+                f"{command.path} came with this project and runs `{printable(command.check)}` "
+                "after each turn.",
+                fg="yellow",
+            )
+            if not can_prompt() or prompt_line("Trust this file? [y/N]: ").lower() not in (
+                "y",
+                "yes",
+            ):
+                _say("Not run. /loop runs a check you type yourself.", fg="yellow")
+                return None
+            command.trust(home)
+        spec = custom_commands.loop_spec(command, argument)
+        _say(f"Looping until `{spec.check}` passes, for at most {spec.rounds} turns.", dim=True)
+        await run_loop(self.opened.session, self.opened.executor, spec)
+        return None
+
     def _help(self) -> None:
         for command in COMMANDS:
             usage = f"/{command.name} {command.argument}".strip()
             typer.echo(f"  {usage:<26} {command.help}")
+        found, problems = self.custom()
+        if found:
+            typer.echo()
+            for custom in found.values():
+                usage = f"/{custom.name} {custom.args}".strip()
+                where = "project" if custom.scope == "project" else "yours"
+                typer.echo(f"  {usage:<26} {printable(custom.description)} ({where})")
+        for problem in problems:
+            _say(printable(problem), fg="yellow")
         _say("Start a message with @path to send a file's text, or an image, with it.")
 
     async def _compact(self) -> None:

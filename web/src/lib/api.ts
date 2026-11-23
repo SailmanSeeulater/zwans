@@ -129,6 +129,22 @@ function socketTo(path: string): WebSocket {
 
 export type Mode = "read-only" | "ask" | "auto";
 
+export interface CustomCommandInfo {
+  name: string;
+  description: string;
+  args: string;
+  scope: "project" | "user";
+  check: string; // it loops until this passes; "" for none
+}
+
+/** A project's command would run a check nobody has trusted yet. */
+export interface TrustQuestion {
+  name: string;
+  argument: string;
+  check: string;
+  path: string;
+}
+
 export interface SessionStatus {
   type: "status";
   id: string;
@@ -144,6 +160,9 @@ export interface SessionStatus {
   context_tokens: number;
   waiting_for: string[];
   warnings: string[];
+  /** Slash commands from Markdown files, and what's wrong with any that couldn't be used. */
+  commands?: CustomCommandInfo[];
+  command_problems?: string[];
   /** The session's spending cap in dollars; null for none. */
   budget?: number | null;
   /** The model runs on this machine. */

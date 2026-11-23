@@ -22,9 +22,9 @@ from zwans.cli.approval import (
     terminal_question,
 )
 from zwans.cli.attach import Attached, AttachError, open_remote
-from zwans.cli.commands import COMMANDS, Commands, Quit, Reopen, is_command
+from zwans.cli.commands import COMMANDS, Commands, Quit, Reopen, Send, is_command
 from zwans.cli.evals import eval_app
-from zwans.cli.input import MENTIONED, Composer, echoing, expand_mentions
+from zwans.cli.input import MENTIONED, Command, Composer, echoing, expand_mentions
 from zwans.cli.render import Renderer
 from zwans.cli.room import room
 from zwans.cli.serve import read_server_file, serve
@@ -508,12 +508,15 @@ def _chat(
 ) -> int | Reopen:
     workspace = Path(opened.info.workspace)
     commands = Commands(opened)
+    custom, problems = commands.custom()
+    for problem in problems:
+        typer.secho(printable(problem), fg="yellow")
     composer: Composer | None = None
     keys: Input | None = None  # the composer's, whose typed-ahead keys may need dropping
     if can_prompt():
         keys = create_input()
         composer = Composer(
-            COMMANDS,
+            [*COMMANDS, *(Command(c.name, c.description, c.args) for c in custom.values())],
             workspace,
             opened.config.home / "history",
             status=lambda: _status(opened),
@@ -551,7 +554,9 @@ def _chat(
                 return 0
             if isinstance(outcome, Reopen):
                 return outcome
-            continue
+            if not isinstance(outcome, Send):
+                continue
+            line = outcome.text  # a command of your own: its text goes to the model
         mentions = expand_mentions(line, workspace)
         for problem in mentions.problems:
             typer.secho(problem, fg="yellow")
