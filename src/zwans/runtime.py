@@ -8,6 +8,7 @@ listed, resumed and metered like any session, and where a session works says whi
 
 import contextlib
 import secrets
+import shutil
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -59,6 +60,7 @@ from zwans.tools.show_changes import ShowChangesTool
 from zwans.tools.skill import SkillTool
 from zwans.tools.task import TaskTool
 from zwans.tools.todo import TodoWriteTool
+from zwans.tools.video import VideoTool
 from zwans.tools.web_local import WebFetchTool, WebSearchTool
 from zwans.tools.write import WriteTool
 from zwans.transcript import TranscriptWriter
@@ -297,6 +299,8 @@ def open_session(
             own = config.diagnostics if isinstance(config.diagnostics, list) else ()
             tools.append(DiagnosticsTool(root, own))
         tools.append(DocsTool())
+        if config.video and shutil.which("ffprobe") and shutil.which("ffmpeg"):
+            tools.append(VideoTool())
         if executor.interactive:
             tools.append(PythonTool())
         if config.checkpoints:

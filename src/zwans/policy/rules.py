@@ -51,6 +51,8 @@ RULE = re.compile(r"^\s*([A-Za-z_][\w.-]*)\s*(?:\((.*)\))?\s*$", re.DOTALL)
 FILE_CHANGE_TOOLS = frozenset({"Edit", "MultiEdit", "Write", "Rename", "Memory"})
 # These show what's in the files they look through, so a rule about reading covers them.
 SEARCH_TOOLS = frozenset({"Grep", "Outline", "References"})
+# These show a file's content in another form, so a rule about reading it covers them too.
+VIEW_TOOLS = frozenset({"Video"})
 # The built-in tools' names, so a rule for a misspelled one is reported instead of never
 # matching. MCP tools are named mcp__<server>__<tool>. tests/test_policy.py checks that this
 # lists every tool in zwans.tools.
@@ -60,6 +62,7 @@ TOOL_NAMES = frozenset(
         "BashOutput",
         "KillBash",
         "Read",
+        "Video",
         "Write",
         "Edit",
         "MultiEdit",
@@ -144,7 +147,7 @@ class Rule:
         if self.tool in FILE_CHANGE_TOOLS and tool in FILE_CHANGE_TOOLS:
             return True
         # A search shows what's in the files it looks through, so a Read rule applies to it.
-        if self.tool == "Read" and tool in SEARCH_TOOLS:
+        if self.tool == "Read" and (tool in SEARCH_TOOLS or tool in VIEW_TOOLS):
             return True
         return self.tool == tool
 

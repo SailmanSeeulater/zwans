@@ -1,4 +1,5 @@
 import asyncio
+import shutil
 from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -478,10 +479,11 @@ def test_a_session_gets_the_new_tools_unless_the_config_turns_them_off(tmp_path:
 
     home = tmp_path / "home"
     full = names(Config(home=home, subagents=False, todos=False))
+    video = ["Video"] if shutil.which("ffmpeg") and shutil.which("ffprobe") else []
     assert full == [
         "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "Outline", "References",
         "Rename", "Bash", "BashOutput", "KillBash", "RunTests", "Diagnostics", "Docs",
-        "Python", "ShowChanges", "Memory", "WebFetch",
+        *video, "Python", "ShowChanges", "Memory", "WebFetch",
     ]  # fmt: skip
     # AskUser is there only when someone can be asked.
     assert "AskUser" not in full
@@ -494,6 +496,7 @@ def test_a_session_gets_the_new_tools_unless_the_config_turns_them_off(tmp_path:
             multi_edit=False,
             diagnostics=False,
             web=False,
+            video=False,
             disabled_tools=off,
         )
     )

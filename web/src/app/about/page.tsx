@@ -56,12 +56,13 @@ const PARTS: { name: string; about: string }[] = [
   },
 ];
 
-/** The 24 built-in tools the model can call, grouped by what they're for. */
+/** The 25 built-in tools the model can call, grouped by what they're for. */
 const TOOLS: { group: string; tools: [string, string][] }[] = [
   {
     group: "Files",
     tools: [
       ["Read", "A file with line numbers, or an image to look at"],
+      ["Video", "A video's frames on one image, and its transcript"],
       ["Write", "Create a file, or replace all of one"],
       ["Edit", "Replace exact text in a file"],
       ["MultiEdit", "Several replacements at once, all made or none"],
@@ -104,7 +105,7 @@ const TOOLS: { group: string; tools: [string, string][] }[] = [
     group: "The web",
     tools: [
       ["WebSearch", "Search the web"],
-      ["WebFetch", "Fetch a page as text"],
+      ["WebFetch", "Fetch a page's content, or just the answer to a question about it"],
     ],
   },
 ];

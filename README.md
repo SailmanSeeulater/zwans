@@ -735,6 +735,29 @@ the policy judges a call as `python -c` with that code. It isn't offered with th
 executor or the jail. A chat gets it on a Mac, in a Seatbelt sandbox of its own with an
 empty folder and no network, where it runs without asking.
 
+### Watching a video
+
+Models take in text and pictures, not video, and a frame a second of a ten-minute video
+would be about a million tokens. `Video` gives the model what it needs for a fraction of
+that:
+
+- **Frames:** 9 by default (up to 16), spread evenly over the video and tiled into one
+  image of about 1,700 tokens, with each frame's time.
+- **The transcript:** what's said, with times. It comes from a subtitle file beside the
+  video (`talk.srt` or `talk.vtt` for `talk.mp4`), or a subtitle track inside it. Failing
+  those, Whisper transcribes the sound when it's installed (`pip install openai-whisper`),
+  which takes a while on a long video.
+
+For a closer look at a moment, the model calls it again with `start` and `end` around it, so
+the same number of frames covers seconds instead of minutes. Ten minutes with a transcript
+comes to about 5,000–8,000 tokens.
+
+`Video` is offered when `ffmpeg` is installed (`brew install ffmpeg` on a Mac). ffmpeg runs
+where commands do, in the sandbox if there is one, and its pictures go to a scratch folder
+in the workspace that is removed when the call ends. A `Read` rule covers it, so
+`deny = ["Read(private/**)"]` keeps the model from watching videos there too. Set
+`video = false` to leave it out.
+
 ### Notes between sessions
 
 `Memory` keeps short notes about a project: how its tests are run, what a folder is for.
@@ -1028,6 +1051,7 @@ environment variables:
 | `web` | `true` | Offer web search and fetch: Claude's own, or `WebFetch` and `WebSearch` for other models |
 | `web_search` | none | Where `WebSearch` searches: `provider = "brave"` or `"searxng"` with `url` |
 | `multi_edit` | `true` | Offer the `MultiEdit` tool |
+| `video` | `true` | Offer the `Video` tool, when `ffmpeg` is installed |
 | `diagnostics` | `true` | Offer the `Diagnostics` tool; a list of commands runs those instead of the checkers it finds |
 | `test_commands` | none | Commands for `RunTests` to run instead of the test runners it finds |
 | `disabled_tools` | none | Tools not to offer, by name |

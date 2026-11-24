@@ -32,6 +32,7 @@ from zwans.policy.rules import (
 UNTRUSTED_OUTPUT = frozenset(
     {
         "Read",
+        "Video",
         "Grep",
         "Bash",
         "BashOutput",

@@ -31,6 +31,7 @@ const VERBS: Record<string, string> = {
   Memory: "Remembering",
   Skill: "Using a skill",
   WebFetch: "Fetching",
+  Video: "Watching",
   WebSearch: "Searching the web",
   AskUser: "Asking you",
 };
