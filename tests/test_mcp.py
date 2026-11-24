@@ -50,13 +50,16 @@ def test_a_stdio_servers_tools_become_zwans_tools(tmp_path: Path) -> None:
     async def body(tools: dict[str, McpTool], problems: list[str]) -> None:
         assert problems == []
         assert sorted(tools) == [
+            "mcp__fake__chart",
+            "mcp__fake__client",
             "mcp__fake__echo",
             "mcp__fake__env",
             "mcp__fake__fail",
             "mcp__fake__ping_me",
             "mcp__fake__quit",
+            "mcp__fake__secret",
             "mcp__fake__slow",
-        ]  # both pages of tools/list
+        ]  # both pages of tools/list; not shuffle, which only views may call
         echo = tools["mcp__fake__echo"]
         assert echo.read_only
         assert not tools["mcp__fake__fail"].read_only

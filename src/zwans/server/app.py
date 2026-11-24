@@ -16,6 +16,8 @@ running or waits for an answer. A client may send:
     {"type": "budget", "dollars": "2"}    (the spending cap; "off" clears it)
     {"type": "plan", "on": true, "task": "..."}   (plan mode; the task is optional)
     {"type": "go"}                        (approve the plan: plan mode off, carry it out)
+An MCP app's view (mcp/apps.py) calls its server through POST /api/sessions/{id}/apps/call
+and /apps/read, which answer with the server's result.
 
 A request the session can't take gets {"type": "server_error", "message": "..."} back, to
 that client only.
@@ -49,6 +51,7 @@ from zwans import demo as zwans_demo
 from zwans.config import ConfigError
 from zwans.executor.docker import DockerError
 from zwans.images import ImageError, image_block
+from zwans.mcp.client import McpError
 from zwans.messages import ImageBlock
 from zwans.policy.rules import Mode, PolicyError
 from zwans.providers.catalog import canonical, list_all, register_prices, resolve
@@ -128,6 +131,19 @@ class MarkSession(BaseModel):
 
 class RewindTo(BaseModel):
     turn: int  # the turn to undo, with every turn after it
+
+
+class AppCall(BaseModel):
+    """A tool call from an MCP app's view, to a tool on its own server (mcp/apps.py)."""
+
+    server: str
+    name: str
+    arguments: dict[str, Any] = {}
+
+
+class AppRead(BaseModel):
+    server: str
+    uri: str
 
 
 class OpenSession(BaseModel):
@@ -278,6 +294,20 @@ def create_app(settings: ServerSettings) -> FastAPI:
         provider = _live(hub, session_id).opened.session.provider
         request = getattr(provider, "last_request", None)
         return {"request": json.loads(json.dumps(request, default=str)) if request else None}
+
+    @api.post("/sessions/{session_id}/apps/call")
+    async def app_call(session_id: str, body: AppCall) -> Message:
+        """A view's tools/call. Waits while the policy asks the user, so the view gets the
+        result, or the refusal, as an MCP CallToolResult."""
+        return await _live(hub, session_id).app_call(body.server, body.name, body.arguments)
+
+    @api.post("/sessions/{session_id}/apps/read")
+    async def app_read(session_id: str, body: AppRead) -> Message:
+        """A view's resources/read, from its own server."""
+        try:
+            return await _live(hub, session_id).app_read(body.server, body.uri)
+        except McpError as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
     @api.post("/sessions/{session_id}/model")
     async def set_model(session_id: str, body: ChooseModel) -> Message:

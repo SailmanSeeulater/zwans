@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import logging
 import shutil
+import uuid
 from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
@@ -21,15 +22,20 @@ from zwans import demo as zwans_demo
 from zwans.budget import parse_dollars
 from zwans.checkpoints import Change, CheckpointError
 from zwans.config import Config, ConfigError
-from zwans.events import Error, Event, TurnEnded
+from zwans.events import Error, Event, ToolCallRequested, ToolResult, TurnEnded
+from zwans.loop import gate
 from zwans.looping import parse_loop, run_loop
-from zwans.messages import ImageBlock, TextBlock
+from zwans.mcp.apps import app_result
+from zwans.mcp.client import McpError
+from zwans.mcp.tools import result_text
+from zwans.messages import ImageBlock, TextBlock, ToolUseBlock
 from zwans.policy.engine import Approval, PermissionRequest
 from zwans.providers.catalog import canonical
 from zwans.providers.router import ModelRouter, helper
 from zwans.runtime import OpenedSession, ProviderFactory, is_chat, open_session
 from zwans.store import SessionError, SessionStore, title_of
 from zwans.titles import title_model, write_title
+from zwans.tools.base import ToolError
 
 log = logging.getLogger(__name__)
 
@@ -306,6 +312,55 @@ class LiveSession:
             finally:
                 self.question = None
 
+    async def app_call(self, server: str, name: str, arguments: dict[str, Any]) -> Message:
+        """A tool call from an MCP app's view (mcp/apps.py), answered with the server's
+        CallToolResult. It goes through the session's pre_tool hooks and policy as the
+        model's calls do, asking the user when the policy says to, and shows in the
+        conversation as a call by the view. The model doesn't see it."""
+        session = self.opened.session
+        mcp = self.opened.mcp
+        tool = mcp.app_tool(server, name) if mcp is not None else None
+        if tool is None:
+            return _app_error(f"The {server} MCP server has no tool named {name} for its views.")
+        call = ToolUseBlock(id=f"view_{uuid.uuid4().hex[:12]}", name=tool.name, input=arguments)
+        session.emit(ToolCallRequested(call_id=call.id, name=tool.name, args=arguments, by="view"))
+        refusal: str | None = None
+        if session.hooks is not None:
+            blocked = await session.hooks.pre_tool(tool.name, arguments)
+            if blocked is not None:
+                refusal = f"A pre_tool hook blocked this call: {blocked.message}"
+        if refusal is None and session.permissions is not None:
+            async for step in gate(session.permissions, tool, call, session.ctx):
+                if isinstance(step, str):
+                    refusal = step
+                else:
+                    session.emit(step)
+        if refusal is not None:
+            session.emit(ToolResult(call_id=call.id, content=refusal, is_error=True))
+            return _app_error(refusal)
+        try:
+            result = await tool.call(arguments)
+        except ToolError as exc:
+            session.emit(ToolResult(call_id=call.id, content=str(exc), is_error=True))
+            return _app_error(str(exc))
+        # From a server, so untrusted; but only the view reads it, so the conversation
+        # isn't marked as having read untrusted content.
+        session.emit(
+            ToolResult(
+                call_id=call.id,
+                content=result_text(result),
+                is_error=result.get("isError") is True,
+                untrusted=True,
+            )
+        )
+        return app_result(result)
+
+    async def app_read(self, server: str, uri: str) -> Message:
+        """A resource an MCP app's view asked its own server for. Raises McpError."""
+        if self.opened.mcp is None:
+            raise McpError("This session has no MCP servers.")
+        return await self.opened.mcp.read_resource(server, uri)
+
     def answer_question(self, text: str) -> bool:
         if self.question is None or self.question.done() or not text.strip():
             return False
@@ -467,6 +522,11 @@ class LiveSession:
     def _broadcast(self, message: Message) -> None:
         for queue in list(self.clients):
             queue.put_nowait(message)
+
+
+def _app_error(message: str) -> Message:
+    """A failed call, as a view is told: a CallToolResult with isError, as MCP has it."""
+    return {"content": [{"type": "text", "text": message}], "isError": True}
 
 
 def share_budget(budget: float, lanes: list[LiveSession]) -> None:

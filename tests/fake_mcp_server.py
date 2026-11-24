@@ -6,6 +6,10 @@
 - ping_me: pings the client first, and reports whether the client answered.
 - quit: exits without answering.
 - env: returns the value of the environment variable `name`.
+- chart: returns numbers, with a view of them (MCP Apps) at ui://fake/chart.html.
+- shuffle: only views may call it (visibility ["app"]); returns the numbers reversed.
+- secret: only the model may call it (visibility ["model"]).
+- client: returns how many views were read and the capabilities the client sent.
 
 tools/list comes in two pages, to exercise the cursor.
 """
@@ -32,7 +36,34 @@ TOOLS = [
     {"name": "ping_me", "inputSchema": {"type": "object"}},
     {"name": "quit", "inputSchema": {"type": "object"}},
     {"name": "env", "inputSchema": {"type": "object"}},
+    {
+        "name": "chart",
+        "description": "Chart the numbers.",
+        "inputSchema": {"type": "object"},
+        "_meta": {"ui": {"resourceUri": "ui://fake/chart.html"}},
+        "annotations": {"readOnlyHint": True},
+    },
+    {
+        "name": "shuffle",
+        "inputSchema": {"type": "object"},
+        "_meta": {"ui": {"resourceUri": "ui://fake/chart.html", "visibility": ["app"]}},
+    },
+    {
+        "name": "secret",
+        "inputSchema": {"type": "object"},
+        "_meta": {"ui": {"visibility": ["model"]}},
+    },
+    {"name": "client", "inputSchema": {"type": "object"}},
 ]
+VIEW = "<!doctype html><title>Chart</title><script>/* draws the numbers */</script>"
+VIEW_META = {
+    "ui": {
+        "csp": {"resourceDomains": ["https://cdn.example.com", "bad; script-src *"]},
+        "permissions": {"clipboardWrite": {}},
+        "prefersBorder": False,
+    }
+}
+state: dict[str, object] = {"reads": 0, "capabilities": None}
 
 lock = threading.Lock()
 replies: dict[object, dict[str, object]] = {}
@@ -68,6 +99,19 @@ def call(request_id: object, name: str, args: dict[str, object]) -> None:
         os._exit(3)
     elif name == "env":
         text(request_id, os.environ.get(str(args["name"]), "(unset)"))
+    elif name in ("chart", "shuffle"):
+        numbers = [int(n) for n in args.get("numbers", [3, 1, 2])]  # type: ignore[attr-defined]
+        if name == "shuffle":
+            numbers.reverse()
+        result = {
+            "content": [{"type": "text", "text": f"numbers: {numbers}"}],
+            "structuredContent": {"numbers": numbers},
+        }
+        send({"jsonrpc": "2.0", "id": request_id, "result": result})
+    elif name == "secret":
+        text(request_id, "only for the model")
+    elif name == "client":
+        text(request_id, json.dumps(state))
 
 
 def main() -> None:
@@ -81,6 +125,7 @@ def main() -> None:
                 replies[request_id] = message
                 arrived.notify_all()
         elif method == "initialize":
+            state["capabilities"] = message["params"].get("capabilities")
             result = {
                 "protocolVersion": message["params"]["protocolVersion"],
                 "capabilities": {"tools": {}},
@@ -96,6 +141,15 @@ def main() -> None:
             params = message["params"]
             args = (request_id, params["name"], params.get("arguments", {}))
             threading.Thread(target=call, args=args, daemon=True).start()
+        elif method == "resources/read" and message["params"]["uri"] == "ui://fake/chart.html":
+            state["reads"] = int(str(state["reads"])) + 1
+            view = {
+                "uri": "ui://fake/chart.html",
+                "mimeType": "text/html;profile=mcp-app",
+                "text": VIEW,
+                "_meta": VIEW_META,
+            }
+            send({"jsonrpc": "2.0", "id": request_id, "result": {"contents": [view]}})
         elif request_id is not None:
             error = {"code": -32601, "message": f"no method {method}"}
             send({"jsonrpc": "2.0", "id": request_id, "error": error})
