@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, Check, CornerDownRight, ImagePlus, Maximize2, MonitorPlay, PanelRightOpen, Repeat, RotateCcw, Share2, ShieldAlert, Square, X } from "lucide-react";
+import { ArrowUp, Check, CornerDownRight, ImagePlus, ListChecks, Maximize2, MonitorPlay, PanelRightOpen, Repeat, RotateCcw, Share2, ShieldAlert, Square, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -42,6 +42,8 @@ import { Inspector, isTab, type InspectorTab } from "./inspector/Inspector";
 import { ModelPicker } from "./ModelPicker";
 import { TodoList } from "./TodoList";
 import { ChangesPanel } from "./ChangesPanel";
+import { PlanBar } from "./PlanBar";
+import { hasPlan } from "@/lib/planning";
 import { SidePane } from "./SidePane";
 import { UnderTheHood } from "./UnderTheHood";
 import { TokenMissing, useHasToken } from "./useApi";
@@ -168,6 +170,7 @@ export function SessionView() {
   const turns = useMemo(() => buildTurns(events), [events]);
   const turnCount = turns.length;
   const custom = fromFiles(status?.commands); // commands from .zwans/commands files
+  const planAllowed = Boolean(status && !status.chat && !status.demo);
   const idle = status !== null && !status.running;
 
   // What can be undone changes as turns finish, so ask again whenever the session settles.
@@ -266,6 +269,21 @@ export function SessionView() {
     if (command.name === "custom") {
       pinned.current = true;
       send({ type: "command", name: command.command, argument: command.argument });
+    } else if (command.name === "plan") {
+      if (!planAllowed) {
+        setNotice("Plan mode needs a project: a chat or the demo can't change files anyway.");
+        return;
+      }
+      const off = command.argument.toLowerCase() === "off";
+      if (command.argument) pinned.current = true;
+      send(off ? { type: "plan", on: false } : { type: "plan", on: true, task: command.argument });
+    } else if (command.name === "go") {
+      if (!status?.planning) {
+        setNotice("There's no plan to carry out: /plan <task> asks for one first.");
+        return;
+      }
+      pinned.current = true;
+      send({ type: "go" });
     } else if (command.name === "loop") {
       if (!command.argument) {
         setNotice("Say what to check: /loop until pytest -q, or /loop 8 until \"npm test\" fix the dates.");
@@ -383,6 +401,8 @@ export function SessionView() {
     }
   };
   const loop = useMemo(() => loopState(events), [events]);
+  const planning = Boolean(status?.planning);
+  const planned = hasPlan(events, planning);
   const menu = matching(draft, custom);
 
   // Local first: when a turn on a model on this machine gets stuck, offer to hand the task
@@ -497,7 +517,13 @@ export function SessionView() {
                   <span className="pill pill-quiet mono" title={status.workspace}>
                     {status.workspace.split("/").filter(Boolean).at(-1)}
                   </span>
-                  <span className="pill pill-quiet">{MODES[status.mode] ?? status.mode}</span>
+                  {planning ? (
+                    <span className="pill" title={`Plan mode: nothing changes until you approve. Then ${MODES[status.mode] ?? status.mode} again.`}>
+                      Plan
+                    </span>
+                  ) : (
+                    <span className="pill pill-quiet">{MODES[status.mode] ?? status.mode}</span>
+                  )}
                 </>
               )}
               {!status.demo && (
@@ -679,6 +705,18 @@ export function SessionView() {
               </button>
             </div>
           )}
+          {planning && (
+            <PlanBar
+              running={running}
+              planned={planned}
+              ready={connection === "open"}
+              onGo={() => {
+                pinned.current = true;
+                send({ type: "go" });
+              }}
+              onLeave={() => send({ type: "plan", on: false })}
+            />
+          )}
           {running && loop?.active && (
             <div className="loop-chip" role="status">
               <Spark size={13} />
@@ -804,7 +842,11 @@ export function SessionView() {
                   ? "Steer Zwans: what you send now reaches it at its next step."
                   : status?.chat
                     ? "Ask Zwans anything. Enter sends, Shift+Enter adds a line."
-                    : "Message Zwans. Enter sends, Shift+Enter adds a line."
+                    : planning
+                      ? planned
+                        ? "Reply to change the plan, or carry it out above."
+                        : "Describe the task. Zwans plans it before changing anything."
+                      : "Message Zwans. Enter sends, Shift+Enter adds a line."
             }
             aria-label="Message Zwans"
             value={draft}
@@ -869,6 +911,22 @@ export function SessionView() {
             >
               <ImagePlus size={15} aria-hidden="true" />
             </button>
+            {planAllowed && (
+              <button
+                className="button button-quiet icon-button plan-toggle"
+                onClick={() => send({ type: "plan", on: !planning })}
+                disabled={connection !== "open" || running}
+                aria-pressed={planning}
+                aria-label="Plan mode"
+                title={
+                  planning
+                    ? "Leave plan mode: changes are judged by the permissions again"
+                    : "Plan mode: Zwans looks and proposes a plan, and nothing changes until you approve it"
+                }
+              >
+                <ListChecks size={15} aria-hidden="true" />
+              </button>
+            )}
             <span className="muted small">
               {connection === "connecting"
                 ? "Connecting…"

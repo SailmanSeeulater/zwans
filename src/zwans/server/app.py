@@ -14,6 +14,8 @@ running or waits for an answer. A client may send:
     {"type": "interrupt"}
     {"type": "loop", "argument": "until pytest -q"}   (/loop: work until a check passes)
     {"type": "budget", "dollars": "2"}    (the spending cap; "off" clears it)
+    {"type": "plan", "on": true, "task": "..."}   (plan mode; the task is optional)
+    {"type": "go"}                        (approve the plan: plan mode off, carry it out)
 
 A request the session can't take gets {"type": "server_error", "message": "..."} back, to
 that client only.
@@ -669,6 +671,16 @@ def _act(live: LiveSession, message: dict[str, Any]) -> str | Message | None:
                 "path": f".zwans/commands/{exc.command.path.name}",
             }
         except (Busy, ValueError) as exc:
+            return str(exc)
+    elif kind == "plan":
+        try:
+            live.plan(message.get("on") is True, str(message.get("task", "")).strip())
+        except Busy as exc:
+            return str(exc)
+    elif kind == "go":
+        try:
+            live.go()
+        except Busy as exc:
             return str(exc)
     elif kind == "budget":
         try:

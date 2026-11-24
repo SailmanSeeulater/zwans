@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from zwans import custom_commands
+from zwans import custom_commands, planning
 from zwans.budget import parse_dollars
 from zwans.checkpoints import Change, CheckpointError
 from zwans.cli.approval import can_prompt, prompt_line
@@ -42,6 +42,12 @@ COMMANDS = [
         "Keep working until a check passes, such as: /loop until pytest -q",
         "[rounds] until <check> [task]",
     ),
+    Command(
+        "plan",
+        "Plan first: the model looks and proposes, and nothing changes until /go",
+        "[task | off]",
+    ),
+    Command("go", "Carry out the plan: plan mode goes off"),
     Command("resume", "List recent sessions here, or switch to one", "[number or id]"),
     Command("exit", "Quit"),
 ]
@@ -94,6 +100,8 @@ class Commands:
         argument = argument.strip()
         if name not in KNOWN:
             return await self._custom(name, f"{argument}\n{rest}".strip())
+        if name == "plan":  # the task may run to several lines
+            return self._plan(f"{argument}\n{rest}".strip())
         if rest.strip() and name in KNOWN:
             # Likely lines typed ahead that ran together: doing only part of it would surprise.
             _say(f"/{name} goes on a line of its own, so nothing was done.", fg="yellow")
@@ -117,6 +125,8 @@ class Commands:
                 self._budget(argument)
             case "loop":
                 await self._loop(argument)
+            case "go":
+                return self._go()
             case "resume":
                 return self._resume(argument)
             case "exit" | "quit":
@@ -332,6 +342,32 @@ class Commands:
         _say(f"Looping until `{spec.check}` passes, for at most {spec.rounds} turns.", dim=True)
         await run_loop(self.opened.session, self.opened.executor, spec)
 
+    def _plan(self, argument: str) -> Outcome:
+        session = self.opened.session
+        if argument.lower() == "off":
+            if session.set_planning(False):
+                _say("Plan mode is off: changes are judged by the permissions as before.")
+            else:
+                _say("Plan mode isn't on.")
+            return None
+        if session.permissions is None:
+            _say("Plan mode needs a session that checks its tool calls.", fg="yellow")
+            return None
+        if session.set_planning(True):
+            _say(
+                "Plan mode: the model can look but not change anything. When its plan looks "
+                "right, /go carries it out; /plan off leaves without it."
+            )
+        elif not argument:
+            _say("Plan mode is already on. /go carries out the plan; /plan off leaves.")
+        return Send(argument) if argument else None
+
+    def _go(self) -> Outcome:
+        if not self.opened.session.set_planning(False, approved=True):
+            _say("There's no plan to carry out: /plan <task> asks for one first.")
+            return None
+        return Send(planning.GO)
+
     def _resume(self, argument: str) -> Outcome:
         if argument:
             if argument.isdigit() and 0 < int(argument) <= len(self._listed):
@@ -406,7 +442,7 @@ def _was(items: list[str]) -> str:
 
 
 def _say(text: str, **style: object) -> None:
-    typer.secho(text, dim=not style, **style)  # type: ignore[arg-type]
+    typer.secho(text, **{"dim": not style, **style})  # type: ignore[arg-type]
 
 
 async def _print_models(config: Config, env: Mapping[str, str], current: str) -> None:

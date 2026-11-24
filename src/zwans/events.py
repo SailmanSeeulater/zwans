@@ -192,6 +192,14 @@ class LoopEnded(_Event):
     check: str = ""
 
 
+class PlanModeChanged(_Event):
+    """Plan mode went on or off: off with `approved` when the user approved the plan."""
+
+    type: Literal["plan_mode"] = "plan_mode"
+    on: bool
+    approved: bool = False
+
+
 class Error(_Event):
     type: Literal["error"] = "error"
     message: str
@@ -216,6 +224,7 @@ type Event = (
     | LoopChecked
     | LoopEnded
     | Rewound
+    | PlanModeChanged
     | Error
 )
 

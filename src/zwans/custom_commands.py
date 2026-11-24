@@ -36,7 +36,7 @@ KEYS = {"description", "args", "argument-hint", "loop", "rounds"}
 # Zwans's own commands, in the terminal or the web UI: a file can't take their names.
 RESERVED = frozenset(
     {"help", "clear", "undo", "rewind", "compact", "model", "cost", "budget", "loop"}
-    | {"resume", "exit", "quit", "replay"}
+    | {"resume", "exit", "quit", "replay", "plan", "go"}
 )
 
 type Scope = Literal["project", "user"]

@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from zwans import planning
 from zwans.context.calls import TimedCall, context_split, counted_input
 from zwans.context.compaction import Compactor
 from zwans.context.truncation import fit_output
@@ -404,7 +405,16 @@ def _results_message(
 def _last_user_text(messages: list[Message]) -> str:
     if not messages:
         return ""
-    return "".join(block.text for block in messages[-1].content if isinstance(block, TextBlock))
+    return user_text(messages[-1])
+
+
+def user_text(message: Message) -> str:
+    """What the user wrote in a message, without the notes Zwans adds (planning.py)."""
+    return "".join(
+        block.text
+        for block in message.content
+        if isinstance(block, TextBlock) and not planning.is_note(block.text)
+    )
 
 
 async def _run_tool(

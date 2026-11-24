@@ -4,12 +4,20 @@ import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
+from zwans import planning
 from zwans.context.calls import context_split
 from zwans.context.compaction import Compactor
 from zwans.context.tokens import CHARS_PER_TOKEN
-from zwans.events import Event, TextDelta, ThinkingDelta, TurnEnded, UsageUpdated
+from zwans.events import (
+    Event,
+    PlanModeChanged,
+    TextDelta,
+    ThinkingDelta,
+    TurnEnded,
+    UsageUpdated,
+)
 from zwans.ext.hooks import Hooks
-from zwans.loop import run_turn
+from zwans.loop import run_turn, user_text
 from zwans.messages import ContentBlock, ImageBlock, Message, TextBlock
 from zwans.policy.engine import Permissions
 from zwans.providers.base import Provider
@@ -55,10 +63,27 @@ class Session:
         self.limit: Callable[[], str | None] | None = None
         # Awaited with the turn's number before it starts, as checkpoints.py snapshots files.
         self.before_turn: Callable[[int], Awaitable[None]] | None = None
+        self.planning = False  # plan mode (planning.py)
+        self._note: str | None = None  # a note for the next prompt, as plan mode ending
         for tool in self.tools:
             if isinstance(tool, TaskTool):
                 tool.parent = self
         self._measure_overhead()
+
+    def set_planning(self, on: bool, approved: bool = False) -> bool:
+        """Turn plan mode on or off; False when it already was. Turning it off tells the
+        model so with the next prompt: that the plan was `approved`, or only that it may
+        change things again."""
+        if on == self.planning:
+            return False
+        if on and self.permissions is None:
+            raise ValueError("Plan mode needs a session whose tool calls are checked.")
+        self.planning = on
+        if self.permissions is not None:
+            self.permissions.planning = on
+        self._note = None if on else planning.GO_NOTE if approved else planning.ENDED
+        self.emit(PlanModeChanged(on=on, approved=approved))
+        return True
 
     def _take_steering(self) -> list[str]:
         taken, self.steering = self.steering, []
@@ -84,7 +109,7 @@ class Session:
         conversation (a compaction may have summarized it)."""
         for message in self.messages:
             if message.role == "user" and message.turn == turn:
-                return "".join(b.text for b in message.content if isinstance(b, TextBlock))
+                return user_text(message)
         return ""
 
     def earliest_turn(self) -> int:
@@ -101,6 +126,10 @@ class Session:
         if self.before_turn is not None:
             await self.before_turn(self.turn)
         content: list[ContentBlock] = [*images, TextBlock(text=prompt)]
+        note = planning.PLANNING if self.planning else self._note
+        self._note = None
+        if note:
+            content.append(TextBlock(text=note))
         asked = Message(role="user", content=content, turn=self.turn)
         self.messages.append(asked)
         stop_reason: str | None = None
@@ -144,6 +173,8 @@ class Session:
                 # the next one would ask for both at once.
                 self.messages.pop()
                 self.turn -= 1
+                if note and not self.planning and self._note is None:
+                    self._note = note  # plan mode's end still needs telling
             stop_reason = "error"
             self.emit(TurnEnded(stop_reason=stop_reason))
         return stop_reason

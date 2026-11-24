@@ -236,6 +236,8 @@ file instead of refusing it. Images can be up to 3.75 MB, and each costs about 1
 | `/cost` | What the session has cost, and how full its context is |
 | `/budget [dollars]` | Shows the session's spending cap, or sets one (`/budget 2`, `/budget off`); turns stop before the model call that would go past it |
 | `/loop [rounds] until <check> [task]` | Keeps working until a check passes: Zwans runs the check (say `pytest -q`) after each turn and sends the model what fails, for at most 5 turns unless `rounds` says otherwise. Quote a check with spaces when a task follows: `/loop 8 until "npm test" fix the dates` |
+| `/plan [task \| off]` | Plan mode: the model looks and replies with a plan, and nothing changes until `/go` (see [Plan mode](#plan-mode)). With a task, sends it; `/plan off` leaves without carrying the plan out |
+| `/go` | Approves the plan: plan mode goes off and the model carries it out |
 | `/<name> [arguments]` | Runs a command of your own, from `.zwans/commands/<name>.md` or `~/.zwans/commands/<name>.md` (see [Your own commands](#your-own-commands)) |
 | `/resume [n]` | Lists recent sessions in this workspace, or switches to one |
 | `/exit` | Quits |
@@ -519,6 +521,23 @@ what it had said is kept, marked as cut off. `--budget` stops the room before a 
 has spent that much in all. Rooms have no tools, so agents only talk (and search the web,
 where their provider offers it). Each room is saved in `~/.zwans/rooms/` after every line.
 In the web UI, Rooms in the sidebar sets one up, with a model menu for each agent.
+
+### Plan mode
+
+For a task you'd rather see thought through before anything changes, `/plan <task>` asks
+for a plan first. The model reads what it needs and replies with what it found, the steps
+with the files each one changes, how it will check the work, and anything it needs you to
+decide. While plan mode is on, calls are judged as in `read-only` mode whatever `--mode`
+says, and your allow rules (and "always" answers) don't widen that, so nothing is edited,
+run or fetched; a refused call tells the model it's in plan mode. Reply to change the plan,
+then `/go` to carry it out: plan mode goes off, the permissions are what they were, and the
+model is told the plan was approved. `/plan off` leaves without it.
+
+In the web UI, the checklist button beside the message box turns plan mode on and off, the
+header says Plan while it's on, and a bar above the message box has **Carry out the plan**
+once there is one. The note asking for a plan goes with each message rather than into the
+system prompt, which stays the same so earlier turns stay cached; you don't see it in the
+conversation.
 
 ### Shipping a session's work
 

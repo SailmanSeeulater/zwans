@@ -583,6 +583,11 @@ def _chat(
         if opened.checkpoints and opened.checkpoints.problem != checkpoint_problem:
             typer.secho(str(opened.checkpoints.problem), fg="yellow")
         _print_turn(opened)
+        if opened.session.planning and not failed:
+            typer.secho(
+                "Plan mode: /go carries this out, a message changes the plan, /plan off leaves.",
+                dim=True,
+            )
 
 
 def _typing_ahead(
@@ -592,7 +597,7 @@ def _typing_ahead(
 
 
 def _status(opened: OpenedSession) -> str:
-    mode = opened.policy.policy.mode
+    mode = "plan mode" if opened.session.planning else opened.policy.policy.mode
     context = opened.session.context_tokens()
     dollars = opened.meter.session_dollars
     return f"{opened.model} · {mode} · context {context / 1000:.0f}k · ${dollars:.2f}"

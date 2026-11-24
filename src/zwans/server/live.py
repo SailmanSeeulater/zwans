@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from zwans import custom_commands, pricing, races, shipping, transcript, usage
+from zwans import custom_commands, planning, pricing, races, shipping, transcript, usage
 from zwans import demo as zwans_demo
 from zwans.budget import parse_dollars
 from zwans.checkpoints import Change, CheckpointError
@@ -101,6 +101,7 @@ class LiveSession:
             "workspace": info.workspace,
             "model": opened.model,
             "mode": opened.policy.policy.mode,
+            "planning": opened.session.planning,  # plan mode: nothing changes until "go"
             "executor": opened.config.executor,
             "running": self.running,
             "budget": opened.budget.dollars if opened.budget else None,  # the cap, in $
@@ -364,6 +365,27 @@ class LiveSession:
         )
         self.turn = asyncio.create_task(self._run_work(work))
         self._broadcast(self.status())
+
+    def plan(self, on: bool, task: str = "") -> None:
+        """Turn plan mode on, sending `task` when there is one, or off without carrying the
+        plan out. Raises Busy."""
+        if self.running:
+            raise Busy("Wait for the turn to end, or stop it, before changing plan mode.")
+        if on and (self.opened.chat or self.opened.session.permissions is None):
+            raise Busy("Plan mode needs a project whose tool calls are checked.")
+        self.opened.session.set_planning(on)
+        if on and task:
+            self.prompt(task)
+        else:
+            self._broadcast(self.status())
+
+    def go(self) -> None:
+        """Approve the plan: plan mode goes off and the model carries it out. Raises Busy."""
+        if self.running:
+            raise Busy("Wait for the plan to finish before approving it.")
+        if not self.opened.session.set_planning(False, approved=True):
+            raise Busy("There's no plan to carry out: plan mode isn't on.")
+        self.prompt(planning.GO)
 
     def set_budget(self, text: str) -> None:
         """Set the spending cap: "2", "$0.50", or "off". Raises ValueError."""

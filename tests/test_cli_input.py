@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from helpers import needs_bash
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 from prompt_toolkit.input import create_pipe_input
@@ -402,4 +403,14 @@ def test_a_command_of_your_own_sends_its_text_and_shows_in_help(
     assert "/review <path>" in out and "Review a file (project)" in out
     assert untrusted is None and "came with this project and runs `pytest`" in out
     assert opened.session.turn == 0
+    asyncio.run(opened.close())
+
+
+@needs_bash
+def test_loop_in_the_terminal_says_what_it_does_and_stops_when_passing(
+    tmp_path: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    opened = opened_session(tmp_path, workspace, [])
+    asyncio.run(Commands(opened).run("/loop 2 until true"))
+    assert "Looping until `true` passes, for at most 2 turns." in capsys.readouterr().out
     asyncio.run(opened.close())

@@ -4731,3 +4731,34 @@ td.wf-time {
     transform: rotate(360deg);
   }
 }
+
+/* -- plan mode */
+.plan-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 13px;
+  animation: changes-open 0.2s ease-out;
+}
+.plan-bar > svg {
+  flex: none;
+  color: var(--accent);
+}
+.plan-bar-text {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.plan-bar-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.plan-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}

@@ -1,6 +1,7 @@
 /**
  * Slash commands typed in a session's message box: /loop works until a check passes,
- * /budget shows or sets the spending cap, and commands from Markdown files in
+ * /budget shows or sets the spending cap, /plan and /go plan first and then carry it out,
+ * and commands from Markdown files in
  * .zwans/commands (the project's) or ~/.zwans/commands (yours) send their text.
  * Everything else goes to the model as typed.
  */
@@ -43,10 +44,22 @@ export const COMMANDS: SlashCommand[] = [
     about: "Show the spending cap, or set one; turns stop when it's spent",
     example: "/budget 2",
   },
+  {
+    name: "plan",
+    args: "[task | off]",
+    about: "Plan first: Zwans looks and proposes, and nothing changes until /go",
+    example: "/plan add a cache to the API",
+  },
+  {
+    name: "go",
+    args: "",
+    about: "Carry out the plan: plan mode goes off",
+    example: "/go",
+  },
 ];
 
 export type Parsed =
-  | { name: "loop" | "budget"; argument: string }
+  | { name: "loop" | "budget" | "plan" | "go"; argument: string }
   | { name: "custom"; command: string; argument: string }
   | { name: "unknown"; typed: string };
 
@@ -61,7 +74,7 @@ export function parseCommand(text: string, custom: SlashCommand[] = []): Parsed 
   if (!/^\/[a-z][a-z0-9-]*$/i.test(first)) return null;
   const name = first.slice(1).toLowerCase();
   const argument = trimmed.slice(first.length).trim();
-  if (name === "loop" || name === "budget") return { name, argument };
+  if (name === "loop" || name === "budget" || name === "plan" || name === "go") return { name, argument };
   if (custom.some((c) => c.name === name)) return { name: "custom", command: name, argument };
   return { name: "unknown", typed: first };
 }

@@ -101,8 +101,22 @@ class Permissions:
     root: Path | None = None
     tainted: bool = False  # untrusted content has been read in this session
     session_rules: list[Rule] = field(default_factory=list)  # added by "always"
+    # Plan mode (planning.py): judged as read-only mode, and no allow rule widens it.
+    planning: bool = False
     # One question at a time, since subagents running together can each need one.
     _asking: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+
+    @property
+    def mode(self) -> str:
+        """The mode calls are judged by: the policy's, or read-only while planning."""
+        return "read-only" if self.planning else self.policy.mode
+
+    @property
+    def _strict(self) -> str:
+        """Why read-only mode refused something, as the end of a reason."""
+        if self.planning:
+            return "Zwans is in plan mode, so nothing changes until the user approves the plan"
+        return "Zwans is in read-only mode"
 
     def check(self, tool: _ToolLike, args: dict[str, Any]) -> Verdict:
         commands = getattr(tool, "commands", None)
@@ -127,8 +141,8 @@ class Permissions:
             path = args.get("path")
             verdict = self._check_tool(tool, path if isinstance(path, str) else None)
         # Read-only mode asks nothing, so what an ask rule covers is refused there too.
-        if verdict.decision == Decision.ASK and self.policy.mode == "read-only":
-            return Verdict(Decision.DENY, f"{verdict.reason}, and Zwans is in read-only mode")
+        if verdict.decision == Decision.ASK and self.mode == "read-only":
+            return Verdict(Decision.DENY, f"{verdict.reason}, and {self._strict}")
         return verdict
 
     async def ask(self, request: PermissionRequest) -> Approval:
@@ -173,9 +187,9 @@ class Permissions:
             verdict = Verdict(Decision.ALLOW)
         elif tool.read_only:
             return Verdict(Decision.ALLOW)
-        elif self.policy.mode == "read-only":
-            return Verdict(Decision.DENY, f"{what} {effect}, and Zwans is in read-only mode")
-        elif self.policy.mode == "ask" or tool.name not in FILE_CHANGE_TOOLS:
+        elif self.mode == "read-only":
+            return Verdict(Decision.DENY, f"{what} {effect}, and {self._strict}")
+        elif self.mode == "ask" or tool.name not in FILE_CHANGE_TOOLS:
             verdict = Verdict(Decision.ASK, f"{what} {effect}")
         else:
             verdict = Verdict(Decision.ALLOW)
@@ -208,10 +222,8 @@ class Permissions:
                     decision, f"{what} matches the {decision} rule {rule} ({rule.source})"
                 )
             verdict = Verdict(Decision.ALLOW)
-        elif self.policy.mode == "read-only":
-            return Verdict(
-                Decision.DENY, f"{what} uses the network, and Zwans is in read-only mode"
-            )
+        elif self.mode == "read-only":
+            return Verdict(Decision.DENY, f"{what} uses the network, and {self._strict}")
         else:
             verdict = Verdict(Decision.ASK, f"{what} uses the network")
         # What was read could be sent out in the address or the search itself.
@@ -330,9 +342,9 @@ class Permissions:
         if action.kind == Kind.READ:
             return Verdict(Decision.ALLOW)
         reason = f"{shown} {what}"
-        if self.policy.mode == "read-only":
-            return Verdict(Decision.DENY, f"{reason}, and Zwans is in read-only mode")
-        if self.policy.mode == "auto" and action.kind in (Kind.WRITE, Kind.EXECUTE):
+        if self.mode == "read-only":
+            return Verdict(Decision.DENY, f"{reason}, and {self._strict}")
+        if self.mode == "auto" and action.kind in (Kind.WRITE, Kind.EXECUTE):
             return Verdict(Decision.ALLOW)
         return Verdict(Decision.ASK, reason)
 
@@ -345,7 +357,11 @@ class Permissions:
         """The strictest rule that matches, or None. `allows` replaces `matches` for allow
         rules, when they need a closer look."""
         session = {Decision.ALLOW: self.session_rules}
-        for decision in (Decision.DENY, Decision.ASK, Decision.ALLOW):
+        # While planning, allow rules don't apply: they were written for doing the work.
+        decisions: tuple[Decision, ...] = (Decision.DENY, Decision.ASK)
+        if not self.planning:
+            decisions += (Decision.ALLOW,)
+        for decision in decisions:
             test = allows if decision == Decision.ALLOW and allows is not None else matches
             for rule in [*self.policy.rules[decision], *session.get(decision, [])]:
                 if rule.covers(tool) and test(rule):

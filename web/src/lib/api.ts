@@ -187,6 +187,8 @@ export interface SessionStatus {
   command_problems?: string[];
   /** The session's spending cap in dollars; null for none. */
   budget?: number | null;
+  /** Plan mode: the model looks and proposes, and nothing changes until the plan is approved. */
+  planning?: boolean;
   /** The model runs on this machine. */
   local?: boolean;
   /** Who a stuck local session can hand its task to; null when no one. */
