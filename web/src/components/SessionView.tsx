@@ -12,6 +12,7 @@ import {
   type DemoInfo,
   type TrustQuestion,
   type FileChange,
+  type Mode,
   type RewindResult,
   type SessionStatus,
   type SessionChanges,
@@ -44,6 +45,7 @@ import { TodoList } from "./TodoList";
 import { ChangesPanel } from "./ChangesPanel";
 import { PlanBar } from "./PlanBar";
 import { hasPlan } from "@/lib/planning";
+import { followAfterScroll } from "@/lib/scrolling";
 import { SidePane } from "./SidePane";
 import { UnderTheHood } from "./UnderTheHood";
 import { TokenMissing, useHasToken } from "./useApi";
@@ -52,6 +54,12 @@ type Connection = "connecting" | "open" | "closed";
 
 const RECONNECT_MS = 1_000;
 const MODES: Record<string, string> = { ask: "Ask before changes", auto: "Auto", "read-only": "Read-only" };
+// The composer's toggle, from the strictest: it changes how the next calls are judged.
+const MODE_CHOICES: { id: Mode; label: string; about: string }[] = [
+  { id: "read-only", label: "Read-only", about: "Read-only: Zwans reads and searches, and changes nothing" },
+  { id: "ask", label: "Ask", about: "Ask: Zwans asks before it changes files or runs commands" },
+  { id: "auto", label: "Auto", about: "Auto: Zwans edits files without asking; the policy's rules still apply" },
+];
 
 export function SessionView() {
   const params = useSearchParams();
@@ -81,6 +89,7 @@ export function SessionView() {
   const socket = useRef<WebSocket | null>(null);
   const scroller = useRef<HTMLDivElement | null>(null);
   const pinned = useRef(true); // whether to follow new output to the bottom
+  const touchY = useRef<number | null>(null); // where a touch on the conversation began
   const autoResumed = useRef(""); // the session this page has already tried to resume by itself
   const resend = useRef<string | null>(null); // a prompt to send once the session reconnects: a retry
   const composer = useRef<HTMLTextAreaElement | null>(null);
@@ -241,6 +250,12 @@ export function SessionView() {
     else if (events.length) setFresh(true);
   }, [events.length, waiting.length, tab]);
 
+  // The person scrolled up themselves: stop following, even if they're still close to the end.
+  const unpin = useCallback(() => {
+    pinned.current = false;
+    setAtBottom(false);
+  }, []);
+
   const jumpToLatest = useCallback(() => {
     const box = scroller.current;
     if (!box) return;
@@ -291,6 +306,9 @@ export function SessionView() {
       }
       pinned.current = true;
       send({ type: "loop", argument: command.argument });
+    } else if (command.name === "compact") {
+      pinned.current = true;
+      send({ type: "compact" });
     } else if (!command.argument) {
       const cap = status?.budget;
       const spent = status?.dollars ?? 0;
@@ -598,9 +616,27 @@ export function SessionView() {
           ref={scroller}
           onScroll={(e) => {
             const box = e.currentTarget;
-            pinned.current = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+            pinned.current = followAfterScroll(pinned.current, box.scrollHeight - box.scrollTop - box.clientHeight);
             if (pinned.current !== atBottom) setAtBottom(pinned.current);
             if (pinned.current && fresh) setFresh(false);
+          }}
+          onWheel={(e) => {
+            if (e.deltaY < 0) unpin();
+          }}
+          onTouchStart={(e) => {
+            touchY.current = e.touches[0]?.clientY ?? null;
+          }}
+          onTouchMove={(e) => {
+            const y = e.touches[0]?.clientY;
+            if (touchY.current != null && y != null && y > touchY.current + 4) unpin(); // dragging down scrolls up
+          }}
+          onKeyDown={(e) => {
+            if (["ArrowUp", "PageUp", "Home"].includes(e.key)) unpin();
+          }}
+          onPointerDown={(e) => {
+            // A press on the scrollbar, which sits past the content box.
+            const box = e.currentTarget;
+            if (e.nativeEvent.offsetX > box.clientWidth) unpin();
           }}
         >
           <div className="session-column">
@@ -926,6 +962,23 @@ export function SessionView() {
               >
                 <ListChecks size={15} aria-hidden="true" />
               </button>
+            )}
+            {status && !status.demo && (
+              <div className="mode-toggle" role="radiogroup" aria-label="Permissions">
+                {MODE_CHOICES.map((choice) => (
+                  <button
+                    key={choice.id}
+                    role="radio"
+                    aria-checked={status.mode === choice.id}
+                    className={status.mode === choice.id ? "on" : undefined}
+                    disabled={connection !== "open"}
+                    title={choice.about}
+                    onClick={() => status.mode !== choice.id && send({ type: "mode", mode: choice.id })}
+                  >
+                    {choice.label}
+                  </button>
+                ))}
+              </div>
             )}
             <span className="muted small">
               {connection === "connecting"

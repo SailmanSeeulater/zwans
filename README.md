@@ -1029,6 +1029,11 @@ one says so. A session that was open when the server stopped is resumed when you
   diff. When the policy asks, the question appears above the input box with Allow once,
   Always allow (only when it would take effect, as in the terminal) and Deny, and an Edit or
   Write shows the diff it would make. A Task call lists what its subagent did.
+  Below the input box, *Read-only · Ask · Auto* changes the mode the next calls are judged
+  by, in a session or a chat; the policy's rules still apply, and a session resumed later
+  starts in its policy's mode again. `/compact` summarizes the older messages now, as the
+  terminal's does. Scrolling up while the model writes stays where you put it, with *New
+  below* to jump back; reaching the end follows the text again.
   Hovering over a session in the sidebar shows three buttons. The pin keeps it at the top.
   The pencil renames it (so does double-clicking it), and an empty name goes back to its
   first prompt. The bin deletes it after you press Delete: its conversation, transcript and

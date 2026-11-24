@@ -8,13 +8,14 @@ describe("parseCommand", () => {
     expect(parseCommand("/budget")).toEqual({ name: "budget", argument: "" });
     expect(parseCommand("/plan add a cache")).toEqual({ name: "plan", argument: "add a cache" });
     expect(parseCommand("/go")).toEqual({ name: "go", argument: "" });
+    expect(parseCommand("/compact")).toEqual({ name: "compact", argument: "" });
     expect(parseCommand("/frobnicate")).toEqual({ name: "unknown", typed: "/frobnicate" });
     expect(parseCommand("/etc/hosts is wrong")).toBeNull();
     expect(parseCommand("fix /loop handling")).toBeNull();
   });
 
   it("offers the commands that start with what's typed", () => {
-    expect(matching("/").map((c) => c.name)).toEqual(["loop", "budget", "plan", "go"]);
+    expect(matching("/").map((c) => c.name)).toEqual(["loop", "budget", "plan", "go", "compact"]);
     expect(matching("/bu").map((c) => c.name)).toEqual(["budget"]);
     expect(matching("/loop until")).toEqual([]);
     expect(matching("hello")).toEqual([]);
@@ -52,7 +53,7 @@ describe("commands from files", () => {
   });
 
   it("show in the menu after Zwans's own, with where they came from", () => {
-    expect(matching("/", custom).map((c) => c.name)).toEqual(["loop", "budget", "plan", "go", "fix-lint", "explain"]);
+    expect(matching("/", custom).map((c) => c.name)).toEqual(["loop", "budget", "plan", "go", "compact", "fix-lint", "explain"]);
     expect(matching("/fi", custom)).toMatchObject([{ name: "fix-lint", scope: "project", check: "ruff check ." }]);
     expect(matching("/ex", custom)[0]?.check).toBeUndefined();
   });

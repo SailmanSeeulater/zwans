@@ -16,6 +16,8 @@ running or waits for an answer. A client may send:
     {"type": "budget", "dollars": "2"}    (the spending cap; "off" clears it)
     {"type": "plan", "on": true, "task": "..."}   (plan mode; the task is optional)
     {"type": "go"}                        (approve the plan: plan mode off, carry it out)
+    {"type": "mode", "mode": "auto"}      (read-only, ask or auto, from the next call on)
+    {"type": "compact"}                   (/compact: summarize the older messages now)
 
 A request the session can't take gets {"type": "server_error", "message": "..."} back, to
 that client only.
@@ -676,6 +678,16 @@ def _act(live: LiveSession, message: dict[str, Any]) -> str | Message | None:
         try:
             live.plan(message.get("on") is True, str(message.get("task", "")).strip())
         except Busy as exc:
+            return str(exc)
+    elif kind == "mode":
+        try:
+            live.set_mode(str(message.get("mode", "")))
+        except ValueError as exc:
+            return str(exc)
+    elif kind == "compact":
+        try:
+            live.compact()
+        except (Busy, ValueError) as exc:
             return str(exc)
     elif kind == "go":
         try:

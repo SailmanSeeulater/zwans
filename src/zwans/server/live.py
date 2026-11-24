@@ -21,10 +21,12 @@ from zwans import demo as zwans_demo
 from zwans.budget import parse_dollars
 from zwans.checkpoints import Change, CheckpointError
 from zwans.config import Config, ConfigError
-from zwans.events import Error, Event, TurnEnded
+from zwans.events import ContextCompacted, Error, Event, TurnEnded
 from zwans.looping import parse_loop, run_loop
 from zwans.messages import ImageBlock, TextBlock
 from zwans.policy.engine import Approval, PermissionRequest
+from zwans.policy.rules import MODES
+from zwans.providers.base import ProviderError
 from zwans.providers.catalog import canonical
 from zwans.providers.router import ModelRouter, helper
 from zwans.runtime import OpenedSession, ProviderFactory, is_chat, open_session
@@ -378,6 +380,43 @@ class LiveSession:
             self.prompt(task)
         else:
             self._broadcast(self.status())
+
+    def set_mode(self, mode: str) -> None:
+        """Judge the calls from now on by another mode: read-only, ask or auto, as choosing it
+        when the session started would. Takes effect at once, even mid-turn: the next call is
+        judged by it. Raises ValueError."""
+        chosen = next((m for m in MODES if m == mode), None)
+        if chosen is None:
+            raise ValueError(f"{mode!r} isn't a mode: read-only, ask or auto.")
+        self.opened.policy.policy.mode = chosen
+        self._broadcast(self.status())
+
+    def compact(self) -> None:
+        """/compact: have the model summarize the older messages now, as it does by itself
+        past compact_at. Raises Busy, or ValueError when there's nothing to compact."""
+        if self.running:
+            raise Busy("Wait for the turn to end, or stop it, before compacting.")
+        session = self.opened.session
+        if session.compactor is None:
+            raise ValueError("This session doesn't compact.")
+        if not session.compactor.can_compact(session.messages):
+            raise ValueError("Nothing to compact yet: the conversation is too short.")
+        self.turn = asyncio.create_task(self._run_work(self._compact()))
+        self._broadcast(self.status())
+
+    async def _compact(self) -> None:
+        session = self.opened.session
+        if session.compactor is None:
+            return
+        try:
+            events = await session.compactor.compact(session.messages)
+        except ProviderError as exc:
+            session.emit(Error(message=f"Couldn't compact: {exc}"))
+            return
+        for event in events:
+            session.emit(event)  # the clients show it, and the saved session is rewritten
+        if not any(isinstance(event, ContextCompacted) for event in events):
+            session.emit(Error(message="The model wrote no summary, so nothing was compacted."))
 
     def go(self) -> None:
         """Approve the plan: plan mode goes off and the model carries it out. Raises Busy."""
