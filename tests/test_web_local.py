@@ -7,11 +7,12 @@ import httpx
 import pytest
 
 from zwans.config import Config, ConfigError, WebSearchConfig, load_config
+from zwans.events import Event, UsageUpdated
 from zwans.executor.local import LocalExecutor
-from zwans.messages import Message
+from zwans.messages import Message, TextBlock
 from zwans.policy.engine import Permissions
 from zwans.policy.rules import Decision, Mode, Policy, PolicyFile
-from zwans.providers.base import StreamItem
+from zwans.providers.base import ModelResponse, Provider, StreamItem
 from zwans.providers.catalog import Resolved
 from zwans.providers.fake import FakeProvider
 from zwans.providers.router import ModelRouter
@@ -70,9 +71,7 @@ def test_a_page_becomes_text_with_its_headings_and_links() -> None:
     title, text = to_text(PAGE, "https://docs.example.com/install/")
 
     assert title == "The Docs"
-    assert text.splitlines() == [
-        "Home (https://docs.example.com/home)",
-        "",
+    assert text.splitlines() == [  # the menu is left out
         "# Install",
         "",
         "Run pip install zwans, then read the guide (https://docs.example.com/install/guide.html).",
@@ -84,6 +83,46 @@ def test_a_page_becomes_text_with_its_headings_and_links() -> None:
         "https://example.org/x write",  # a link that is its own address isn't repeated
     ]
     assert "alert" not in text and "color" not in text
+
+
+WAITS = "Each retry waits twice as long. " * 8
+ARTICLE = f"""<html><head><title>Retries</title></head><body>
+<header><a href="/">Example</a> <form><input name="q"></form></header>
+<div role="navigation"><a href="/a">A</a><div><a href="/b">B</a></div></div>
+<main><article><header><h1>Retries</h1></header>
+<p>Set <code>retries = 3</code> in the client. {WAITS}</p>
+<aside>Note: retries are off by default.</aside>
+<div hidden>Old text</div><div aria-hidden="true">Icon</div></article></main>
+<aside><h2>Related</h2><a href="/c">C</a></aside>
+<footer>Copyright Example</footer>
+<div class="cookies">We use cookies.</div></body></html>"""
+
+
+def test_the_main_content_is_kept_and_what_surrounds_it_left_out() -> None:
+    title, text = to_text(ARTICLE, "https://example.com/retries")
+
+    assert title == "Retries"
+    assert text.startswith("# Retries\n\nSet retries = 3 in the client.")
+    assert "Note: retries are off by default." in text  # an aside inside the content stays
+    for gone in ("Example", "(https://example.com/a)", "B", "Related", "Copyright", "cookies"):
+        assert gone not in text
+    assert "Old text" not in text and "Icon" not in text
+
+    _, text = to_text('<h2>Use <a href="#use">¶</a></h2><a href="/x#y">X</a>', "https://e.com/p")
+    assert text == "## Use ¶\nX (https://e.com/x#y)"  # a link within the page has no address
+
+
+def test_a_main_with_little_in_it_isnt_taken_for_the_content() -> None:
+    page = "<body><main>Loading</main><div><p>" + "Real text here. " * 30 + "</p></div></body>"
+    _, text = to_text(page, "https://example.com/")
+
+    assert text.startswith("Loading") and "Real text here." in text
+
+    _, articles = to_text(
+        "<body><p>Menu</p><article><p>One post</p></article><article><p>Two</p></article></body>",
+        "https://example.com/",
+    )
+    assert articles == "One post\n\nTwo"  # no main, but articles that are most of it
 
 
 # -- WebFetch
@@ -98,7 +137,7 @@ def test_fetch_returns_the_address_the_title_and_the_text(ctx: ToolContext) -> N
 
     output = fetch(fetcher(handler), ctx, " https://docs.example.com/install/ ")
 
-    assert output.content.startswith("https://docs.example.com/install/\nThe Docs\n\nHome (")
+    assert output.content.startswith("https://docs.example.com/install/\nThe Docs\n\n# Install")
     assert "# Install" in output.content
     assert seen[0].headers["user-agent"].startswith("Zwans")
 
@@ -175,6 +214,90 @@ def test_a_long_page_is_cut_and_says_so(ctx: ToolContext) -> None:
 
     assert len(output.content) < MAX_CHARS + 200
     assert output.content.endswith("[Only the first 60,000 of 100,000 characters are shown.]")
+
+
+class Session:
+    """What WebFetch needs from its session: a model to read pages, and somewhere for the
+    cost to go."""
+
+    def __init__(self, *replies: str, model: str = "claude-haiku-5-5") -> None:
+        self.subagent_provider: Provider = FakeProvider(
+            [
+                ModelResponse(
+                    content=[TextBlock(text=reply)],
+                    stop_reason="end_turn",
+                    model=model,
+                    input_tokens=900,
+                    output_tokens=40,
+                )
+                for reply in replies
+            ]
+        )
+        self.events: list[Event] = []
+
+    def emit(self, event: Event) -> None:
+        self.events.append(event)
+
+
+def ask(tool: WebFetchTool, ctx: ToolContext, url: str, question: str) -> ToolOutput:
+    return asyncio.run(tool.run(WebFetchInput(url=url, question=question), ctx))
+
+
+def test_a_question_brings_back_only_the_answer(ctx: ToolContext) -> None:
+    tool = fetcher(lambda request: html(ARTICLE))
+    session = Session("Set `retries = 3` in the client.")
+    tool.parent = session
+
+    output = ask(tool, ctx, "https://example.com/retries", "How do I turn on retries?")
+
+    assert output.content.startswith(
+        "https://example.com/retries\nRetries\n\nSet `retries = 3` in the client.\n\n"
+        "[claude-haiku-5-5 read the page ("
+    )
+    assert "Each retry waits" not in output.content
+    assert isinstance(session.subagent_provider, FakeProvider)
+    (request,) = session.subagent_provider.requests
+    prompt = request[0].content[0]
+    assert isinstance(prompt, TextBlock)
+    assert prompt.text.startswith("Question: How do I turn on retries?")
+    assert "<page>\n# Retries" in prompt.text and "Copyright" not in prompt.text
+    (usage,) = session.events
+    assert isinstance(usage, UsageUpdated) and usage.input_tokens == 900
+
+
+def test_without_a_model_to_ask_the_page_comes_back(ctx: ToolContext) -> None:
+    tool = fetcher(lambda request: html(ARTICLE))
+    output = ask(tool, ctx, "https://example.com/retries", "How?")
+
+    assert "# Retries" in output.content
+    assert output.content.endswith(
+        "[The question couldn't be answered (there's no model to read it here), so here is "
+        "the page.]"
+    )
+
+    tool.parent = Session("")  # an empty reply, as a refusal can be
+    output = ask(tool, ctx, "https://example.com/retries", "How?")
+    assert "(the reply was empty)" in output.content and "# Retries" in output.content
+
+    tool.parent = Session()  # the model call itself fails
+    output = ask(tool, ctx, "https://example.com/retries", "How?")
+    assert "ran out of scripted responses" in output.content
+
+
+def test_a_session_gives_webfetch_its_model(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    opened = open_session(
+        Config(home=tmp_path / "home"),
+        {},
+        workspace=workspace,
+        make_provider=lambda c, m: FakeProvider([]),
+    )
+    try:
+        (tool,) = [t for t in opened.session.tools if isinstance(t, WebFetchTool)]
+        assert tool.parent is opened.session
+    finally:
+        asyncio.run(opened.close())
 
 
 # -- WebSearch

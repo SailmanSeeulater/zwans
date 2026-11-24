@@ -649,8 +649,13 @@ Other models have no web tools of their provider's, so Zwans gives them two of i
 run on this machine:
 
 - `WebFetch` reads a page and returns it as text, with headings and links kept, up to 60,000
-  characters. It only reaches public addresses, and each redirect is checked too; for a
-  server on this machine, the model uses `curl` through Bash.
+  characters. It keeps the page's content, its `<main>` or `<article>`, and leaves out menus,
+  banners, footers and hidden elements, which on a typical docs page is a quarter to two
+  thirds less to read. Given a `question` as well, a model reads the page and only its
+  answer comes back: a few hundred tokens instead of the page's thousands. That model is
+  `subagent_model` when you set one, so a cheap one can do the reading for an expensive one.
+  It only reaches public addresses, and each redirect is checked too; for a server on this
+  machine, the model uses `curl` through Bash.
 - `WebSearch` is offered once the config says where to search: Brave's API, with its key in
   `BRAVE_API_KEY`, or a SearXNG server you run.
 
@@ -1027,7 +1032,7 @@ environment variables:
 | `test_commands` | none | Commands for `RunTests` to run instead of the test runners it finds |
 | `disabled_tools` | none | Tools not to offer, by name |
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
-| `subagent_model` | the session's | The model subagents run on |
+| `subagent_model` | the session's | The model subagents run on, and the one that answers `WebFetch`'s questions about a page |
 | `follow_through` | `2` local, `0` other | Times a turn sends the model back when its final reply only announced the next step or showed code without writing it |
 | `titles` | `true` | After a session's first turn, ask a model for a few words to title it |
 | `title_model` | Haiku for Claude, else the session's | The model that writes titles |

@@ -132,6 +132,7 @@ class Config(BaseModel):
     subagent_max_steps: int = 30  # model calls allowed in one subagent's task
     # The model subagents run on, as "claude-haiku-5-5": a cheaper one for searches and
     # legwork, while the session's model keeps the judgment. Unset, they use the session's.
+    # It also reads pages to answer the questions WebFetch is given.
     subagent_model: str | None = None
     # How many times a turn may send the model back when its final reply says what it will
     # do next, or only shows the code, without having done it (see followthrough.py). Unset,

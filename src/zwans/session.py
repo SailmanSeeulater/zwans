@@ -23,6 +23,7 @@ from zwans.policy.engine import Permissions
 from zwans.providers.base import Provider
 from zwans.tools.base import Tool, ToolContext
 from zwans.tools.task import TaskTool
+from zwans.tools.web_local import WebFetchTool
 
 type Listener = Callable[[Event], None]
 
@@ -66,7 +67,7 @@ class Session:
         self.planning = False  # plan mode (planning.py)
         self._note: str | None = None  # a note for the next prompt, as plan mode ending
         for tool in self.tools:
-            if isinstance(tool, TaskTool):
+            if isinstance(tool, TaskTool | WebFetchTool):
                 tool.parent = self
         self._measure_overhead()
 
