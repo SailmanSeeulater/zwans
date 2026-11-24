@@ -56,7 +56,7 @@ const PARTS: { name: string; about: string }[] = [
   },
 ];
 
-/** The 48 built-in tools the model can call, grouped by what they're for. */
+/** The 49 built-in tools the model can call, grouped by what they're for. */
 const TOOLS: { group: string; tools: [string, string][] }[] = [
   {
     group: "Files",
@@ -121,6 +121,7 @@ const TOOLS: { group: string; tools: [string, string][] }[] = [
       ["TodoWrite", "A to-do list you see as a checklist"],
       ["Task", "Hand part of the work to a subagent"],
       ["Skill", "Load instructions for a kind of task"],
+      ["ToolSearch", "Load a tool that isn't offered yet; only the everyday ones start out loaded"],
       ["AskUser", "Ask you a question and wait for the answer"],
       ["Memory", "Keep a note for later sessions in this project"],
     ],

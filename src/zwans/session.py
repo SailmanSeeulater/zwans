@@ -22,6 +22,7 @@ from zwans.messages import ContentBlock, ImageBlock, Message, TextBlock
 from zwans.policy.engine import Permissions
 from zwans.providers.base import Provider
 from zwans.tools.base import Tool, ToolContext
+from zwans.tools.on_demand import split
 from zwans.tools.task import TaskTool
 from zwans.tools.web_local import WebFetchTool
 
@@ -102,8 +103,9 @@ class Session:
         """Tell the compactor what the system prompt and tool definitions add to each request,
         for its estimates before the API has counted one, as in a session just resumed."""
         if self.compactor is not None:
-            split = context_split(self.system, self.tools, [])
-            self.compactor.overhead = split.system + split.tools
+            offered = split(self.tools, self.messages)[0]  # not the tools still to load
+            parts = context_split(self.system, offered, [])
+            self.compactor.overhead = parts.system + parts.tools
 
     def prompt_of(self, turn: int) -> str:
         """The text the user sent to start `turn`, or "" when it's no longer in the

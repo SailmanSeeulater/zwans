@@ -502,7 +502,7 @@ def test_a_session_gets_the_new_tools_unless_the_config_turns_them_off(tmp_path:
         *video, "NotebookEdit", "Logs", "Database", "Data", "ImageDiff", "Archive", "Imports",
         "OpenAPI", "Cron", "History", "Bisect", "Profile", "Benchmark", "Http", "Env", "Audit",
         *machine, *browser, "Python",
-        "ShowChanges", "Memory", "Chart", "WebFetch", "Packages",
+        "ShowChanges", "Memory", "Chart", "WebFetch", "Packages", "ToolSearch",
     ]  # fmt: skip
     # AskUser is there only when someone can be asked.
     assert "AskUser" not in full
@@ -528,4 +528,4 @@ def test_a_session_gets_the_new_tools_unless_the_config_turns_them_off(tmp_path:
         home=home, subagents=False, todos=False,
         web_search=WebSearchConfig(provider="searxng", url="http://localhost:8888"),
     )  # fmt: skip
-    assert names(searching)[-3:] == ["WebFetch", "Packages", "WebSearch"]
+    assert names(searching)[-4:] == ["WebFetch", "Packages", "WebSearch", "ToolSearch"]
