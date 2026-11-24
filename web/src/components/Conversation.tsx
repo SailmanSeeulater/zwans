@@ -15,6 +15,7 @@ import { usePrefs } from "@/lib/usePrefs";
 import { replyText } from "@/lib/reply";
 import { TODO_TOOL, todosOf } from "@/lib/todos";
 import { ActionButton, CopyButton } from "./Actions";
+import { AppView } from "./AppView";
 import { DiffBody } from "./DiffBody";
 import { DiffCount } from "./Glance";
 import { Markdown } from "./Markdown";
@@ -262,6 +263,11 @@ export function ToolCard({ call, onAnswer }: { call: ToolCall; onAnswer?: Props[
             {state.tone === "tone-run" ? <Spark size={12} /> : <span className="tool-mark-glyph">{state.mark}</span>}
           </span>
           <span className="tool-name">{call.name}</span>
+          {call.byView && (
+            <span className="tool-by" title="Its view made this call; the model didn't see it">
+              from its view
+            </span>
+          )}
           <span className="tool-arg" title={keyArgument(call)}>
             {keyArgument(call)}
           </span>
@@ -307,6 +313,7 @@ export function ToolCard({ call, onAnswer }: { call: ToolCall; onAnswer?: Props[
           )}
         </div>
       </details>
+      {call.result?.app && <AppView view={call.result.app} />}
       {/* A live session shows its questions by the composer, where they can't scroll away. */}
       {asking && call.permission && !onAnswer && <AskBar call={call} />}
     </>

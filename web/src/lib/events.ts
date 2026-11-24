@@ -4,6 +4,8 @@
  * The live session view and the eval transcript view both use it.
  */
 
+import { parseApp, type AppView } from "./apps";
+
 export interface RawEvent {
   type: string;
   time?: string;
@@ -16,9 +18,11 @@ export interface ToolCall {
   id: string;
   name: string;
   args: Record<string, unknown>;
+  /** Set for a call an MCP app's view made, which the model never saw. */
+  byView?: boolean;
   /** From the request to the result, when the events carry times. */
   seconds?: number;
-  result?: { content: string; isError: boolean; untrusted: boolean; diff: string | null };
+  result?: { content: string; isError: boolean; untrusted: boolean; diff: string | null; app?: AppView };
   /** `rules` is what "always allow" would add; `preview` the diff an Edit or Write would make. */
   permission?: { state: PermissionState; reason: string; rules: string[]; preview: string | null };
   hooks: { event: string; message: string }[];
@@ -104,6 +108,7 @@ export function buildTurns(events: RawEvent[]): Turn[] {
           id: str(event.call_id),
           name: str(event.name),
           args: obj(event.args),
+          ...(event.by === "view" && { byView: true }),
           hooks: [],
           subcalls: [],
         };
@@ -137,12 +142,14 @@ export function buildTurns(events: RawEvent[]): Turn[] {
       }
       case "tool_result": {
         const call = calls.get(str(event.call_id));
+        const app = event.app ? parseApp(event.app) : null;
         if (call) {
           call.result = {
             content: str(event.content),
             isError: Boolean(event.is_error),
             untrusted: Boolean(event.untrusted),
             diff: typeof event.diff === "string" ? event.diff : null,
+            ...(app && { app }),
           };
           const start = started.get(call.id);
           if (start !== undefined && event.time) call.seconds = (Date.parse(str(event.time)) - start) / 1000;

@@ -38,6 +38,9 @@ class ToolOutput:
     # see it; it already knows what it asked for.
     diff: str | None = None
     images: tuple[ImageBlock, ...] = ()  # sent to the model after the text, as with Read
+    # An MCP tool's view of its result, for people watching (mcp/apps.py); the model sees
+    # only the content.
+    app: dict[str, Any] | None = None
 
 
 class Tool[InputT: BaseModel](Protocol):

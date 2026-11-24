@@ -202,7 +202,7 @@ async def run_turn(
                             )
                             refusal = f"A pre_tool hook blocked this call: {blocked.message}"
                     if refusal is None and permissions is not None and tool is not None:
-                        async for step in _gate(permissions, tool, call, ctx):
+                        async for step in gate(permissions, tool, call, ctx):
                             if isinstance(step, str):
                                 refusal = step
                             else:
@@ -238,6 +238,7 @@ async def run_turn(
                                 is_error=output.is_error,
                                 diff=output.diff,
                                 images=output.images,
+                                app=output.app,
                             )
                     outputs[call.id] = output
                     untrusted = False
@@ -249,6 +250,7 @@ async def run_turn(
                         is_error=output.is_error,
                         untrusted=untrusted,
                         diff=output.diff,
+                        app=output.app,
                     )
         finally:
             # Also runs when Ctrl+C cancels the turn mid-tool, so the conversation stays valid
@@ -265,11 +267,12 @@ async def run_turn(
     yield TurnEnded(stop_reason="max_steps", detail=f"{max_steps} model calls without finishing")
 
 
-async def _gate(
+async def gate(
     permissions: Permissions, tool: Tool[Any], call: ToolUseBlock, ctx: ToolContext
 ) -> AsyncIterator[Event | str]:
     """Check one call against the policy, asking the user when it says so. Yields the
-    permission events, then, if the call must not run, the message for the model."""
+    permission events, then, if the call must not run, the message for the model. Calls an
+    MCP app's view makes go through it too (LiveSession.app_call)."""
     verdict = permissions.check(tool, call.input)
     if verdict.decision == Decision.ALLOW:
         return

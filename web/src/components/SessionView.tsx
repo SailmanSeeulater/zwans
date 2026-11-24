@@ -36,6 +36,7 @@ import { dollars as money } from "@/lib/format";
 import { currentTodos } from "@/lib/todos";
 import { livenessOf, phaseOf, tabTitle, turnStartedAt } from "@/lib/working";
 import { AskBar, Conversation, type Answer } from "./Conversation";
+import { AppSessionContext, type AppSession } from "./AppView";
 import { JumpToLatest, typing } from "./Actions";
 import { ActivityStrip, ContextMeter } from "./Glance";
 import { Spark, WorkingLine } from "./Working";
@@ -177,6 +178,22 @@ export function SessionView() {
   }, [status?.demo, demo]);
 
   const turns = useMemo(() => buildTurns(events), [events]);
+  // What an MCP app's view can reach: its server's tools, through the session's policy, and
+  // the composer, where what it wants to say waits for the person to send it.
+  const live = connection === "open";
+  const appSession = useMemo<AppSession | null>(() => {
+    if (!live) return null;
+    const post = (path: string, body: unknown) =>
+      api<unknown>(`/api/sessions/${encodeURIComponent(id)}/apps/${path}`, { method: "POST", body: JSON.stringify(body) });
+    return {
+      callTool: (server, name, args) => post("call", { server, name, arguments: args }),
+      readResource: (server, uri) => post("read", { server, uri }),
+      draft: (text) => {
+        setDraft(text);
+        composer.current?.focus();
+      },
+    };
+  }, [live, id, setDraft]);
   const turnCount = turns.length;
   const custom = fromFiles(status?.commands); // commands from .zwans/commands files
   const planAllowed = Boolean(status && !status.chat && !status.demo);
@@ -652,6 +669,7 @@ export function SessionView() {
               </div>
             ))}
             {(turns.length > 0 || connection !== "closed") && (
+              <AppSessionContext.Provider value={appSession}>
               <Conversation
                 turns={turns}
                 onAnswer={connection === "open" ? answer : undefined}
@@ -661,6 +679,7 @@ export function SessionView() {
                 animate={animate}
                 onRetry={connection === "open" && !running ? (turn) => void undo(turn, true) : undefined}
               />
+              </AppSessionContext.Provider>
             )}
             {offerHandoff && status?.handoff_model && (
               <div className="handoff" role="group" aria-label="Hand off">
