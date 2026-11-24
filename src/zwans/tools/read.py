@@ -1,9 +1,11 @@
 """The Read tool: show a text file with line numbers, or an image to the model. A PDF
-and a Jupyter notebook come as their text (tools/documents.py)."""
+and a Jupyter notebook come as their text (tools/documents.py), and a zip or tar archive as
+the list of files in it (tools/archives.py)."""
 
 from pydantic import BaseModel, Field
 
 from zwans.images import ImageError, describe, image_block, media_type
+from zwans.tools.archives import is_archive, read_archive
 from zwans.tools.base import ToolContext, ToolError, ToolOutput
 from zwans.tools.documents import is_notebook, is_pdf, read_notebook, read_pdf
 from zwans.tools.hints import only_file_named
@@ -29,7 +31,8 @@ class ReadTool:
         "number. For a large file, use offset and limit to read one part at a time. A PNG, "
         "JPEG, GIF or WebP image comes back as the image itself, for you to look at. A PDF "
         "comes back as its text, page by page (choose them with pages), and a Jupyter "
-        "notebook as its numbered cells and their outputs."
+        "notebook as its numbered cells and their outputs. A zip or tar archive comes back as "
+        "the list of files in it."
     )
     input_model = ReadInput
     read_only = True
@@ -59,6 +62,8 @@ class ReadTool:
             return read_pdf(data, args.path, args.pages)
         if is_notebook(args.path, data):
             return read_notebook(data, args.path)
+        if is_archive(data, args.path):
+            return read_archive(data, args.path)
         if b"\x00" in data[:8192]:
             raise ToolError(f"{args.path} looks like a binary file, so it isn't shown.")
         text = TextFile.decode(data).text

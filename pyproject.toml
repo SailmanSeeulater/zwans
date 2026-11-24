@@ -56,5 +56,10 @@ files = ["src", "tests"]
 exclude = ["src/zwans/demo/calc/"]  # the demo's sample project, not part of Zwans
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+# Optional (zwans[browser]); CI type-checks without it, and browser.py holds its objects as Any.
+module = ["playwright", "playwright.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

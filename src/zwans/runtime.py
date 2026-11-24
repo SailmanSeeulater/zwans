@@ -41,24 +41,43 @@ from zwans.providers.fake import FakeProvider
 from zwans.providers.router import ModelRouter, helper
 from zwans.session import Session
 from zwans.store import SessionError, SessionInfo, SessionRecorder, SessionStore, load_session
+from zwans.tools.archives import ArchiveTool
 from zwans.tools.ask_user import AskUserTool
+from zwans.tools.audit import AuditTool
 from zwans.tools.base import Asker, Tool, ToolContext
 from zwans.tools.bash import BashOutputTool, BashTool, KillBashTool
+from zwans.tools.benchmark import BenchmarkTool
+from zwans.tools.bisect import BisectTool
 from zwans.tools.browser import BrowserTool
 from zwans.tools.browser import available as browser_available
+from zwans.tools.ci import CITool
+from zwans.tools.ci import available as ci_available
+from zwans.tools.containers import ContainersTool
+from zwans.tools.containers import available as containers_available
+from zwans.tools.cron import CronTool
+from zwans.tools.data import DataTool
 from zwans.tools.database import DatabaseTool
 from zwans.tools.diagnostics import DiagnosticsTool
 from zwans.tools.docs import DocsTool
 from zwans.tools.edit import EditTool
+from zwans.tools.env_vars import EnvTool
 from zwans.tools.glob import GlobTool
 from zwans.tools.grep import GrepTool
+from zwans.tools.history import HistoryTool
 from zwans.tools.http import HttpTool
+from zwans.tools.image_diff import ImageDiffTool
+from zwans.tools.imports import ImportsTool
 from zwans.tools.logs import LogsTool
 from zwans.tools.memory import MemoryTool, read_notes
 from zwans.tools.multi_edit import MultiEditTool
 from zwans.tools.notebook_edit import NotebookEditTool
+from zwans.tools.notify import NotifyTool
+from zwans.tools.notify import available as notify_available
+from zwans.tools.openapi import OpenAPITool
 from zwans.tools.outline import OutlineTool
 from zwans.tools.packages import PackagesTool
+from zwans.tools.ports import PortsTool
+from zwans.tools.ports import available as ports_available
 from zwans.tools.profile import ProfileTool
 from zwans.tools.python_session import PythonTool
 from zwans.tools.read import ReadTool
@@ -309,7 +328,19 @@ def open_session(
         tools.append(DocsTool())
         if config.video and shutil.which("ffprobe") and shutil.which("ffmpeg"):
             tools.append(VideoTool())
-        tools += [NotebookEditTool(), LogsTool(), DatabaseTool(), ProfileTool(), HttpTool()]
+        tools += [NotebookEditTool(), LogsTool(), DatabaseTool(), DataTool(), ImageDiffTool()]
+        tools += [ArchiveTool(), ImportsTool(), OpenAPITool(), CronTool()]
+        tools += [HistoryTool(), BisectTool(), ProfileTool(), BenchmarkTool(), HttpTool()]
+        tools += [EnvTool(hidden=policy.hidden_from_search), AuditTool()]
+        # These run a program of the machine's (lsof, docker, gh, osascript) when it's there.
+        if ports_available():
+            tools.append(PortsTool())
+        if containers_available():
+            tools.append(ContainersTool())
+        if ci_available():
+            tools.append(CITool())
+        if notify_available():
+            tools.append(NotifyTool())
         if config.browser and browser_available():
             tools.append(BrowserTool())
         if executor.interactive:

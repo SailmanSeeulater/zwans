@@ -111,7 +111,11 @@ def test_what_stops_shipping_and_what_is_reported(
     with pytest.raises(ShipError, match="nothing to commit"):
         asyncio.run(ship(project, [], branch="zwans/x", title="t", body=""))
 
-    monkeypatch.setenv("PATH", f"{Path(shutil.which('git') or '').parent}:/usr/bin:/bin")
+    # No gh: CI's runners have it in /usr/bin beside the rest, so hide it rather than trim PATH.
+    which = shutil.which
+    monkeypatch.setattr(
+        shutil, "which", lambda name, *a, **k: None if name == "gh" else which(name, *a, **k)
+    )
     done = asyncio.run(ship(project, changes, branch="zwans/no-gh", title="t", body=""))
 
     assert [(s.name, s.ok) for s in done.steps][-1] == ("pr", False)

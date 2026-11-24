@@ -56,7 +56,7 @@ const PARTS: { name: string; about: string }[] = [
   },
 ];
 
-/** The 32 built-in tools the model can call, grouped by what they're for. */
+/** The 47 built-in tools the model can call, grouped by what they're for. */
 const TOOLS: { group: string; tools: [string, string][] }[] = [
   {
     group: "Files",
@@ -66,6 +66,9 @@ const TOOLS: { group: string; tools: [string, string][] }[] = [
       ["NotebookEdit", "Replace, insert or delete a notebook cell"],
       ["Logs", "A long log grouped into its kinds of line, errors first"],
       ["Database", "Tables and read-only SQL, for SQLite and Postgres"],
+      ["Data", "A CSV, JSON, Excel or Parquet file summarized: types, empties, ranges"],
+      ["ImageDiff", "Two images compared, with what changed outlined"],
+      ["Archive", "Extract a zip or tar archive safely (Read lists one)"],
       ["Write", "Create a file, or replace all of one"],
       ["Edit", "Replace exact text in a file"],
       ["MultiEdit", "Several replacements at once, all made or none"],
@@ -81,6 +84,9 @@ const TOOLS: { group: string; tools: [string, string][] }[] = [
       ["Rename", "Rename an identifier everywhere it's used"],
       ["Diagnostics", "Run the project's linters and type checkers"],
       ["Docs", "Signature and docs of an installed Python module or function"],
+      ["Imports", "The import graph: cycles, unused modules, what uses what"],
+      ["OpenAPI", "An API's endpoints and their shapes, from its spec"],
+      ["History", "Why code is the way it is: blame, line history and commit messages"],
     ],
   },
   {
@@ -92,7 +98,20 @@ const TOOLS: { group: string; tools: [string, string][] }[] = [
       ["Python", "A Python session that keeps its state between calls"],
       ["RunTests", "Run the project's tests and report the failures, and coverage"],
       ["Profile", "Run Python under cProfile and list where the time went"],
+      ["Benchmark", "Time a command over many runs, and compare two, or before and after"],
+      ["Bisect", "Find the commit that broke something by testing across history"],
       ["ShowChanges", "Everything changed since the session began, as a diff"],
+    ],
+  },
+  {
+    group: "This machine and CI",
+    tools: [
+      ["Env", "Which environment variables the project needs, and which are missing"],
+      ["Ports", "What is listening on which port, and which of it is this project's"],
+      ["Containers", "Docker containers' state, health and logs"],
+      ["CI", "Why a GitHub Actions run failed, from its failed steps' logs"],
+      ["Cron", "A cron expression in words, and its next run times"],
+      ["Notify", "A desktop notification when a long task finishes"],
     ],
   },
   {
@@ -111,8 +130,9 @@ const TOOLS: { group: string; tools: [string, string][] }[] = [
       ["WebSearch", "Search the web"],
       ["WebFetch", "Fetch a page's content, or just the answer to a question about it"],
       ["Packages", "A package's latest versions, release notes and known vulnerabilities"],
+      ["Audit", "Every locked dependency checked for known vulnerabilities"],
       ["Http", "Send a request to a server on this machine, as your app's API"],
-      ["Browser", "Use a page in a real browser, read as an outline, with console errors"],
+      ["Browser", "Use a page in a real browser, read as an outline, and audit it"],
     ],
   },
 ];

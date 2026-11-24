@@ -818,6 +818,10 @@ it can act on marked with a ref such as `[e7]`. It clicks, types, picks options 
 keys by ref, and every action returns the page as it is afterwards, with the console errors
 and failed requests since the last one. A screenshot is there for when the look matters; the
 outline costs a fraction of it. The page stays open between calls until the session ends.
+`audit` checks the open page for common accessibility problems (missing alt text, unnamed
+buttons and links, unlabeled fields, low contrast, skipped heading levels, duplicate ids)
+and reports how fast it loaded: time to first byte, the largest paint, layout shift, and the
+requests and the largest of them. It's a script run in the page; nothing is downloaded.
 The policy judges each call by the page's host, so `allow = ["Browser(localhost)"]` lets it
 work on a dev server without asking.
 
@@ -830,6 +834,100 @@ uv tool install --reinstall '.[browser]'
 
 (Or, in a development environment, `pip install -e '.[browser]'` and
 `playwright install chromium`.) Set `browser = false` to leave it out.
+
+### Data files and images
+
+`Data` summarizes a data file instead of reading it: CSV or TSV, JSON Lines, a JSON array of
+records, an Excel workbook or a Parquet file. It gives the row and column counts, then for
+each column its type, how many values are empty and how many distinct, the range and mean
+of numbers and dates, and the most common values of a column with few of them, followed by
+the first rows as a table. Excel is read without an Excel library; Parquet is read by a
+small script run with the project's own Python, which needs pyarrow, pandas or duckdb. For a
+file over 100 MB only the start is read, and the summary says so.
+
+`ImageDiff` compares two images, such as screenshots before and after a CSS change, and says
+what changed: the share of pixels that differ, the changed areas as rectangles, and a
+picture of the after image dimmed with the changed areas outlined in red. It decodes PNG
+itself and uses ffmpeg for JPEG and WebP. The threshold sets how much a color must change to
+count, so anti-aliasing noise is ignored. A `Read` rule covers both images.
+
+`Read` lists what's in a zip or tar archive, and `Archive` extracts one, or the members
+matching `only`. It refuses paths that would land outside the folder, skips links and
+devices, stops at 10,000 files or 1 GB, and doesn't overwrite files unless told to. The
+policy judges it as writing to the folder it extracts into.
+
+### Understanding a codebase
+
+`History` explains why code is the way it is, from git. Give it a file and a line range and
+it shows who last changed each run of those lines and in which commit, then how the range
+changed over its last commits, each with its full message, since that is where the reason
+is usually written, and a pull request link when the subject names one. Give it just a file
+to see its last commits and what each changed.
+
+`Imports` maps a Python or JavaScript/TypeScript project's imports: circular imports, modules
+nothing imports (possibly unused), and the most imported ones. Given a module, it says what
+it imports and what imports it. TypeScript path aliases from `tsconfig.json` are followed.
+
+`OpenAPI` reads an API's OpenAPI or Swagger spec, from a file or a server on this machine
+(as FastAPI's `/openapi.json`), and lists its endpoints by tag. Asked about one endpoint, it
+gives the parameters, request body and responses with their schemas written out as compact
+shapes, `$ref`s resolved.
+
+`Cron` explains a cron expression in words and lists its next run times, in the local time
+zone or one you name. GitHub Actions schedules run in UTC.
+
+### Finding what broke, and timing
+
+`Bisect` finds the commit that broke something. Give it a commit where things worked and a
+shell command that exits 0 when they're fine and non-zero when they're broken, and `git
+bisect` runs it on the commits in between until one is left. You get that commit with its
+message and what it changed, what the test printed there, and each step of the search. It
+needs a clean working tree and always ends with `git bisect reset`, so the branch comes back
+as it was; with uncommitted changes, `use_worktree` searches in a temporary copy instead.
+The policy judges the test command as if Bash ran it.
+
+`Benchmark` measures how long a command takes, reliably: several runs after a warmup, with
+the median, mean, range and spread, and a warning when the runs vary too much to trust.
+`against` compares two commands, run in turns so drift affects both, and a Mann-Whitney
+test says whether the difference is beyond noise. Benchmarking the same command again later
+in the session compares it with the last result, so before and after a change needs nothing
+more.
+
+### This machine, and CI
+
+`Env` lists the environment variables a project expects and which of them are set, by name
+only: values are never read out. Names come from `.env.example` and similar files, the code
+(Python, JavaScript and TypeScript, Rust, Go, Ruby, pydantic settings classes) and Compose
+files. For each it says where it's read, whether the environment commands run in sets it,
+whether `.env` defines it, and whether the code has a default; missing ones come first. It
+warns when `.env` is tracked by git, and doesn't open a `.env` the policy hides.
+
+`Ports` shows which processes listen on which TCP ports: localhost only or all interfaces,
+the process, how long it has run, its command line and folder, with this project's first.
+It never stops anything; that's a `kill` through Bash, judged like any command.
+
+`Containers` looks at Docker (or Podman) containers without changing anything: every
+container with its image, status, health, ports and Compose service, or one container's
+state, restarts, exit code, out-of-memory kills, health checks and the end of its logs.
+Environment variables are listed by name only.
+
+`CI` explains why a GitHub Actions run failed: the failed jobs and steps, and the end of each
+failed step's log, where the error usually is, with timestamps and the runner's noise
+removed. With no arguments it takes the current branch's latest failed run. It needs `gh`
+installed and logged in, and the policy judges it as a request to `github.com`.
+
+`Audit` checks every pinned dependency in the project's lockfiles (uv, poetry, pip
+requirements, Pipfile, npm, yarn, pnpm, Cargo, Go, Bundler) against
+[OSV.dev](https://osv.dev)'s known vulnerabilities, in a few batched requests, and lists
+the vulnerable ones, most severe first, with the version that fixes each. The policy judges
+it as a request to `api.osv.dev`.
+
+`Notify` shows a desktop notification, for when you asked to be told that something is done
+or a long task finishes. The text goes to the system as arguments, never into a script.
+
+Ports, Containers, CI and Notify run their program (`lsof`, `docker`, `gh`, `osascript`)
+outside the sandbox, which can't reach the network or the Docker daemon, and are offered only
+when that program is installed.
 
 ### Notes between sessions
 

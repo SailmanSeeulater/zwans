@@ -20,6 +20,10 @@ from zwans.providers.router import ModelRouter
 from zwans.runtime import open_session
 from zwans.tools.base import Tool, ToolContext, ToolError, ToolOutput
 from zwans.tools.browser import available as browser_available
+from zwans.tools.ci import available as ci_available
+from zwans.tools.containers import available as containers_available
+from zwans.tools.notify import available as notify_available
+from zwans.tools.ports import available as ports_available
 from zwans.tools.web_local import (
     MAX_CHARS,
     WebFetchInput,
@@ -482,16 +486,30 @@ def test_a_session_gets_the_new_tools_unless_the_config_turns_them_off(tmp_path:
     full = names(Config(home=home, subagents=False, todos=False))
     video = ["Video"] if shutil.which("ffmpeg") and shutil.which("ffprobe") else []
     browser = ["Browser"] if browser_available() else []
+    machine = [
+        name
+        for name, there in (
+            ("Ports", ports_available()),
+            ("Containers", containers_available()),
+            ("CI", ci_available()),
+            ("Notify", notify_available()),
+        )
+        if there
+    ]
     assert full == [
         "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "Outline", "References",
         "Rename", "Bash", "BashOutput", "KillBash", "RunTests", "Diagnostics", "Docs",
-        *video, "NotebookEdit", "Logs", "Database", "Profile", "Http", *browser, "Python",
+        *video, "NotebookEdit", "Logs", "Database", "Data", "ImageDiff", "Archive", "Imports",
+        "OpenAPI", "Cron", "History", "Bisect", "Profile", "Benchmark", "Http", "Env", "Audit",
+        *machine, *browser, "Python",
         "ShowChanges", "Memory", "WebFetch", "Packages",
     ]  # fmt: skip
     # AskUser is there only when someone can be asked.
     assert "AskUser" not in full
     off = ["Outline", "References", "Rename", "RunTests", "Docs", "Python", "ShowChanges", "Memory"]
-    off += ["NotebookEdit", "Logs", "Database", "Profile", "Http"]
+    off += ["NotebookEdit", "Logs", "Database", "Profile", "Http", "Data", "ImageDiff"]
+    off += ["Archive", "Imports", "OpenAPI", "Cron", "History", "Bisect", "Benchmark", "Env"]
+    off += ["Audit", "Ports", "Containers", "CI", "Notify"]
     bare = names(
         Config(
             home=home,

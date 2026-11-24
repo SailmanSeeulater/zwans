@@ -39,6 +39,17 @@ UNTRUSTED_OUTPUT = frozenset(
         "Http",
         "Browser",
         "Profile",
+        "Data",
+        "ImageDiff",
+        "Imports",
+        "OpenAPI",
+        "History",
+        "Bisect",
+        "Env",
+        "Audit",
+        "Ports",
+        "Containers",
+        "CI",
         "Grep",
         "Bash",
         "BashOutput",
@@ -128,15 +139,18 @@ class Permissions:
     def check(self, tool: _ToolLike, args: dict[str, Any]) -> Verdict:
         commands = getattr(tool, "commands", None)
         host = getattr(tool, "host", None)
-        edited = getattr(tool, "edited_paths", None)
+        # Several files a call changes (MultiEdit, Rename) or reads (ImageDiff), each judged
+        # as that tool on that path.
+        edited = getattr(tool, "edited_paths", None) or getattr(tool, "read_paths", None)
         if tool.name == "Bash" and isinstance(args.get("command"), str):
             verdict = self._check_command(args["command"])
         elif callable(commands):
             # A tool that runs programs (Diagnostics, RunTests) is judged by each command it
             # would run, exactly as if Bash ran it, so the rules about commands cover it too.
             verdict = _combine([self._check_command(command) for command in commands(args)])
-        elif callable(host):
-            verdict = self._check_network(tool, str(host(args)))
+        elif callable(host) and (reached := host(args)) is not None:
+            # None: this call reaches no host (OpenAPI reading a file), so it's judged below.
+            verdict = self._check_network(tool, str(reached))
         elif callable(edited):
             # A tool that changes several files (MultiEdit, Rename): each is judged as an
             # Edit of it would be, and one refusal refuses the call.

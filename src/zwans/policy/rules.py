@@ -48,11 +48,13 @@ RULE = re.compile(r"^\s*([A-Za-z_][\w.-]*)\s*(?:\((.*)\))?\s*$", re.DOTALL)
 # These all change files, so a rule for one covers the others. Memory's file is Zwans's
 # own, outside the workspace, but what it holds steers later sessions, so it's judged as
 # a change too.
-FILE_CHANGE_TOOLS = frozenset({"Edit", "MultiEdit", "Write", "Rename", "Memory", "NotebookEdit"})
+FILE_CHANGE_TOOLS = frozenset(
+    {"Edit", "MultiEdit", "Write", "Rename", "Memory", "NotebookEdit", "Archive"}
+)
 # These show what's in the files they look through, so a rule about reading covers them.
-SEARCH_TOOLS = frozenset({"Grep", "Outline", "References"})
+SEARCH_TOOLS = frozenset({"Grep", "Outline", "References", "Imports", "Env"})
 # These show a file's content in another form, so a rule about reading it covers them too.
-VIEW_TOOLS = frozenset({"Video", "Logs", "Database"})
+VIEW_TOOLS = frozenset({"Video", "Logs", "Database", "Data", "ImageDiff", "History", "OpenAPI"})
 # The built-in tools' names, so a rule for a misspelled one is reported instead of never
 # matching. MCP tools are named mcp__<server>__<tool>. tests/test_policy.py checks that this
 # lists every tool in zwans.tools.
@@ -70,6 +72,21 @@ TOOL_NAMES = frozenset(
         "Http",
         "Browser",
         "Profile",
+        "Data",
+        "ImageDiff",
+        "Archive",
+        "Imports",
+        "OpenAPI",
+        "Cron",
+        "History",
+        "Bisect",
+        "Benchmark",
+        "Env",
+        "Audit",
+        "Ports",
+        "Containers",
+        "CI",
+        "Notify",
         "Write",
         "Edit",
         "MultiEdit",
