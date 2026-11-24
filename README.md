@@ -9,9 +9,17 @@ with the Linux jail and a Seatbelt sandbox on macOS. Zwans reads, searches and e
 project, runs its tests, and asks before changing anything unless you loosen its policy. It
 saves, resumes and compacts sessions, caches prompts, and runs commands on your machine, in
 Docker or in a sandbox. It works with Claude and with any model behind an OpenAI-compatible
-API, local ones included. Hooks, skills, MCP servers and subagents extend it. A web UI and a
-desktop app show sessions, chats and eval runs, and evals measure it against Claude Code and
-Codex.
+API, local ones included. Hooks, skills, MCP servers (with their interactive views) and
+subagents extend it. A web UI and a desktop app show sessions, chats and eval runs, and evals
+measure it against Claude Code and Codex.
+
+**Recently added:** 48 built-in tools, among them PDFs and notebooks, data files and charts,
+databases, logs, profiling and coverage, a browser, video, Git history and bisect, ports,
+containers and CI. Plan mode, `/loop` until a check passes, `/budget`, `/compact` and your own
+slash commands. Races between two models, rooms of agents talking to each other, handing a
+stuck local session to Claude, steering a turn while it runs, shipping a session's work as a
+pull request, and replays to share. In the web UI: chats with no project, a Changes tab, live
+previews of a dev server, a Usage page, Settings, notifications, and a mode toggle.
 
 ## Screenshots
 
@@ -1083,6 +1091,29 @@ one says so. A session that was open when the server stopped is resumed when you
   first prompt. The bin deletes it after you press Delete: its conversation, transcript and
   kept tool output go, and the files it changed stay. The *Find a session* box searches every
   saved session by its title, folder or model, and so does the ⌘K palette.
+- **While it works:** a line under the conversation says what it's doing: *Reading*
+  `src/app.py`, *Running the tests*, *Writing*, *Thinking* or *Waiting for you*, with the
+  time so far and the tokens written this turn. The browser tab's title and the session's dot
+  in the sidebar show the same. The model's thinking is folded to its latest line, *Thought*,
+  and opens with a click (or always shows, from Settings).
+- **Steering:** what you send while a turn runs doesn't stop it. Enter, or the *Steer* button
+  beside *Stop*, queues it above the input box, "at the next step"; the model reads it after
+  its current tool calls, or before it would finish, and carries on with it in mind. It shows
+  in the conversation where it arrived. Esc or *Stop* stops the turn instead. A steer still
+  unread when a turn stops starts the next one. Images wait for the turn to end. `zwans
+  attach` steers the same way; the local terminal holds what you type until the turn ends.
+- **Copy and retry:** your prompts and each finished reply have a copy button (a reply
+  copies its text, without thinking or tool calls). The last turn has *Retry*, which undoes it
+  and sends its prompt again; it needs checkpoints, so a chat doesn't have it.
+- **Keyboard:** ⌘K (Ctrl+K) searches sessions, views and commands from any page; Enter sends,
+  Shift+Enter adds a line; Esc stops the turn; `/` goes to the message box; `J` jumps to the
+  latest message; `⌘\` (`Ctrl+\`) shows or hides the side pane; `?` lists these. Tab completes a
+  slash command.
+- **Changes:** the side pane's *Changes* tab, with a count of files, lists every file the
+  session changed since it started, commands' edits included, marked added, changed or
+  deleted with their `+`/`−` counts; click one for its diff. Below, *Put back to before a turn*
+  undoes any turn, listing the files first, and *Ship* commits the changes on a branch and
+  opens a pull request (see [Shipping a session's work](#shipping-a-sessions-work)).
 - **Chat:** choose *Just chat* on the home screen, or *New chat* in the command palette, to
   talk to the model with no project folder. A chat has no tools for files or commands, so
   the model can't read your files or run anything on your machine. With `web = true` it can
@@ -1126,12 +1157,28 @@ one says so. A session that was open when the server stopped is resumed when you
   session's usage is kept in `~/.zwans/usage-archive.jsonl`, so the totals don't drop. Costs
   use today's prices: a model on this machine costs nothing, and a hosted one the config
   gives no `prices` for adds tokens and no cost. Eval runs and rooms aren't counted.
+  *The past year, day by day* shades each day of the last 53 weeks by its tokens or cost,
+  with your active days and streaks; hover a day for its tokens, cost and sessions.
 - **Side pane:** beside the conversation, with tabs. The first is *Under the hood*; `+` opens
   a page in another, such as the project's dev server (`localhost:3000`), to watch it while
   Zwans works on it. Drag the pane's edge to resize it (double-click resets it, and the
   arrow keys move it when it has focus); the button at its top right hides it. Its width
   and tabs are remembered. A site that refuses to show inside another page stays blank,
   with a link to open it in your browser. In a window under 1100px wide the pane is left out.
+  When a command prints a local address (`http://localhost:5173`, say), a strip above the
+  input box offers *Preview*: it opens the page in a tab that reloads itself 0.7 s after Zwans
+  changes a file. *Reload when files change* turns that on or off for any tab, up to 8 tabs.
+- **Notifications:** with your permission, the browser tells you when a turn finishes or when
+  Zwans needs your answer, while its window isn't the one you're looking at; clicking one
+  opens the session. Each kind can be turned off in Settings, and a soft chime turned on.
+- **Titles:** after the first turn, a session names itself in two to six words, from its
+  first prompt and the start of the reply, asked of Haiku for a Claude session and of the
+  session's own model otherwise (`title_model` picks another; `titles = false` turns it off).
+  Until then, or if it fails, the title is the start of the first prompt. A name you give it
+  always wins.
+- **Settings:** theme, accent colour, text size, density, conversation width, motion, whether
+  thinking shows folded, notifications, and the mode and model new sessions start with. They
+  are kept in this browser, and each change shows at once in a preview at the top.
 - **Themes:** fourteen, from the menu at the foot of the sidebar or the command palette.
   Eleven are light: Paper, five on a white page that differ in their accent (Chalk, Lagoon,
   Orchid, Ember, Fern) and five on a tinted one (Sand, Mint, Lilac, Sky, Blush). Three are
