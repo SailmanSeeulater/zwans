@@ -1,9 +1,11 @@
-"""The Read tool: show a text file with line numbers, or an image to the model."""
+"""The Read tool: show a text file with line numbers, or an image to the model. A PDF
+and a Jupyter notebook come as their text (tools/documents.py)."""
 
 from pydantic import BaseModel, Field
 
 from zwans.images import ImageError, describe, image_block, media_type
 from zwans.tools.base import ToolContext, ToolError, ToolOutput
+from zwans.tools.documents import is_notebook, is_pdf, read_notebook, read_pdf
 from zwans.tools.hints import only_file_named
 from zwans.tools.text import TextFile
 
@@ -13,6 +15,11 @@ class ReadInput(BaseModel):
     # 0 is taken as 1: models that count from 0 ask for it to mean "from the start".
     offset: int = Field(default=1, ge=0, description="Line to start from. The first line is 1.")
     limit: int = Field(default=2000, ge=1, description="Maximum number of lines to return.")
+    pages: str = Field(
+        default="",
+        description='For a PDF, the pages to read, as "3" or "2-5". Leave it empty for the first '
+        "20.",
+    )
 
 
 class ReadTool:
@@ -20,7 +27,9 @@ class ReadTool:
     description = (
         "Read a text file in the workspace. Each line comes back prefixed with its line "
         "number. For a large file, use offset and limit to read one part at a time. A PNG, "
-        "JPEG, GIF or WebP image comes back as the image itself, for you to look at."
+        "JPEG, GIF or WebP image comes back as the image itself, for you to look at. A PDF "
+        "comes back as its text, page by page (choose them with pages), and a Jupyter "
+        "notebook as its numbered cells and their outputs."
     )
     input_model = ReadInput
     read_only = True
@@ -46,6 +55,10 @@ class ReadTool:
             except ImageError as exc:
                 raise ToolError(str(exc)) from exc
             return ToolOutput(content=f"{args.path}: {describe(data)}", images=(image,))
+        if is_pdf(data):
+            return read_pdf(data, args.path, args.pages)
+        if is_notebook(args.path, data):
+            return read_notebook(data, args.path)
         if b"\x00" in data[:8192]:
             raise ToolError(f"{args.path} looks like a binary file, so it isn't shown.")
         text = TextFile.decode(data).text

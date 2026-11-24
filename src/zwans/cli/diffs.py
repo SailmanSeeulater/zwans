@@ -11,7 +11,13 @@ from zwans.cli.terminal_text import printable
 MAX_LINES = 40  # longer changes are cut, with a note of how much is left out
 INDENT = "    "
 FILE_MARK = "== "  # starts the line that names a file, in a diff of several
-FILE_TOOLS = ("Edit", "Write", "MultiEdit", "Rename")  # the tools whose diff is previewed
+FILE_TOOLS = (
+    "Edit",
+    "Write",
+    "MultiEdit",
+    "Rename",
+    "NotebookEdit",
+)  # the tools whose diff is previewed
 
 
 def show_diff(diff: str, limit: int = MAX_LINES) -> None:

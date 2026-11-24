@@ -56,13 +56,16 @@ const PARTS: { name: string; about: string }[] = [
   },
 ];
 
-/** The 25 built-in tools the model can call, grouped by what they're for. */
+/** The 32 built-in tools the model can call, grouped by what they're for. */
 const TOOLS: { group: string; tools: [string, string][] }[] = [
   {
     group: "Files",
     tools: [
       ["Read", "A file with line numbers, or an image to look at"],
       ["Video", "A video's frames on one image, and its transcript"],
+      ["NotebookEdit", "Replace, insert or delete a notebook cell"],
+      ["Logs", "A long log grouped into its kinds of line, errors first"],
+      ["Database", "Tables and read-only SQL, for SQLite and Postgres"],
       ["Write", "Create a file, or replace all of one"],
       ["Edit", "Replace exact text in a file"],
       ["MultiEdit", "Several replacements at once, all made or none"],
@@ -87,7 +90,8 @@ const TOOLS: { group: string; tools: [string, string][] }[] = [
       ["BashOutput", "Read what a background command has printed"],
       ["KillBash", "Stop a background command"],
       ["Python", "A Python session that keeps its state between calls"],
-      ["RunTests", "Run the project's tests and report the failures"],
+      ["RunTests", "Run the project's tests and report the failures, and coverage"],
+      ["Profile", "Run Python under cProfile and list where the time went"],
       ["ShowChanges", "Everything changed since the session began, as a diff"],
     ],
   },
@@ -106,6 +110,9 @@ const TOOLS: { group: string; tools: [string, string][] }[] = [
     tools: [
       ["WebSearch", "Search the web"],
       ["WebFetch", "Fetch a page's content, or just the answer to a question about it"],
+      ["Packages", "A package's latest versions, release notes and known vulnerabilities"],
+      ["Http", "Send a request to a server on this machine, as your app's API"],
+      ["Browser", "Use a page in a real browser, read as an outline, with console errors"],
     ],
   },
 ];

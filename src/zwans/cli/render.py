@@ -36,7 +36,7 @@ from zwans.events import (
 # shows its pattern rather than the folder it searches.
 KEY_ARGS = (
     "command", "pattern", "symbol", "path", "query", "url", "question", "description",
-    "name", "job_id", "ticket", "code", "text",
+    "name", "job_id", "ticket", "code", "target", "ref", "action", "text",
 )  # fmt: skip
 TODO_MARKS = {"completed": "✓", "in_progress": "▸", "pending": "○"}
 SHELL_TOOLS = frozenset({"Bash", "BashOutput"})

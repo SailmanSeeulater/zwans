@@ -6,6 +6,10 @@ runner from the project's files, runs it, and returns the failures, or one line 
 everything passed.
 
 Like Diagnostics, the policy judges a call by the commands it would run, as if Bash ran them.
+
+With coverage, pytest runs under coverage.py and the report lists the files with lines the
+tests never ran, least covered first, with those lines' numbers. Its data goes to a file of
+its own, removed afterwards.
 """
 
 import json
@@ -35,6 +39,14 @@ KNOWN = "pytest, the test script in package.json, cargo test and go test"
 # Runners a package.json test script may start with, run straight from node_modules so the
 # call is one program the policy can judge, without npm in between.
 NODE_RUNNERS = ("vitest", "jest", "mocha")
+PYTEST = "python -m pytest"
+COVERAGE_DATA = ".zwans-coverage"
+COVERAGE_RUN = f"python -m coverage run --data-file={COVERAGE_DATA} -m pytest"
+COVERAGE_REPORT = (
+    f"python -m coverage report --data-file={COVERAGE_DATA} --show-missing --skip-covered "
+    f"--sort=Cover; rm -f {COVERAGE_DATA}"
+)
+MAX_COVERAGE_LINES = 40  # files listed in the report
 
 
 class RunTestsInput(BaseModel):
@@ -47,6 +59,10 @@ class RunTestsInput(BaseModel):
         default="",
         description="Run only the tests whose names match this, as pytest's -k or jest's -t "
         "would. Leave it empty to run all of them.",
+    )
+    coverage: bool = Field(
+        default=False,
+        description="Also report which lines the tests never ran, file by file (pytest only).",
     )
 
 
@@ -65,20 +81,27 @@ class RunTestsTool:
         self.root = root
         self.configured = tuple(commands)  # the user's own, instead of the ones found
 
-    def runs(self, paths: Sequence[str] = (), only: str = "") -> list[Check]:
+    def runs(
+        self, paths: Sequence[str] = (), only: str = "", coverage: bool = False
+    ) -> list[Check]:
         if self.configured:
-            return [Check(first_word(command), command) for command in self.configured]
-        return find_runs(self.root, paths, only)
+            runs = [Check(first_word(command), command) for command in self.configured]
+        else:
+            runs = find_runs(self.root, paths, only)
+        if coverage:
+            runs = [Check(run.name, _with_coverage(run.command)) for run in runs]
+        return runs
 
     def commands(self, args: dict[str, Any]) -> list[str]:
         """What a call would run, from its raw input, for the policy to judge."""
         paths, only = args.get("paths"), args.get("filter")
         named = [p for p in paths if isinstance(p, str)] if isinstance(paths, list) else []
-        return [run.command for run in self.runs(named, only if isinstance(only, str) else "")]
+        runs = self.runs(named, only if isinstance(only, str) else "", args.get("coverage") is True)
+        return [c for run in runs for c in (run.command, _report_for(run.command)) if c]
 
     async def run(self, args: RunTestsInput, ctx: ToolContext) -> ToolOutput:
         paths = [ctx.executor.relative(path) for path in args.paths]  # refuses ones outside
-        runs = self.runs(paths, args.filter.strip())
+        runs = self.runs(paths, args.filter.strip(), args.coverage)
         if not runs:
             about = " for those paths" if paths else ""
             raise ToolError(
@@ -88,9 +111,23 @@ class RunTestsTool:
         passed: list[str] = []
         failed: list[str] = []
         other: list[str] = []
+        covered: list[str] = []
         for each in runs:
             result = await ctx.executor.run_shell(each.command, timeout=TIMEOUT)
             output = result.output.strip()
+            report = _report_for(each.command)
+            if report and "No module named coverage" in output:
+                other.append(
+                    f"coverage.py isn't installed for {each.name} (pip install coverage), so "
+                    "it ran without it."
+                )
+                plain = each.command.replace(COVERAGE_RUN, PYTEST, 1)
+                each = Check(each.name, plain)
+                result = await ctx.executor.run_shell(plain, timeout=TIMEOUT)
+                output = result.output.strip()
+            elif report:
+                reported = await ctx.executor.run_shell(report, timeout=TIMEOUT)
+                covered.append(_coverage(each.name, reported.output))
             if result.timed_out:
                 failed.append(f"## {each.name}: stopped after {TIMEOUT}s without finishing")
             elif result.exit_code == 0:
@@ -110,7 +147,39 @@ class RunTestsTool:
         elif passed:
             lines += ["All tests passed.", *passed]
         lines += ([""] if lines and other else []) + other
+        for section in covered:
+            lines += ["", section]
         return ToolOutput(content="\n".join(lines), is_error=not (failed or passed))
+
+
+def _with_coverage(command: str) -> str:
+    return command.replace(PYTEST, COVERAGE_RUN, 1) if PYTEST in command else command
+
+
+def _report_for(command: str) -> str:
+    """The command that reports a coverage run's result, in the folder it ran in; "" for a
+    run without coverage."""
+    if COVERAGE_RUN not in command:
+        return ""
+    folder = command.split(" && ", 1)[0] + " && " if command.startswith("cd ") else ""
+    return folder + COVERAGE_REPORT
+
+
+def _coverage(name: str, report: str) -> str:
+    """coverage.py's report, cut to the least covered files and the total."""
+    lines = [line.rstrip() for line in report.strip().splitlines() if line.strip()]
+    if not lines or not lines[0].startswith("Name"):
+        return f"## Coverage ({name})\n{report.strip() or 'No coverage data was collected.'}"
+    head, rule = lines[:2]
+    total = [line for line in lines if line.startswith("TOTAL")]
+    files = [line for line in lines[2:] if not line.startswith(("TOTAL", "---"))]
+    note = [line for line in files if not line.startswith(" ") and "skipped due to" in line]
+    files = [line for line in files if line not in note]
+    shown = files[:MAX_COVERAGE_LINES]
+    more = [f"... and {len(files) - len(shown)} more files"] if len(files) > len(shown) else []
+    body = [head, rule, *shown, *more, rule, *total, *note]
+    title = f"## Coverage ({name}): files with lines the tests never ran, least covered first"
+    return "\n".join([title, *body])
 
 
 def find_runs(root: Path, paths: Sequence[str] = (), only: str = "") -> list[Check]:

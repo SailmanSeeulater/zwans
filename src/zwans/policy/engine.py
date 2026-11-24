@@ -33,6 +33,12 @@ UNTRUSTED_OUTPUT = frozenset(
     {
         "Read",
         "Video",
+        "Logs",
+        "Database",
+        "Packages",
+        "Http",
+        "Browser",
+        "Profile",
         "Grep",
         "Bash",
         "BashOutput",

@@ -16,9 +16,9 @@ export interface Mark {
   label: string;
 }
 
-const EDITS = new Set(["Edit", "MultiEdit", "Write", "Rename"]);
-const RUNS = new Set(["Bash", "BashOutput", "Python", "RunTests", "Diagnostics", "Task"]);
-const READS = new Set(["Read", "Grep", "Glob", "Outline", "References", "Docs", "ShowChanges", "WebFetch", "WebSearch", "Memory", "Skill", "Video"]);
+const EDITS = new Set(["Edit", "MultiEdit", "Write", "Rename", "NotebookEdit"]);
+const RUNS = new Set(["Bash", "BashOutput", "Python", "RunTests", "Diagnostics", "Task", "Profile", "Http", "Browser"]);
+const READS = new Set(["Read", "Grep", "Glob", "Outline", "References", "Docs", "ShowChanges", "WebFetch", "WebSearch", "Memory", "Skill", "Video", "Logs", "Database", "Packages"]);
 
 export function kindOf(name: string): Kind {
   if (EDITS.has(name)) return "edit";

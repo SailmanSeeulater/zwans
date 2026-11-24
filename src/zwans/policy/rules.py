@@ -48,11 +48,11 @@ RULE = re.compile(r"^\s*([A-Za-z_][\w.-]*)\s*(?:\((.*)\))?\s*$", re.DOTALL)
 # These all change files, so a rule for one covers the others. Memory's file is Zwans's
 # own, outside the workspace, but what it holds steers later sessions, so it's judged as
 # a change too.
-FILE_CHANGE_TOOLS = frozenset({"Edit", "MultiEdit", "Write", "Rename", "Memory"})
+FILE_CHANGE_TOOLS = frozenset({"Edit", "MultiEdit", "Write", "Rename", "Memory", "NotebookEdit"})
 # These show what's in the files they look through, so a rule about reading covers them.
 SEARCH_TOOLS = frozenset({"Grep", "Outline", "References"})
 # These show a file's content in another form, so a rule about reading it covers them too.
-VIEW_TOOLS = frozenset({"Video"})
+VIEW_TOOLS = frozenset({"Video", "Logs", "Database"})
 # The built-in tools' names, so a rule for a misspelled one is reported instead of never
 # matching. MCP tools are named mcp__<server>__<tool>. tests/test_policy.py checks that this
 # lists every tool in zwans.tools.
@@ -63,6 +63,13 @@ TOOL_NAMES = frozenset(
         "KillBash",
         "Read",
         "Video",
+        "Logs",
+        "Database",
+        "NotebookEdit",
+        "Packages",
+        "Http",
+        "Browser",
+        "Profile",
         "Write",
         "Edit",
         "MultiEdit",

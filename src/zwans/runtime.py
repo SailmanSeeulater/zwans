@@ -44,14 +44,22 @@ from zwans.store import SessionError, SessionInfo, SessionRecorder, SessionStore
 from zwans.tools.ask_user import AskUserTool
 from zwans.tools.base import Asker, Tool, ToolContext
 from zwans.tools.bash import BashOutputTool, BashTool, KillBashTool
+from zwans.tools.browser import BrowserTool
+from zwans.tools.browser import available as browser_available
+from zwans.tools.database import DatabaseTool
 from zwans.tools.diagnostics import DiagnosticsTool
 from zwans.tools.docs import DocsTool
 from zwans.tools.edit import EditTool
 from zwans.tools.glob import GlobTool
 from zwans.tools.grep import GrepTool
+from zwans.tools.http import HttpTool
+from zwans.tools.logs import LogsTool
 from zwans.tools.memory import MemoryTool, read_notes
 from zwans.tools.multi_edit import MultiEditTool
+from zwans.tools.notebook_edit import NotebookEditTool
 from zwans.tools.outline import OutlineTool
+from zwans.tools.packages import PackagesTool
+from zwans.tools.profile import ProfileTool
 from zwans.tools.python_session import PythonTool
 from zwans.tools.read import ReadTool
 from zwans.tools.refs import ReferencesTool, RenameTool
@@ -301,6 +309,9 @@ def open_session(
         tools.append(DocsTool())
         if config.video and shutil.which("ffprobe") and shutil.which("ffmpeg"):
             tools.append(VideoTool())
+        tools += [NotebookEditTool(), LogsTool(), DatabaseTool(), ProfileTool(), HttpTool()]
+        if config.browser and browser_available():
+            tools.append(BrowserTool())
         if executor.interactive:
             tools.append(PythonTool())
         if config.checkpoints:
@@ -319,6 +330,7 @@ def open_session(
         # For models whose provider has no web tools of its own; a chat gets them too. With
         # Claude's own turned on, the router leaves these out (providers/router.py).
         tools.append(WebFetchTool())
+        tools.append(PackagesTool())
         search = config.web_search
         if search is not None and WebSearchTool.problem(search, env) is None:
             tools.append(WebSearchTool(search, env))

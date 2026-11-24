@@ -32,6 +32,13 @@ const VERBS: Record<string, string> = {
   Skill: "Using a skill",
   WebFetch: "Fetching",
   Video: "Watching",
+  NotebookEdit: "Editing the notebook",
+  Logs: "Reading the log",
+  Database: "Querying",
+  Packages: "Looking up",
+  Http: "Requesting",
+  Browser: "Using the page",
+  Profile: "Profiling",
   WebSearch: "Searching the web",
   AskUser: "Asking you",
 };

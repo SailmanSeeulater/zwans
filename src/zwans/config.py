@@ -122,6 +122,7 @@ class Config(BaseModel):
     web_search: WebSearchConfig | None = None
     multi_edit: bool = True  # offer MultiEdit, several replacements in one call
     video: bool = True  # offer Video, frames and a transcript, when ffmpeg is installed
+    browser: bool = True  # offer Browser when Playwright is installed (zwans[browser])
     # Offer Diagnostics, which runs the project's linters and type checkers: true finds them
     # from the project's files, and a list of commands runs those instead.
     diagnostics: bool | list[str] = True

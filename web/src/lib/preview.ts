@@ -8,7 +8,7 @@ const LOCAL = /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d{
 // Tools whose results can hold a server's address.
 const PRINTS = new Set(["Bash", "BashOutput", "Shell"]);
 // Tools that change files without running a command.
-const WRITES = new Set(["Write", "Edit", "MultiEdit", "Rename", "Delete", "Move", "ApplyPatch"]);
+const WRITES = new Set(["Write", "Edit", "MultiEdit", "Rename", "NotebookEdit", "Delete", "Move", "ApplyPatch"]);
 
 /** The local addresses in some output, in order, without repeats. 0.0.0.0 becomes localhost. */
 export function localUrls(text: string): string[] {

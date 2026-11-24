@@ -758,6 +758,79 @@ in the workspace that is removed when the call ends. A `Read` rule covers it, so
 `deny = ["Read(private/**)"]` keeps the model from watching videos there too. Set
 `video = false` to leave it out.
 
+### PDFs and notebooks
+
+`Read` takes a PDF as its text, page by page: the first 20, or the ones `pages` asks for, as
+`"21-40"`. A page with almost no text, as a scan is, comes with its pictures attached for the
+model to look at. A Jupyter notebook comes as numbered cells with their outputs, text cut
+short and plots attached, instead of the JSON. `NotebookEdit` changes one cell by that number
+or its id: replace its source, insert a cell, or delete one. Changing a code cell clears its
+outputs, which no longer match. It's a file change, so the policy treats it like `Edit`.
+
+### Packages
+
+`Packages` asks PyPI, npm or crates.io about a package instead of trusting what the model
+remembers: the latest version and recent ones with their dates, what it needs (Python, Node
+or Rust version), its links, the latest release notes from GitHub when the project is there,
+and known vulnerabilities in a version from [OSV.dev](https://osv.dev). The policy judges a
+call as a request to the registry's host, so `allow = ["Packages(pypi.org)"]` lets it look
+up Python packages without asking; the package's name also goes to OSV.dev and GitHub.
+
+### Your own server: Http
+
+`Http` sends a request to a server on this machine or the local network, such as the API
+you're building while it runs: any method, headers, and a JSON or plain body. The reply
+comes back as its status, the headers that matter and the body, with JSON laid out. It
+reaches only local addresses (`WebFetch` reaches only public ones), and the policy judges a
+call by its host: `allow = ["Http(localhost)"]` stops it asking.
+
+### Databases
+
+`Database` looks at a project's data. With no query it lists the tables and their columns;
+with one, it returns the rows as a table, at most 200. A SQLite file is given by path and
+opened read-only. For Postgres, the address stays in an environment variable,
+`DATABASE_URL` unless the call names another, so the password never passes through the
+conversation; `psql` runs the query alone in a read-only transaction. It reads only, so it
+runs without asking; to change data the model uses `sqlite3` or `psql` through Bash, which
+the policy judges like any command. A `Read` rule covers a SQLite file.
+
+### Long logs
+
+`Logs` reads a log too long to read line by line. Lines that differ only in times,
+numbers, ids, addresses or quoted values are grouped, so fifty thousand lines become a few
+dozen kinds, each with its count and where it first and last came. Errors and warnings come
+first, and a Python traceback stays whole under its exception. A `pattern` narrows it.
+
+### Speed and coverage
+
+`Profile` runs a Python script or module under cProfile and lists the functions that took
+the most time, by their own time and including what they called, so "make it faster"
+starts from measurements. `RunTests` with `coverage` runs pytest under coverage.py and lists
+the files with lines the tests never ran, least covered first, with the line numbers. It
+needs coverage installed in the project (`pip install coverage`); without it the tests run
+plain, and the result says so.
+
+### Using a page: Browser
+
+`Browser` opens a page in headless Chromium, usually the app you're building, and gives the
+model an outline of it rather than a picture: headings, text, links, buttons and fields, each
+it can act on marked with a ref such as `[e7]`. It clicks, types, picks options and presses
+keys by ref, and every action returns the page as it is afterwards, with the console errors
+and failed requests since the last one. A screenshot is there for when the look matters; the
+outline costs a fraction of it. The page stays open between calls until the session ends.
+The policy judges each call by the page's host, so `allow = ["Browser(localhost)"]` lets it
+work on a dev server without asking.
+
+It needs Playwright, which isn't installed with Zwans:
+
+```bash
+uv tool install --reinstall '.[browser]'
+~/.local/share/uv/tools/zwans/bin/python -m playwright install chromium
+```
+
+(Or, in a development environment, `pip install -e '.[browser]'` and
+`playwright install chromium`.) Set `browser = false` to leave it out.
+
 ### Notes between sessions
 
 `Memory` keeps short notes about a project: how its tests are run, what a folder is for.
@@ -1052,6 +1125,7 @@ environment variables:
 | `web_search` | none | Where `WebSearch` searches: `provider = "brave"` or `"searxng"` with `url` |
 | `multi_edit` | `true` | Offer the `MultiEdit` tool |
 | `video` | `true` | Offer the `Video` tool, when `ffmpeg` is installed |
+| `browser` | `true` | Offer the `Browser` tool, when Playwright is installed |
 | `diagnostics` | `true` | Offer the `Diagnostics` tool; a list of commands runs those instead of the checkers it finds |
 | `test_commands` | none | Commands for `RunTests` to run instead of the test runners it finds |
 | `disabled_tools` | none | Tools not to offer, by name |

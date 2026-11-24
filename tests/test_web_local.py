@@ -19,6 +19,7 @@ from zwans.providers.fake import FakeProvider
 from zwans.providers.router import ModelRouter
 from zwans.runtime import open_session
 from zwans.tools.base import Tool, ToolContext, ToolError, ToolOutput
+from zwans.tools.browser import available as browser_available
 from zwans.tools.web_local import (
     MAX_CHARS,
     WebFetchInput,
@@ -480,14 +481,17 @@ def test_a_session_gets_the_new_tools_unless_the_config_turns_them_off(tmp_path:
     home = tmp_path / "home"
     full = names(Config(home=home, subagents=False, todos=False))
     video = ["Video"] if shutil.which("ffmpeg") and shutil.which("ffprobe") else []
+    browser = ["Browser"] if browser_available() else []
     assert full == [
         "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "Outline", "References",
         "Rename", "Bash", "BashOutput", "KillBash", "RunTests", "Diagnostics", "Docs",
-        *video, "Python", "ShowChanges", "Memory", "WebFetch",
+        *video, "NotebookEdit", "Logs", "Database", "Profile", "Http", *browser, "Python",
+        "ShowChanges", "Memory", "WebFetch", "Packages",
     ]  # fmt: skip
     # AskUser is there only when someone can be asked.
     assert "AskUser" not in full
     off = ["Outline", "References", "Rename", "RunTests", "Docs", "Python", "ShowChanges", "Memory"]
+    off += ["NotebookEdit", "Logs", "Database", "Profile", "Http"]
     bare = names(
         Config(
             home=home,
@@ -497,6 +501,7 @@ def test_a_session_gets_the_new_tools_unless_the_config_turns_them_off(tmp_path:
             diagnostics=False,
             web=False,
             video=False,
+            browser=False,
             disabled_tools=off,
         )
     )
@@ -505,4 +510,4 @@ def test_a_session_gets_the_new_tools_unless_the_config_turns_them_off(tmp_path:
         home=home, subagents=False, todos=False,
         web_search=WebSearchConfig(provider="searxng", url="http://localhost:8888"),
     )  # fmt: skip
-    assert names(searching)[-2:] == ["WebFetch", "WebSearch"]
+    assert names(searching)[-3:] == ["WebFetch", "Packages", "WebSearch"]
