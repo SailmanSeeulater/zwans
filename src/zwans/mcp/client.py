@@ -26,6 +26,11 @@ MAX_LINE_BYTES = 64 * 1024 * 1024  # a big tool result arrives as one line over 
 
 METHOD_NOT_FOUND = -32601
 
+# MCP Apps (mcp/apps.py): a tool can name an HTML view for its result, which the web UI shows.
+APPS_EXTENSION = "io.modelcontextprotocol/ui"
+APP_MIME_TYPE = "text/html;profile=mcp-app"
+CAPABILITIES = {"extensions": {APPS_EXTENSION: {"mimeTypes": [APP_MIME_TYPE]}}}
+
 
 class McpError(Exception):
     pass
@@ -47,7 +52,7 @@ class Connection(ABC):
         await self._open()
         params = {
             "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": {},
+            "capabilities": CAPABILITIES,
             "clientInfo": {"name": "zwans", "version": __version__},
         }
         result = await self.request("initialize", params, START_TIMEOUT)
@@ -67,6 +72,9 @@ class Connection(ABC):
 
     async def call_tool(self, name: str, arguments: JsonObject, timeout: float) -> JsonObject:
         return await self.request("tools/call", {"name": name, "arguments": arguments}, timeout)
+
+    async def read_resource(self, uri: str, timeout: float = 60) -> JsonObject:
+        return await self.request("resources/read", {"uri": uri}, timeout)
 
     async def request(self, method: str, params: JsonObject, timeout: float = 60) -> JsonObject:
         request_id = next(self._ids)

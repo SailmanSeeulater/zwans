@@ -478,6 +478,39 @@ server marks read-only run without asking, and the rest ask, in `auto` mode too,
 reach whatever the server does. A server that won't start is skipped with a warning. Its
 stderr goes to `~/.zwans/mcp-logs/<server>.log`.
 
+### MCP Apps
+
+A tool from an MCP server can show its result as an interactive view, such as a chart, a
+dashboard or a form, right under the call in the web UI. Zwans hosts
+[MCP Apps](https://modelcontextprotocol.io/docs/extensions/apps), the extension both Claude and
+ChatGPT support, so any server that has views works without changes. The model still gets only
+the tool's text; the view is for you.
+
+- **Sandboxed.** The view is the server's HTML, in an iframe allowed to run scripts and nothing
+  else: it has no origin of its own, so no cookies, storage or Zwans API, and its Content
+  Security Policy lets it load only from the origins its server declared (by default, nothing
+  from the network). Of the device permissions a view can ask for, only writing to the
+  clipboard is granted.
+- **Same policy.** When the view calls a tool on its server (a button that loads more data,
+  say), the call shows in the conversation, marked "from its view", and goes through the
+  policy and `pre_tool` hooks like the model's calls: it asks first unless the tool is
+  read-only. A view can call only its own server, and only tools open to views. Tools a
+  server marks as only for views aren't offered to the model.
+- **You send.** What a view wants to tell the model lands in the composer, for you to edit
+  and send or not.
+- It follows the theme, light or dark, as you switch.
+
+To try it, [examples/mcp_apps_chart.py](examples/mcp_apps_chart.py) is a small server, plain
+Python, with a bar chart view:
+
+```toml
+[mcp_servers.chart]
+command = "python3"
+args = ["/path/to/zwans/examples/mcp_apps_chart.py"]
+```
+
+Then ask for a chart in the web UI. The terminal shows the tool's text, as before.
+
 ### Subagents
 
 The `Task` tool hands a piece of work to a subagent: the same loop with a fresh

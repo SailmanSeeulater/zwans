@@ -55,13 +55,13 @@ def write(path: str, content: str) -> ModelResponse:
 
 
 class Server:
-    def __init__(self, tmp_path: Path) -> None:
+    def __init__(self, tmp_path: Path, **config: Any) -> None:
         self.workspace = tmp_path / "ws"
         self.workspace.mkdir()
         self.reports = tmp_path / "reports"
         self.scripts: list[FakeProvider] = []  # one per session, in the order they open
         settings = ServerSettings(
-            config=Config(home=tmp_path / "home", subagents=False),
+            config=Config(home=tmp_path / "home", subagents=False, **config),
             env={},
             token=TOKEN,
             reports=self.reports,

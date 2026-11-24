@@ -46,6 +46,8 @@ class ToolCallRequested(_Event):
     call_id: str
     name: str
     args: dict[str, Any]
+    # "view" for a call an MCP app's view made (mcp/apps.py): the model never sees it.
+    by: Literal["model", "view"] = "model"
 
 
 class PermissionRequested(_Event):
@@ -79,6 +81,9 @@ class ToolResult(_Event):
     # instructions. Set when a policy is in use.
     untrusted: bool = False
     diff: str | None = None  # what an Edit or Write changed, as a unified diff
+    # An MCP tool's interactive view of the result (mcp/apps.py): its HTML, what it may load,
+    # and the call's arguments and whole result, which the web UI hands it.
+    app: dict[str, Any] | None = None
 
 
 class HookReported(_Event):
