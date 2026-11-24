@@ -37,7 +37,7 @@ from zwans.events import (
 KEY_ARGS = (
     "command", "pattern", "symbol", "path", "query", "url", "question", "description",
     "name", "job_id", "ticket", "code", "target", "ref", "action", "text", "test",
-    "container", "expression", "source", "message", "run", "branch", "before",
+    "container", "expression", "source", "message", "run", "branch", "before", "title",
 )  # fmt: skip
 TODO_MARKS = {"completed": "✓", "in_progress": "▸", "pending": "○"}
 SHELL_TOOLS = frozenset({"Bash", "BashOutput"})

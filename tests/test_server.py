@@ -26,7 +26,7 @@ from zwans.tools.base import Tool
 
 TOKEN = "test-token"
 SANDBOXED = sys.platform == "darwin" and os.access(SANDBOX_EXEC, os.X_OK)
-CHAT_TOOLS = ["WebFetch", "Packages", "Python"] if SANDBOXED else ["WebFetch", "Packages"]
+CHAT_TOOLS = ["Chart", "WebFetch", "Packages"] + (["Python"] if SANDBOXED else [])
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 

@@ -1,0 +1,683 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chart</title>
+<!--
+  The Chart tool's view (src/zwans/tools/chart.py): an MCP Apps page the web UI shows in a
+  sandboxed iframe. It gets the chart from the tool's result (ui/notifications/tool-result)
+  and draws it as SVG: one value axis, thin marks, a legend for two or more series, a
+  hover and keyboard readout, and a table of the same numbers. Nothing is loaded.
+-->
+<style>
+  :root {
+    color-scheme: light;
+    --ink: var(--color-text-primary, #0b0b0b);
+    --ink-2: var(--color-text-secondary, #52514e);
+    --muted: #898781;
+    --surface: var(--color-background-primary, #fcfcfb);
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --tip: #ffffff;
+    --tip-edge: rgba(11, 11, 11, 0.1);
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+    --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ink: var(--color-text-primary, #f0efec);
+    --ink-2: var(--color-text-secondary, #c3c2b7);
+    --surface: var(--color-background-primary, #1a1a19);
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --tip: #232322;
+    --tip-edge: rgba(255, 255, 255, 0.1);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #0ca30c; --s7: #9085e9; --s8: #e66767;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ink: var(--color-text-primary, #f0efec);
+      --ink-2: var(--color-text-secondary, #c3c2b7);
+      --surface: var(--color-background-primary, #1a1a19);
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --tip: #232322;
+      --tip-edge: rgba(255, 255, 255, 0.1);
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+      --s5: #d55181; --s6: #0ca30c; --s7: #9085e9; --s8: #e66767;
+    }
+  }
+  html, body { margin: 0; background: transparent; }
+  [hidden] { display: none !important; }
+  body {
+    padding: 14px 16px 12px;
+    font: 13px/1.4 var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif);
+    color: var(--ink);
+  }
+  header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+  .titles { flex: 1; min-width: 0; }
+  h1 { font-size: 14px; font-weight: 600; margin: 0; }
+  .subtitle { color: var(--ink-2); margin: 2px 0 0; font-size: 12px; }
+  .toggle {
+    font: inherit; font-size: 12px; padding: 3px 9px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--grid); background: transparent; color: var(--ink-2);
+  }
+  .toggle:hover { color: var(--ink); }
+  .toggle:focus-visible, svg:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 6px; color: var(--ink-2); font-size: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .plot { position: relative; }
+  svg { display: block; overflow: visible; }
+  svg text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  svg text.label { fill: var(--ink-2); }
+  svg text.value { fill: var(--ink); }
+  .tip {
+    position: absolute; pointer-events: none; z-index: 2; min-width: 96px; max-width: 260px;
+    padding: 7px 9px; border-radius: 8px; background: var(--tip);
+    box-shadow: 0 0 0 1px var(--tip-edge), 0 6px 18px rgba(0, 0, 0, 0.14);
+    font-size: 12px; line-height: 1.35;
+  }
+  .tip[hidden] { display: none; }
+  .tip .head { color: var(--ink-2); margin-bottom: 3px; }
+  .tip .row { display: grid; grid-template-columns: 12px auto 1fr; align-items: center; gap: 6px; }
+  .tip .row b { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .tip .row span { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .key { display: inline-block; width: 12px; height: 2px; border-radius: 1px; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+  .table-wrap { max-height: 320px; overflow: auto; }
+  .table-wrap[hidden] { display: none; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { padding: 4px 8px; border-bottom: 1px solid var(--grid); text-align: left; }
+  th { color: var(--ink-2); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .empty { color: var(--ink-2); padding: 20px 0; }
+</style>
+</head>
+<body>
+<header>
+  <div class="titles">
+    <h1 id="title"></h1>
+    <p class="subtitle" id="subtitle" hidden></p>
+  </div>
+  <button class="toggle" id="toggle" type="button" hidden>Table</button>
+</header>
+<div class="legend" id="legend" hidden></div>
+<div class="plot" id="plot"><p class="empty">Waiting for the numbers…</p></div>
+<div class="table-wrap" id="table" hidden></div>
+<script>
+(() => {
+  const NS = "http://www.w3.org/2000/svg";
+  const $ = (id) => document.getElementById(id);
+  let chart = null;
+  let showingTable = false;
+
+  // -- MCP Apps: JSON-RPC over postMessage with the host (web/src/lib/apps.ts)
+  let nextId = 1;
+  const waiting = new Map();
+  const send = (message) => window.parent.postMessage({ jsonrpc: "2.0", ...message }, "*");
+  const request = (method, params) => {
+    const id = nextId++;
+    send({ id, method, params });
+    return new Promise((resolve, reject) => waiting.set(id, { resolve, reject }));
+  };
+  const applyContext = (context) => {
+    if (!context) return;
+    if (context.theme) document.documentElement.dataset.theme = context.theme;
+    const variables = (context.styles && context.styles.variables) || {};
+    for (const [name, value] of Object.entries(variables)) {
+      if (value) document.documentElement.style.setProperty(name, value);
+    }
+    if (chart) draw();
+  };
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) return;
+    const message = event.data || {};
+    if (message.id !== undefined && !message.method) {
+      const pending = waiting.get(message.id);
+      waiting.delete(message.id);
+      if (pending) message.error ? pending.reject(new Error(message.error.message)) : pending.resolve(message.result);
+    } else if (message.method === "ui/notifications/tool-result") {
+      const found = message.params && message.params.structuredContent;
+      if (found && Array.isArray(found.series)) { chart = found; render(); }
+    } else if (message.method === "ui/notifications/host-context-changed") {
+      applyContext(message.params);
+    } else if (message.method === "ui/resource-teardown") {
+      send({ id: message.id, result: {} });
+    }
+  });
+  // Said after each change as well as on resize: a page that isn't painting (a hidden tab)
+  // gets no ResizeObserver callbacks, and would sit at the host's first guess.
+  let saidHeight = 0;
+  const sayHeight = () => {
+    // Rounded up: scrollHeight rounds a fractional body down, which leaves the view a
+    // pixel short and scrolling.
+    const height = Math.ceil(document.body.getBoundingClientRect().height);
+    if (height === saidHeight) return;
+    saidHeight = height;
+    send({ method: "ui/notifications/size-changed", params: { height } });
+  };
+  new ResizeObserver(sayHeight).observe(document.body);
+  let lastWidth = 0;
+  window.addEventListener("resize", () => {
+    if (chart && !showingTable && Math.abs(window.innerWidth - lastWidth) > 2) draw();
+  });
+  request("ui/initialize", {
+    appInfo: { name: "zwans-chart", version: "1.0.0" },
+    appCapabilities: {},
+    protocolVersion: "2026-01-26",
+  }).then((result) => {
+    applyContext(result && result.hostContext);
+    send({ method: "ui/notifications/initialized" });
+  }).catch(() => {});
+
+  // -- numbers and times as text
+  const CURRENCIES = ["$", "€", "£", "¥"];
+  const withUnit = (text, negative) => {
+    const unit = chart.unit || "";
+    if (!unit) return text;
+    if (CURRENCIES.includes(unit)) return negative ? "-" + unit + text.slice(1) : unit + text;
+    return unit === "%" ? text + "%" : text + " " + unit;
+  };
+  const full = (v) => {
+    if (v == null) return "–";
+    const abs = Math.abs(v);
+    const digits = abs >= 100 || Number.isInteger(v) ? 0 : abs >= 1 ? 2 : 3;
+    return withUnit(v.toLocaleString(undefined, { maximumFractionDigits: digits }), v < 0);
+  };
+  const tick = (v, compact) => {
+    const text = compact
+      ? new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(v)
+      : v.toLocaleString(undefined, { maximumFractionDigits: 6 });
+    return withUnit(text, v < 0);
+  };
+  const parseTime = (s) => {
+    if (typeof s !== "string") return NaN;
+    if (/^\d{4}-\d{2}$/.test(s)) return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, 1);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));
+    return Date.parse(s);
+  };
+  const dateOnly = (s) => typeof s === "string" && /^\d{4}-\d{2}(-\d{2})?$/.test(s);
+  const timeText = (ms, span, raw) => {
+    const d = new Date(ms);
+    const utc = dateOnly(raw) ? "UTC" : undefined;
+    if (span > 2 * 365 * 864e5) return d.toLocaleDateString(undefined, { year: "numeric", timeZone: utc });
+    if (span > 120 * 864e5) return d.toLocaleDateString(undefined, { month: "short", year: "2-digit", timeZone: utc });
+    if (span > 2 * 864e5) return d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: utc });
+    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", timeZone: utc });
+  };
+  const xText = (i) => {
+    const raw = chart.x.values[i];
+    if (chart.x.type === "time") {
+      const ms = parseTime(raw);
+      if (/^\d{4}-\d{2}$/.test(raw)) return new Date(ms).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
+      if (dateOnly(raw)) return new Date(ms).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+      return new Date(ms).toLocaleString();
+    }
+    if (chart.x.type === "number") return chart.x.name + " " + Number(raw).toLocaleString();
+    return String(raw);
+  };
+
+  // -- scales
+  const niceStep = (span, count) => {
+    const raw = span / Math.max(1, count);
+    const power = Math.pow(10, Math.floor(Math.log10(raw)));
+    const f = raw / power;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * power;
+  };
+  const niceDomain = (lo, hi, count) => {
+    if (lo === hi) { lo = lo > 0 ? 0 : lo - 1; hi = hi > 0 ? hi : hi + 1; }
+    const step = niceStep(hi - lo, count);
+    const from = Math.floor(lo / step) * step;
+    const to = Math.ceil(hi / step) * step;
+    const ticks = [];
+    for (let v = from; v <= to + step / 2; v += step) ticks.push(Math.abs(v) < step / 1e6 ? 0 : +v.toPrecision(12));
+    return { lo: from, hi: to, ticks };
+  };
+  const timeTicks = (lo, hi, count) => {
+    const span = hi - lo;
+    const DAY = 864e5;
+    const steps = [36e5, 3 * 36e5, 6 * 36e5, 12 * 36e5, DAY, 2 * DAY, 7 * DAY, 14 * DAY];
+    const fixed = steps.find((s) => span / s <= count);
+    if (fixed) {
+      const first = Math.ceil(lo / fixed) * fixed;
+      const ticks = [];
+      for (let t = first; t <= hi; t += fixed) ticks.push(t);
+      return ticks;
+    }
+    const months = [1, 2, 3, 6, 12, 24, 60, 120].find((m) => span / (m * 30.44 * DAY) <= count) || 240;
+    const start = new Date(lo);
+    let y = start.getUTCFullYear();
+    let m = Math.ceil(start.getUTCMonth() / months) * months;
+    if (start.getUTCDate() > 1 || start.getUTCHours() > 0) m += m % months === 0 && start.getUTCMonth() === m ? months : 0;
+    const ticks = [];
+    for (let guard = 0; guard < 200; guard++) {
+      const t = Date.UTC(y + Math.floor(m / 12), m % 12, 1);
+      if (t > hi) break;
+      if (t >= lo) ticks.push(t);
+      m += months;
+    }
+    return ticks;
+  };
+
+  // -- SVG
+  const el = (name, attrs, parent) => {
+    const node = document.createElementNS(NS, name);
+    for (const [k, v] of Object.entries(attrs || {})) if (v != null) node.setAttribute(k, v);
+    if (parent) parent.appendChild(node);
+    return node;
+  };
+  const text = (parent, x, y, content, attrs) => {
+    const node = el("text", { x, y, ...attrs }, parent);
+    node.textContent = content;
+    return node;
+  };
+  const color = (i) => "var(--s" + ((i % 8) + 1) + ")";
+  let measurer = null;
+  const measure = (s) => {
+    if (!measurer) measurer = document.createElement("canvas").getContext("2d");
+    measurer.font = "11px " + getComputedStyle(document.body).fontFamily;
+    return measurer.measureText(s).width;
+  };
+  // A bar with its data end rounded (4px) and its baseline end square.
+  const barPath = (x, y, w, h, end) => {
+    const r = Math.min(4, w / 2, h / 2);
+    if (r <= 0.5) return `M${x},${y}h${w}v${h}h${-w}Z`;
+    if (end === "top") return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+    if (end === "bottom") return `M${x},${y}H${x + w}V${y + h - r}Q${x + w},${y + h} ${x + w - r},${y + h}H${x + r}Q${x},${y + h} ${x},${y + h - r}Z`;
+    if (end === "right") return `M${x},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h - r}Q${x + w},${y + h} ${x + w - r},${y + h}H${x}Z`;
+    return `M${x + w},${y}H${x + r}Q${x},${y} ${x},${y + r}V${y + h - r}Q${x},${y + h} ${x + r},${y + h}H${x + w}Z`;
+  };
+
+  // -- the page
+  function render() {
+    $("title").textContent = chart.title || chart.series.map((s) => s.name).join(", ") + " by " + chart.x.name;
+    const sub = $("subtitle");
+    sub.textContent = chart.subtitle || "";
+    sub.hidden = !chart.subtitle;
+    const legend = $("legend");
+    legend.replaceChildren();
+    legend.hidden = chart.series.length < 2;
+    chart.series.forEach((s, i) => {
+      const item = document.createElement("span");
+      const mark = document.createElement("i");
+      mark.className = chart.kind === "line" ? "key" : "swatch";
+      if (chart.kind === "scatter") mark.style.borderRadius = "50%";
+      mark.style.background = color(i);
+      const name = document.createElement("span");
+      name.textContent = s.name;
+      item.append(mark, name);
+      legend.appendChild(item);
+    });
+    const toggle = $("toggle");
+    toggle.hidden = false;
+    toggle.onclick = () => {
+      showingTable = !showingTable;
+      toggle.textContent = showingTable ? "Chart" : "Table";
+      $("plot").hidden = showingTable;
+      $("table").hidden = !showingTable;
+      if (!showingTable) draw();
+      sayHeight();
+    };
+    table();
+    draw();
+    sayHeight();
+  }
+
+  function table() {
+    const t = document.createElement("table");
+    const head = t.createTHead().insertRow();
+    const th = (content, numeric) => {
+      const cell = document.createElement("th");
+      cell.textContent = content;
+      if (numeric) cell.className = "n";
+      head.appendChild(cell);
+    };
+    th(chart.x.name, chart.x.type === "number");
+    chart.series.forEach((s) => th(s.name, true));
+    const body = t.createTBody();
+    chart.x.values.forEach((_, i) => {
+      const row = body.insertRow();
+      const first = row.insertCell();
+      first.textContent = chart.x.type === "number" ? Number(chart.x.values[i]).toLocaleString() : String(chart.x.values[i]);
+      chart.series.forEach((s) => {
+        const cell = row.insertCell();
+        cell.className = "n";
+        cell.textContent = full(s.values[i]);
+      });
+    });
+    $("table").replaceChildren(t);
+  }
+
+  function draw() {
+    lastWidth = window.innerWidth;
+    const plot = $("plot");
+    plot.replaceChildren();
+    const n = chart.x.values.length;
+    if (!n) { plot.innerHTML = '<p class="empty">No rows.</p>'; return; }
+    const width = Math.max(240, plot.clientWidth || document.body.clientWidth - 32);
+    const horizontal = chart.kind === "bar" && chart.horizontal;
+    const stacked = chart.stacked;
+    const S = chart.series.length;
+
+    // The value domain, with 0 in it for bars and areas.
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < n; i++) {
+      let up = 0, down = 0;
+      for (const s of chart.series) {
+        const v = s.values[i];
+        if (v == null) continue;
+        if (stacked) { if (v >= 0) up += v; else down += v; }
+        else { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+      }
+      if (stacked) { lo = Math.min(lo, down); hi = Math.max(hi, up); }
+    }
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    if (chart.kind === "bar" || chart.kind === "area") { lo = Math.min(0, lo); hi = Math.max(0, hi); }
+    const value = niceDomain(lo, hi, horizontal ? 5 : 5);
+    const compact = Math.max(Math.abs(value.lo), Math.abs(value.hi)) >= 10000;
+    const tickLabels = value.ticks.map((v) => tick(v, compact));
+
+    // X positions.
+    const xs = chart.x.values;
+    const isTime = chart.x.type === "time", isNumber = chart.x.type === "number";
+    const banded = chart.kind === "bar";
+    const xNum = xs.map((x) => isTime ? parseTime(x) : isNumber ? Number(x) : NaN);
+    let xLo = Math.min(...xNum.filter(isFinite)), xHi = Math.max(...xNum.filter(isFinite));
+    if (!banded && chart.kind === "scatter" && isNumber) {
+      const d = niceDomain(xLo, xHi, 6);
+      xLo = d.lo; xHi = d.hi;
+    }
+
+    // Direct labels at the ends of a few lines, if they'd sit apart.
+    const lastIndex = (s) => { for (let i = n - 1; i >= 0; i--) if (s.values[i] != null) return i; return -1; };
+    const endLabels = (chart.kind === "line" || (chart.kind === "area" && !stacked)) && S <= 4
+      ? chart.series.map((s, i) => ({ i, at: lastIndex(s), text: (S > 1 ? s.name + " " : "") + full(s.values[lastIndex(s)]) })).filter((l) => l.at >= 0)
+      : [];
+    const labelWidth = endLabels.length ? Math.min(160, Math.max(...endLabels.map((l) => measure(l.text)))) + 12 : 0;
+
+    const categoryWidth = horizontal ? Math.min(180, Math.max(...xs.map((x) => measure(String(x))))) + 10 : 0;
+    const left = horizontal ? categoryWidth : Math.max(...tickLabels.map(measure)) + 10;
+    const right = horizontal ? 16 : Math.max(8, labelWidth);
+    const top = 10;
+    const bottom = horizontal ? 22 : 24;
+    const band = horizontal ? Math.max(22, Math.min(36, 280 / n)) : 0;
+    const plotH = horizontal ? n * band : 240;
+    const height = top + plotH + bottom;
+    const W = width - left - right;
+    const svg = el("svg", { width, height, viewBox: `0 0 ${width} ${height}`, role: "img", tabindex: 0 }, plot);
+    svg.setAttribute("aria-label", ($("title").textContent || "Chart") + ". Open the table for every value.");
+
+    // The value scale: up for columns, lines and points; across for bars laid across.
+    const vPos = horizontal
+      ? (v) => left + ((v - value.lo) / (value.hi - value.lo)) * W
+      : (v) => top + plotH - ((v - value.lo) / (value.hi - value.lo)) * plotH;
+    const slot = banded ? (horizontal ? plotH : W) / n : 0;
+    const xPos = banded
+      ? (i) => (horizontal ? top : left) + slot * (i + 0.5)
+      : (isTime || isNumber)
+        ? (i) => left + (xHi === xLo ? W / 2 : ((xNum[i] - xLo) / (xHi - xLo)) * W)
+        : (i) => left + (n === 1 ? W / 2 : (i / (n - 1)) * W);
+
+    // Gridlines and value ticks: hairlines, recessive.
+    const grid = el("g", {}, svg);
+    value.ticks.forEach((v, k) => {
+      const p = vPos(v);
+      if (horizontal) {
+        el("line", { x1: p, x2: p, y1: top, y2: top + plotH, stroke: v === 0 ? "var(--axis)" : "var(--grid)", "stroke-width": 1, "shape-rendering": "crispEdges" }, grid);
+        text(grid, p, top + plotH + 15, tickLabels[k], { "text-anchor": "middle" });
+      } else {
+        el("line", { x1: left, x2: left + W, y1: p, y2: p, stroke: v === 0 ? "var(--axis)" : "var(--grid)", "stroke-width": 1, "shape-rendering": "crispEdges" }, grid);
+        text(grid, left - 8, p + 4, tickLabels[k], { "text-anchor": "end" });
+      }
+    });
+
+    // X labels.
+    const xAxis = el("g", {}, svg);
+    if (banded) {
+      const every = horizontal ? 1 : Math.max(1, Math.ceil(n / Math.max(1, Math.floor(W / Math.max(28, Math.max(...xs.map((x) => measure(String(x)))) + 10)))));
+      xs.forEach((x, i) => {
+        if (i % every) return;
+        const label = String(x);
+        if (horizontal) {
+          let shown = label;
+          while (shown.length > 3 && measure(shown) > categoryWidth - 10) shown = shown.slice(0, -2);
+          text(xAxis, left - 8, xPos(i) + 4, shown === label ? label : shown + "…", { "text-anchor": "end", class: "label" });
+        } else {
+          text(xAxis, xPos(i), top + plotH + 16, label, { "text-anchor": "middle", class: "label" });
+        }
+      });
+    } else if (isTime) {
+      const span = xHi - xLo;
+      timeTicks(xLo, xHi, Math.max(2, Math.floor(W / 90))).forEach((t) => {
+        const p = left + (xHi === xLo ? W / 2 : ((t - xLo) / (xHi - xLo)) * W);
+        text(xAxis, p, top + plotH + 16, timeText(t, span, xs[0]), { "text-anchor": "middle" });
+      });
+    } else if (isNumber) {
+      niceDomain(xLo, xHi, Math.max(2, Math.floor(W / 80))).ticks.filter((t) => t >= xLo && t <= xHi).forEach((t) => {
+        const p = left + (xHi === xLo ? W / 2 : ((t - xLo) / (xHi - xLo)) * W);
+        text(xAxis, p, top + plotH + 16, t.toLocaleString(), { "text-anchor": "middle" });
+      });
+    } else {
+      const every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(W / 70))));
+      xs.forEach((x, i) => { if (i % every === 0) text(xAxis, xPos(i), top + plotH + 16, String(x), { "text-anchor": "middle", class: "label" }); });
+    }
+
+    const marks = el("g", {}, svg);
+    const overlay = el("g", {}, svg);
+
+    if (banded) {
+      // Bars: at most 24px thick, a 2px surface gap between neighbours and stacked parts.
+      const groupSpace = slot * 0.72;
+      const thick = stacked ? Math.min(24, groupSpace) : Math.max(2, Math.min(24, (groupSpace - 2 * (S - 1)) / S));
+      const groupWidth = stacked ? thick : thick * S + 2 * (S - 1);
+      for (let i = 0; i < n; i++) {
+        const start = xPos(i) - groupWidth / 2;
+        let up = 0, down = 0;
+        const topmost = stacked ? Math.max(-1, ...chart.series.map((s, k) => (s.values[i] > 0 ? k : -1))) : -1;
+        const bottommost = stacked ? Math.max(-1, ...chart.series.map((s, k) => (s.values[i] < 0 ? k : -1))) : -1;
+        chart.series.forEach((s, k) => {
+          const v = s.values[i];
+          if (v == null || v === 0) return;
+          let from, to;
+          if (stacked) {
+            if (v > 0) { from = up; to = up + v; up = to; } else { from = down; to = down + v; down = to; }
+          } else { from = 0; to = v; }
+          const a = vPos(from), b = vPos(to);
+          const offset = stacked ? 0 : k * (thick + 2);
+          const isEnd = !stacked || k === (v > 0 ? topmost : bottommost);
+          const gap = stacked && !isEnd ? 2 : 0;
+          let d;
+          if (horizontal) {
+            const x = Math.min(a, b), w = Math.max(0, Math.abs(b - a) - gap);
+            const y = start + offset;
+            const x0 = v > 0 ? x : x + gap;
+            d = isEnd ? barPath(x0, y, w, thick, v > 0 ? "right" : "left") : `M${x0},${y}h${w}v${thick}h${-w}Z`;
+          } else {
+            const y = Math.min(a, b), h = Math.max(0, Math.abs(b - a) - gap);
+            const x = start + offset;
+            d = isEnd ? barPath(x, v > 0 ? y + gap : y, thick, h, v > 0 ? "top" : "bottom") : `M${x},${v > 0 ? y + gap : y}h${thick}v${h}h${-thick}Z`;
+          }
+          el("path", { d, fill: color(k), "data-i": i }, marks);
+        });
+      }
+      // Values at the bar ends, for one series and few bars.
+      if (S === 1 && n <= 16) {
+        const s = chart.series[0];
+        s.values.forEach((v, i) => {
+          if (v == null) return;
+          const label = full(v);
+          const p = vPos(v);
+          if (horizontal) {
+            const x = v >= 0 ? p + 6 : p - 6;
+            if (v >= 0 && x + measure(label) > left + W + right) return;
+            text(overlay, x, xPos(i) + 4, label, { "text-anchor": v >= 0 ? "start" : "end", class: "value" });
+          } else if (measure(label) < slot - 2) {
+            text(overlay, xPos(i), v >= 0 ? p - 6 : p + 14, label, { "text-anchor": "middle", class: "value" });
+          }
+        });
+      }
+    } else if (chart.kind === "scatter") {
+      chart.series.forEach((s, k) => {
+        s.values.forEach((v, i) => {
+          if (v == null) return;
+          el("circle", { cx: xPos(i), cy: vPos(v), r: 4, fill: color(k), stroke: "var(--surface)", "stroke-width": 2, "fill-opacity": 0.9 }, marks);
+        });
+      });
+    } else {
+      // Lines and areas: 2px lines with round joins; an area is a 10% wash under its line.
+      const base = new Array(n).fill(0);
+      chart.series.forEach((s, k) => {
+        const ys = s.values.map((v, i) => (v == null ? null : stacked ? base[i] + v : v));
+        let line = "", area = "", run = [];
+        const flush = () => {
+          if (!run.length) return;
+          line += run.map(([i, y], j) => (j ? "L" : "M") + xPos(i) + "," + vPos(y)).join("");
+          if (chart.kind === "area") {
+            const floor = run.map(([i]) => [i, stacked ? base[i] : 0]).reverse();
+            area += run.map(([i, y], j) => (j ? "L" : "M") + xPos(i) + "," + vPos(y)).join("") +
+              floor.map(([i, y]) => "L" + xPos(i) + "," + vPos(y)).join("") + "Z";
+          }
+          run = [];
+        };
+        ys.forEach((y, i) => { if (y == null) flush(); else run.push([i, y]); });
+        flush();
+        if (area) el("path", { d: area, fill: color(k), "fill-opacity": 0.1 }, marks);
+        el("path", { d: line, fill: "none", stroke: color(k), "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, marks);
+        if (stacked) ys.forEach((y, i) => { if (y != null) base[i] = y; });
+        // A lone point between gaps shows as a dot.
+        ys.forEach((y, i) => {
+          if (y != null && (i === 0 || ys[i - 1] == null) && (i === n - 1 || ys[i + 1] == null)) {
+            el("circle", { cx: xPos(i), cy: vPos(y), r: 3, fill: color(k) }, marks);
+          }
+        });
+        const end = lastIndex(s);
+        if (end >= 0) el("circle", { cx: xPos(end), cy: vPos(ys[end]), r: 4, fill: color(k), stroke: "var(--surface)", "stroke-width": 2 }, marks);
+      });
+      // End labels, unless two would touch: then the legend and the readout carry them.
+      const placed = endLabels.map((l) => ({ ...l, y: vPos(chart.series[l.i].values[l.at]) }));
+      const apart = placed.every((a, j) => placed.every((b, k) => j === k || Math.abs(a.y - b.y) >= 14));
+      if (apart) placed.forEach((l) => text(overlay, xPos(l.at) + 9, l.y + 4, l.text, { class: "value" }));
+    }
+
+    // The readout: a crosshair that snaps to the nearest x for lines and areas, the bar
+    // under the pointer for bars, the nearest point for a scatter. Keys move it too.
+    const tip = document.createElement("div");
+    tip.className = "tip";
+    tip.hidden = true;
+    plot.appendChild(tip);
+    const cross = el("line", { y1: top, y2: top + plotH, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" }, overlay);
+    const dots = el("g", {}, overlay);
+    let current = -1;
+    const row = (k, v) => {
+      const r = document.createElement("div");
+      r.className = "row";
+      const key = document.createElement("i");
+      key.className = "key";
+      key.style.background = color(k);
+      const b = document.createElement("b");
+      b.textContent = full(v);
+      const name = document.createElement("span");
+      name.textContent = chart.series[k].name;
+      r.append(key, b, name);
+      return r;
+    };
+    const show = (i, only) => {
+      current = i;
+      tip.replaceChildren();
+      const head = document.createElement("div");
+      head.className = "head";
+      head.textContent = xText(i);
+      tip.appendChild(head);
+      const ks = only != null ? [only] : chart.series.map((_, k) => k);
+      ks.forEach((k) => tip.appendChild(row(k, chart.series[k].values[i])));
+      if (stacked && only == null && S > 1) {
+        const total = chart.series.reduce((sum, s) => sum + (s.values[i] || 0), 0);
+        const t = document.createElement("div");
+        t.className = "head";
+        t.style.marginTop = "3px";
+        t.textContent = "Total " + full(total);
+        tip.appendChild(t);
+      }
+      tip.hidden = false;
+      dots.replaceChildren();
+      marks.querySelectorAll("path[data-i]").forEach((p) => p.setAttribute("opacity", +p.getAttribute("data-i") === i ? 1 : 0.55));
+      let anchorX = xPos(i), anchorY = top + 10;
+      if (!banded) {
+        if (chart.kind !== "scatter") {
+          cross.setAttribute("x1", anchorX); cross.setAttribute("x2", anchorX);
+          cross.setAttribute("visibility", "visible");
+        }
+        let running = 0;
+        let highest = Infinity;
+        chart.series.forEach((s, k) => {
+          const v = s.values[i];
+          if (v == null) return;
+          const y = stacked ? (running += v) : v;
+          if (only == null || only === k) {
+            el("circle", { cx: anchorX, cy: vPos(y), r: 4, fill: color(k), stroke: "var(--surface)", "stroke-width": 2 }, dots);
+            highest = Math.min(highest, vPos(y));
+          }
+        });
+        if (isFinite(highest)) anchorY = highest;
+      } else if (horizontal) {
+        anchorY = xPos(i); anchorX = left + W / 2;
+      }
+      const box = tip.getBoundingClientRect();
+      const plotWidth = plot.clientWidth;
+      let x = horizontal ? Math.min(plotWidth - box.width - 4, left + 8) : anchorX + 12;
+      if (!horizontal && x + box.width > plotWidth) x = anchorX - box.width - 12;
+      let y = horizontal ? anchorY + slot / 2 : Math.max(0, anchorY - box.height / 2);
+      if (y + box.height > height) y = height - box.height;
+      tip.style.left = Math.max(0, x) + "px";
+      tip.style.top = Math.max(0, y) + "px";
+    };
+    const hide = () => {
+      current = -1;
+      tip.hidden = true;
+      cross.setAttribute("visibility", "hidden");
+      dots.replaceChildren();
+      marks.querySelectorAll("path[data-i]").forEach((p) => p.setAttribute("opacity", 1));
+    };
+    const nearest = (event) => {
+      const rect = svg.getBoundingClientRect();
+      const px = event.clientX - rect.left, py = event.clientY - rect.top;
+      if (banded) {
+        const along = horizontal ? py - top : px - left;
+        const i = Math.floor(along / slot);
+        return i >= 0 && i < n ? { i } : null;
+      }
+      if (chart.kind === "scatter") {
+        let best = null, bestD = 24 * 24;
+        chart.series.forEach((s, k) => s.values.forEach((v, i) => {
+          if (v == null) return;
+          const d = (xPos(i) - px) ** 2 + (vPos(v) - py) ** 2;
+          if (d < bestD) { bestD = d; best = { i, k }; }
+        }));
+        return best;
+      }
+      let best = -1, bestD = Infinity;
+      for (let i = 0; i < n; i++) { const d = Math.abs(xPos(i) - px); if (d < bestD) { bestD = d; best = i; } }
+      return best >= 0 ? { i: best } : null;
+    };
+    svg.addEventListener("pointermove", (event) => {
+      const found = nearest(event);
+      if (found) show(found.i, found.k); else hide();
+    });
+    svg.addEventListener("pointerleave", hide);
+    svg.addEventListener("focus", () => { if (current < 0) show(0); });
+    svg.addEventListener("blur", hide);
+    svg.addEventListener("keydown", (event) => {
+      const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+      if (step) { event.preventDefault(); show(Math.max(0, Math.min(n - 1, (current < 0 ? 0 : current + step)))); }
+      else if (event.key === "Home") { event.preventDefault(); show(0); }
+      else if (event.key === "End") { event.preventDefault(); show(n - 1); }
+      else if (event.key === "Escape") hide();
+    });
+  }
+})();
+</script>
+</body>
+</html>

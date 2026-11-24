@@ -263,7 +263,7 @@ export function keyArgument(call: Pick<ToolCall, "name" | "args">): string {
     return call.args.filter ? `${named} matching ${String(call.args.filter)}` : named;
   }
   if (call.name === "Rename") return `${String(call.args.old ?? "")} to ${String(call.args.new ?? "")}`;
-  const keys = ["command", "pattern", "symbol", "path", "query", "url", "question", "description", "name", "job_id", "ticket", "code", "target", "ref", "action", "text", "test", "container", "expression", "source", "message", "run", "branch", "before"];
+  const keys = ["command", "pattern", "symbol", "path", "query", "url", "question", "description", "name", "job_id", "ticket", "code", "target", "ref", "action", "text", "test", "container", "expression", "source", "message", "run", "branch", "before", "title"];
   for (const key of keys) {
     const value = call.args[key];
     if (typeof value === "string" && value) return value.split("\n")[0] ?? "";

@@ -878,6 +878,17 @@ the first rows as a table. Excel is read without an Excel library; Parquet is re
 small script run with the project's own Python, which needs pyarrow, pandas or duckdb. For a
 file over 100 MB only the start is read, and the summary says so.
 
+`Chart` draws numbers as a chart under the call in the web UI, as an [MCP App](#mcp-apps)
+view built into Zwans: bars, lines, areas (stacked or not) or a scatter, from rows the model
+passes or from a CSV, JSON or JSON Lines file. It picks bars for names and a line for numbers
+or dates, lays bars sideways when their labels are long, and turns long data (one row per
+name and value) into one series per name. The view follows the theme, shows the values under
+the pointer or the arrow keys, and switches to a table of the numbers. The model gets a text
+summary instead: each series' range, where its high and low fall, its last value and its
+shape in block characters, and a warning when series differ too much in size to share an
+axis. Limits keep a chart readable (8 series, 3 for a scatter, 60 bars), and a `Read` rule
+covers the file. The terminal shows the summary.
+
 `ImageDiff` compares two images, such as screenshots before and after a CSS change, and says
 what changed: the share of pixels that differ, the changed areas as rectangles, and a
 picture of the after image dimmed with the changed areas outlined in red. It decodes PNG

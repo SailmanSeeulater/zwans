@@ -50,6 +50,7 @@ from zwans.tools.benchmark import BenchmarkTool
 from zwans.tools.bisect import BisectTool
 from zwans.tools.browser import BrowserTool
 from zwans.tools.browser import available as browser_available
+from zwans.tools.chart import ChartTool
 from zwans.tools.ci import CITool
 from zwans.tools.ci import available as ci_available
 from zwans.tools.containers import ContainersTool
@@ -357,6 +358,8 @@ def open_session(
             tools.append(SkillTool(skills))
         if config.subagents:
             tools.append(TaskTool(config.subagent_max_steps))
+    # Charts are drawn in the web UI, for a session or a chat; the terminal gets their summary.
+    tools.append(ChartTool())
     if config.web:
         # For models whose provider has no web tools of its own; a chat gets them too. With
         # Claude's own turned on, the router leaves these out (providers/router.py).

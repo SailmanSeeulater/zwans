@@ -54,7 +54,9 @@ FILE_CHANGE_TOOLS = frozenset(
 # These show what's in the files they look through, so a rule about reading covers them.
 SEARCH_TOOLS = frozenset({"Grep", "Outline", "References", "Imports", "Env"})
 # These show a file's content in another form, so a rule about reading it covers them too.
-VIEW_TOOLS = frozenset({"Video", "Logs", "Database", "Data", "ImageDiff", "History", "OpenAPI"})
+VIEW_TOOLS = frozenset(
+    {"Video", "Logs", "Database", "Data", "ImageDiff", "History", "OpenAPI", "Chart"}
+)
 # The built-in tools' names, so a rule for a misspelled one is reported instead of never
 # matching. MCP tools are named mcp__<server>__<tool>. tests/test_policy.py checks that this
 # lists every tool in zwans.tools.
@@ -73,6 +75,7 @@ TOOL_NAMES = frozenset(
         "Browser",
         "Profile",
         "Data",
+        "Chart",
         "ImageDiff",
         "Archive",
         "Imports",

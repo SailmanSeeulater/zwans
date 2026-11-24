@@ -40,6 +40,7 @@ const VERBS: Record<string, string> = {
   Browser: "Using the page",
   Profile: "Profiling",
   Data: "Summarizing data",
+  Chart: "Charting",
   ImageDiff: "Comparing images",
   Archive: "Extracting",
   Imports: "Mapping imports",

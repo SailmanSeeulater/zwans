@@ -40,6 +40,7 @@ UNTRUSTED_OUTPUT = frozenset(
         "Browser",
         "Profile",
         "Data",
+        "Chart",
         "ImageDiff",
         "Imports",
         "OpenAPI",

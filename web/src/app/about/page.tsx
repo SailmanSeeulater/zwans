@@ -56,7 +56,7 @@ const PARTS: { name: string; about: string }[] = [
   },
 ];
 
-/** The 47 built-in tools the model can call, grouped by what they're for. */
+/** The 48 built-in tools the model can call, grouped by what they're for. */
 const TOOLS: { group: string; tools: [string, string][] }[] = [
   {
     group: "Files",
@@ -67,6 +67,7 @@ const TOOLS: { group: string; tools: [string, string][] }[] = [
       ["Logs", "A long log grouped into its kinds of line, errors first"],
       ["Database", "Tables and read-only SQL, for SQLite and Postgres"],
       ["Data", "A CSV, JSON, Excel or Parquet file summarized: types, empties, ranges"],
+      ["Chart", "Numbers drawn as a chart in the conversation, with a table of them"],
       ["ImageDiff", "Two images compared, with what changed outlined"],
       ["Archive", "Extract a zip or tar archive safely (Read lists one)"],
       ["Write", "Create a file, or replace all of one"],
