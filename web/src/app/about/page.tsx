@@ -66,7 +66,7 @@ const TOOLS: { group: string; tools: [string, string][] }[] = [
       ["NotebookEdit", "Replace, insert or delete a notebook cell"],
       ["Logs", "A long log grouped into its kinds of line, errors first"],
       ["Database", "Tables and read-only SQL, for SQLite and Postgres"],
-      ["Data", "A CSV, JSON, Excel or Parquet file summarized: types, empties, ranges"],
+      ["Data", "A CSV, JSON, Excel or Parquet file summarized: types, empties, ranges, per-group sums and means"],
       ["Chart", "Numbers drawn as a chart in the conversation, with a table of them"],
       ["ImageDiff", "Two images compared, with what changed outlined"],
       ["Archive", "Extract a zip or tar archive safely (Read lists one)"],

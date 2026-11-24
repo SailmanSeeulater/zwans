@@ -119,6 +119,45 @@ def test_data_reads_only_the_start_of_a_big_file(
     assert 100 < rows < 200  # whole rows from the first 1,000 bytes
 
 
+def test_data_groups_rows_by_a_column(tmp_path: Path, ctx: ToolContext) -> None:
+    (tmp_path / "sales.csv").write_text(
+        "region,product,price,units\n"
+        "North,a,10,1\nNorth,b,30,2\nSouth,a,5,\nSouth,b,15,4\nSouth,c,2.5,1\n,a,8,1\n"
+    )
+
+    text = data("sales.csv", ctx, group_by="Region", rows=0)
+
+    by = text.split("By region (3 groups):\n")[1].splitlines()
+    assert by[0] == "region   rows  price sum  price mean  units sum  units mean"
+    assert by[2].split() == ["South", "3", "22.5", "7.5", "5", "2.5"]  # one units value empty
+    assert by[3].split() == ["North", "2", "40", "20", "3", "1.5"]
+    assert by[4].split() == ["(empty)", "1", "8", "8", "1", "1"]
+
+
+def test_data_groups_only_the_chosen_columns_and_names_an_unknown_one(
+    tmp_path: Path, ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(data_module, "MAX_GROUPS", 2)
+    lines = [f"{n % 4},{n},{n * 10}" for n in range(20)]
+    (tmp_path / "n.csv").write_text("team,a,b\n" + "\n".join(lines) + "\n")
+
+    text = data("n.csv", ctx, group_by="team", columns=["b"], rows=0)
+
+    assert "By team (4 groups, the 2 biggest shown):" in text
+    assert "a sum" not in text and "b mean" in text
+    with pytest.raises(ToolError, match=r"No column named crew\. The columns: team, a, b"):
+        data("n.csv", ctx, group_by="crew")
+
+
+def test_data_groups_json_records(tmp_path: Path, ctx: ToolContext) -> None:
+    records = [{"kind": k, "ms": ms} for k, ms in [("get", 10), ("put", 40), ("get", 30)]]
+    (tmp_path / "calls.json").write_text(json.dumps(records))
+
+    text = data("calls.json", ctx, group_by="kind", rows=0)
+
+    assert "get      2      40       20" in text and "put      1      40       40" in text
+
+
 # -- Data: JSON
 
 

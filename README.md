@@ -882,7 +882,10 @@ uv tool install --reinstall '.[browser]'
 records, an Excel workbook or a Parquet file. It gives the row and column counts, then for
 each column its type, how many values are empty and how many distinct, the range and mean
 of numbers and dates, and the most common values of a column with few of them, followed by
-the first rows as a table. Excel is read without an Excel library; Parquet is read by a
+the first rows as a table. With `group_by` set to a column, it also gives each of that
+column's values its row count and the sum and mean of every number column (or of those named
+in `columns`), the 40 biggest groups first: the average price per region without writing a
+script. Excel is read without an Excel library; Parquet is read by a
 small script run with the project's own Python, which needs pyarrow, pandas or duckdb. For a
 file over 100 MB only the start is read, and the summary says so.
 

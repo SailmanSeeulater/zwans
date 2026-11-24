@@ -5,10 +5,11 @@ guesses the rest, or spends its context on rows that all look alike. This reads 
 file (or the first 100 MB of a bigger one) and summarizes it: how many rows and columns, and
 for each column its type, how many values are empty, how many are distinct, the range and
 mean of numbers and dates, the most common values of a column with few of them, then the
-first rows as a table. It reads CSV and TSV (the delimiter is sniffed), JSON Lines, a JSON
-array of objects, Excel .xlsx (parsed here, with no Excel library) and Parquet, which needs
-pyarrow, pandas or duckdb in the project's own Python and is read by a small script run
-there.
+first rows as a table. Given a column to group by, it also counts the rows of each of its
+values and gives each group's sum and mean of the number columns. It reads CSV and TSV (the
+delimiter is sniffed), JSON Lines, a JSON array of objects, Excel .xlsx (parsed here, with no
+Excel library) and Parquet, which needs pyarrow, pandas or duckdb in the project's own Python
+and is read by a small script run there.
 """
 
 import csv
@@ -37,6 +38,8 @@ LONG_TEXT = 40  # characters: text longer than this has its lengths shown
 MAX_CELL = 30  # characters of a cell in the sample table
 MAX_TABLE_COLUMNS = 12  # columns in the sample table unless some are chosen
 MAX_OUTPUT_CHARS = 12_000
+MAX_GROUPS = 40  # groups shown, the biggest first
+MAX_GROUP_COLUMNS = 5  # number columns summed per group unless some are chosen
 PARQUET_ROWS = 2_000  # rows a Parquet file's script returns for the statistics
 PARQUET_TIMEOUT = 120
 PARQUET_MARK = "ZWANS-PARQUET "
@@ -133,6 +136,11 @@ class DataInput(BaseModel):
     rows: int = Field(
         default=5, ge=0, le=50, description="How many of the first rows to show (at most 50)."
     )
+    group_by: str = Field(
+        default="",
+        description="A column to group the rows by: each of its values gets a row count and "
+        "the sum and mean of the number columns (those in columns, when given).",
+    )
 
 
 class DataTool:
@@ -142,7 +150,8 @@ class DataTool:
         "records, Excel .xlsx or Parquet. You get the row and column counts, then for each "
         "column its type, how many values are empty and distinct, the min, max and mean of "
         "numbers and dates and the most common values of text with few of them, then the "
-        "first rows as a table. Use columns to focus on some, and sheet to pick an Excel "
+        "first rows as a table. Use columns to focus on some, group_by for per-group counts, "
+        "sums and means (such as the average price per region), and sheet to pick an Excel "
         "sheet. Use it before writing code that reads the file, so the code fits the data."
     )
     input_model = DataInput
@@ -152,15 +161,16 @@ class DataTool:
         path = args.path
         suffix = Path(path).suffix.lower()
         focus = [c for c in args.columns if c.strip()]
+        group_by = args.group_by.strip()
         if suffix in (".parquet", ".pq"):
-            return ToolOutput(content=await _parquet(path, focus, args.rows, ctx))
+            return ToolOutput(content=await _parquet(path, focus, args.rows, ctx, group_by))
         data, total_size = await _read(path, ctx)
         if not data:
             raise ToolError(f"{path} is empty.")
         cut = total_size is not None and total_size > len(data)
-        summary = Summary(focus, args.rows)
+        summary = Summary(focus, args.rows, group_by=group_by)
         if data.startswith(b"PAR1"):
-            return ToolOutput(content=await _parquet(path, focus, args.rows, ctx))
+            return ToolOutput(content=await _parquet(path, focus, args.rows, ctx, group_by))
         if data.startswith(b"PK\x03\x04") or suffix in (".xlsx", ".xlsm"):
             if cut:
                 raise ToolError(f"{path} is over {MAX_BYTES // 1_000_000} MB, too big to open.")
@@ -488,7 +498,9 @@ def _cell(element: ElementTree.Element, shared: list[str], dates: dict[int, str]
 # -- Parquet
 
 
-async def _parquet(path: str, focus: list[str], sample: int, ctx: ToolContext) -> str:
+async def _parquet(
+    path: str, focus: list[str], sample: int, ctx: ToolContext, group_by: str = ""
+) -> str:
     target = ctx.executor.relative(path)
     script = shlex.quote(PARQUET_SCRIPT)
     command = (
@@ -517,7 +529,7 @@ async def _parquet(path: str, focus: list[str], sample: int, ctx: ToolContext) -
     schema = {str(name): str(kind) for name, kind in found.get("schema", [])}
     rows = found.get("rows") or []
     total = int(found.get("total") or 0)
-    summary = Summary(focus, sample, declared=schema)
+    summary = Summary(focus, sample, declared=schema, group_by=group_by)
     for name in schema:
         summary.column(name)
     summary.feed_records(r for r in rows if isinstance(r, dict))
@@ -685,9 +697,14 @@ class Summary:
     """Column statistics, fed one row at a time, and the first rows kept for a table."""
 
     def __init__(
-        self, focus: list[str], sample: int, declared: dict[str, str] | None = None
+        self,
+        focus: list[str],
+        sample: int,
+        declared: dict[str, str] | None = None,
+        group_by: str = "",
     ) -> None:
         self.focus = {c.strip().lower(): c for c in focus}
+        self.groups = Groups(group_by) if group_by else None
         self.sample_size = sample
         self.declared = declared or {}
         self.columns: dict[str, Column] = {}
@@ -720,6 +737,8 @@ class Summary:
             self.rows += 1
             if len(self.sample) < self.sample_size:
                 self.sample.append(record)
+            if self.groups is not None:
+                self.groups.add(record, self.focus)
             for key, value in record.items():
                 column = self.columns.get(key) or self.column(str(key))
                 if column is not None:
@@ -757,7 +776,10 @@ class Summary:
         return has_header
 
     def report(self, path: str, head: str, notes: list[str]) -> str:
-        missing = [c for key, c in self.focus.items() if key not in {n.lower() for n in self.names}]
+        known = {n.lower() for n in self.names}
+        missing = [c for key, c in self.focus.items() if key not in known]
+        if self.groups is not None and self.groups.wanted.lower() not in known:
+            missing.append(self.groups.wanted)
         if missing:
             shown = ", ".join(list(self.names)[:40])
             raise ToolError(f"No column named {', '.join(missing)}. The columns: {shown}.")
@@ -788,6 +810,9 @@ class Summary:
         if table:
             header = ["column", "type", "empty", "distinct", "details"]
             lines += ["", *_table(header, table, [False, False, True, True, False])]
+        if self.groups is not None:
+            numeric = [c.name for c in columns if c.kind()[0] in NUMERIC_KINDS]
+            lines += ["", *self.groups.report(numeric)]
         if self.sample:
             names = [c.name for c in columns]
             cut = len(names) > MAX_TABLE_COLUMNS
@@ -804,6 +829,71 @@ class Summary:
                 + "\n[... cut here: name fewer columns with columns, or ask for fewer rows]"
             )
         return text
+
+
+class Groups:
+    """Rows grouped by one column's values: how many each has, and the sum of each number
+    column over them."""
+
+    def __init__(self, wanted: str) -> None:
+        self.wanted = wanted
+        self.name: str | None = None  # the column's name as the file spells it
+        self.rows: Counter[str] = Counter()
+        self.sums: dict[str, dict[str, list[float]]] = {}  # group, column: [count, total]
+        self.overflow = 0  # rows in groups past MAX_DISTINCT
+
+    def add(self, record: dict[str, Any], focus: dict[str, str]) -> None:
+        if self.name is None or self.name not in record:
+            lower = self.wanted.lower()
+            found = next((k for k in record if str(k).strip().lower() == lower), None)
+            if found is None:
+                return
+            self.name = found
+        kind, key = classify(record[self.name])
+        label = str(key) if kind else "(empty)"
+        if label not in self.rows and len(self.rows) >= MAX_DISTINCT:
+            self.overflow += 1
+            return
+        self.rows[label] += 1
+        sums = self.sums.setdefault(label, {})
+        for column, value in record.items():
+            if column == self.name or (focus and str(column).lower() not in focus):
+                continue
+            kind, key = classify(value)
+            if kind in NUMERIC_KINDS:
+                found_sum = sums.setdefault(str(column), [0, 0.0])
+                found_sum[0] += 1
+                found_sum[1] += key
+
+    def report(self, numeric: list[str]) -> list[str]:
+        name = self.name or self.wanted
+        shown = [c for c in numeric if c != self.name]
+        cut = len(shown) > MAX_GROUP_COLUMNS
+        shown = shown[:MAX_GROUP_COLUMNS]
+        label = f"By {name} ({len(self.rows):,} groups"
+        label += f", the {MAX_GROUPS} biggest shown)" if len(self.rows) > MAX_GROUPS else ")"
+        if cut:
+            label += f"; the first {MAX_GROUP_COLUMNS} number columns, choose others with columns"
+        header = [_clip(name, MAX_CELL), "rows"]
+        for column in shown:
+            header += [_clip(f"{column} sum", MAX_CELL), _clip(f"{column} mean", MAX_CELL)]
+        table = []
+        for group, count in self.rows.most_common(MAX_GROUPS):
+            cells = [_clip(group, MAX_CELL), f"{count:,}"]
+            for column in shown:
+                found, total = self.sums[group].get(column, (0, 0.0))
+                if not found:
+                    cells += ["", ""]
+                    continue
+                whole = float(total).is_integer() and abs(total) < 2**53
+                cells += [_number(int(total) if whole else total), f"{total / found:.6g}"]
+            table.append(cells)
+        right = [False] + [True] * (len(header) - 1)
+        lines = [label + ":", *_table(header, table, right)]
+        if self.overflow:
+            past = f"{self.overflow:,} rows in groups past the first {MAX_DISTINCT:,}"
+            lines.append(f"{past} left out.")
+        return lines
 
 
 def _looks_like_header(row: list[Any]) -> bool:
