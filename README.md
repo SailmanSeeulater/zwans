@@ -1011,9 +1011,32 @@ answer it yet.
 
 ### Fewer tools
 
-Every tool's description is sent with each request: about 4,500 tokens for all 22, twice
-what the first 11 took. A small model also chooses worse the more it has to choose from.
-Leave some out by name:
+Every tool's definition goes with every request: with every tool on, about 11,000 tokens,
+most of them for tools a given task never calls. A small model also chooses worse the more
+it has to choose from. So a session starts with only the everyday tools (reading, writing
+and editing files, searching, Bash, RunTests, TodoWrite, Task, Skill, AskUser and the web)
+plus `ToolSearch`, whose description lists the rest by name and what they do. The model
+loads one by calling `ToolSearch` with its name, and then it stays loaded for the rest of
+the conversation. That roughly halves the first request: on `ollama/qwen3-coder:30b`, from
+9,794 input tokens to 5,125.
+
+How a tool loads depends on the model:
+
+- Claude gets every definition in every request, the ones not loaded yet marked
+  `defer_loading`, and the API loads one when `ToolSearch`'s result names it. The front of
+  the request never changes, so the prompt cache holds.
+- Other models get only the tools loaded so far, and a loaded tool joins them from the next
+  request. A local server reads the conversation again once when that happens.
+
+A model that calls a listed tool without loading it first (qwen3-coder often does) gets it
+run anyway. Keep a tool loaded from the start, or turn this off:
+
+```toml
+always_tools = ["Python", "ShowChanges"]
+tools_on_demand = false
+```
+
+Leave tools out altogether by name:
 
 ```toml
 disabled_tools = ["Python", "Memory", "Docs"]
@@ -1323,6 +1346,8 @@ environment variables:
 | `diagnostics` | `true` | Offer the `Diagnostics` tool; a list of commands runs those instead of the checkers it finds |
 | `test_commands` | none | Commands for `RunTests` to run instead of the test runners it finds |
 | `disabled_tools` | none | Tools not to offer, by name |
+| `tools_on_demand` | `true` | Offer the everyday tools, and load the rest when the model asks |
+| `always_tools` | none | Tools to offer from the start, by name, with `tools_on_demand` |
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
 | `subagent_model` | the session's | The model subagents run on, and the one that answers `WebFetch`'s questions about a page |
 | `follow_through` | `2` local, `0` other | Times a turn sends the model back when its final reply only announced the next step or showed code without writing it |

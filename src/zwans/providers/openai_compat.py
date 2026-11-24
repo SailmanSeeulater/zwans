@@ -39,6 +39,7 @@ from zwans.messages import (
 from zwans.providers.base import ModelResponse, ProviderError, StreamItem
 from zwans.providers.text_calls import find_call
 from zwans.tools.base import Tool, input_schema
+from zwans.tools.on_demand import split
 
 STOP_REASONS = {
     "stop": "end_turn",
@@ -111,6 +112,7 @@ class OpenAICompatProvider:
     async def stream(
         self, system: str, messages: Sequence[Message], tools: Sequence[Tool[Any]]
     ) -> AsyncIterator[StreamItem]:
+        tools = split(tools, messages)[0]  # those offered so far (tools/on_demand.py)
         request = self.request(system, messages, tools)
         self.last_request = without_image_data(request)
         bad_json = 0

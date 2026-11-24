@@ -41,6 +41,7 @@ from zwans.policy.rules import Decision
 from zwans.providers.base import Provider, ProviderError, ServerBlock
 from zwans.tools.base import Tool, ToolContext, ToolError, ToolOutput
 from zwans.tools.hints import invalid_input, missing_path, workspace_root
+from zwans.tools.on_demand import split
 from zwans.web import web_calls, web_results
 
 INTERRUPTED = "Interrupted by the user before this finished."
@@ -129,7 +130,8 @@ async def run_turn(
             return
 
         yield response.usage_event()
-        yield model_call.event(context_split(system, tools, messages, counted_input(response)))
+        offered = split(tools, messages)[0]  # without the tools not loaded yet
+        yield model_call.event(context_split(system, offered, messages, counted_input(response)))
         messages.append(Message(role="assistant", content=list(response.content)))
         if compactor is not None:
             compactor.observe(response, len(messages))

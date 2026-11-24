@@ -74,6 +74,7 @@ from zwans.tools.multi_edit import MultiEditTool
 from zwans.tools.notebook_edit import NotebookEditTool
 from zwans.tools.notify import NotifyTool
 from zwans.tools.notify import available as notify_available
+from zwans.tools.on_demand import with_search
 from zwans.tools.openapi import OpenAPITool
 from zwans.tools.outline import OutlineTool
 from zwans.tools.packages import PackagesTool
@@ -373,6 +374,8 @@ def open_session(
         with contextlib.suppress(SeatbeltError):
             tools.append(PythonTool(sandbox=SeatbeltExecutor(root, spill_dir=spill_dir)))
     tools = [tool for tool in tools if tool.name not in config.disabled_tools]
+    if config.tools_on_demand and not chat:  # a chat has only a few
+        tools = with_search(tools, config.always_tools)
     session = Session(
         provider=provider,
         tools=tools,

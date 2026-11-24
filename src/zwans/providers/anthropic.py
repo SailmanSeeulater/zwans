@@ -11,9 +11,18 @@ from anthropic.types.beta import BetaMessage
 
 from zwans.config import Credential, Effort, PromptCache
 from zwans.events import TextDelta, ThinkingDelta
-from zwans.messages import ContentBlock, Message, RawBlock, TextBlock, ToolUseBlock
+from zwans.messages import (
+    ContentBlock,
+    Message,
+    RawBlock,
+    TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+)
 from zwans.providers.base import ModelResponse, ProviderError, ServerBlock, StreamItem
 from zwans.tools.base import Tool, input_schema
+from zwans.tools.on_demand import NAME as SEARCH
+from zwans.tools.on_demand import searched, split
 from zwans.web import SERVER_TYPES
 from zwans.web import tool_params as web_tool_params
 
@@ -156,6 +165,8 @@ class AnthropicProvider:
     def request(
         self, system: str, messages: Sequence[Message], tools: Sequence[Tool[Any]]
     ) -> dict[str, Any]:
+        _, deferred, _ = split(tools, messages)
+        loads = _loads(messages, deferred)
         return {
             "model": self.model,
             "max_tokens": self.max_tokens,
@@ -164,8 +175,8 @@ class AnthropicProvider:
             "system": [{"type": "text", "text": system, **self._cache("system")}]
             if system
             else anthropic.omit,
-            "messages": [message_param(m) for m in messages],
-            "tools": self._tools(tools) or anthropic.omit,
+            "messages": [message_param(m, loads) for m in messages],
+            "tools": self._tools(tools, deferred) or anthropic.omit,
             # Automatic caching: a breakpoint on the conversation's last block, moving forward
             # each request, so every call re-reads everything before it from the cache.
             **self._cache("conversation"),
@@ -175,8 +186,13 @@ class AnthropicProvider:
             "betas": self.betas,
         }
 
-    def _tools(self, tools: Sequence[Tool[Any]]) -> list[dict[str, Any]]:
-        params = [tool_param(t) for t in tools]
+    def _tools(self, tools: Sequence[Tool[Any]], deferred: set[str]) -> list[dict[str, Any]]:
+        # Every tool, every time, so the request's front stays the same: the deferred ones
+        # only load once a ToolSearch result names them (tools/on_demand.py).
+        params = [
+            {**tool_param(t), "defer_loading": True} if t.name in deferred else tool_param(t)
+            for t in tools
+        ]
         if self.web:
             params += web_tool_params(self.traits.web_filtering)
         return params
@@ -297,8 +313,42 @@ def convert_content(blocks: list[dict[str, Any]]) -> list[TextBlock | ToolUseBlo
     return converted
 
 
-def message_param(message: Message) -> dict[str, Any]:
-    return {"role": message.role, "content": [block_param(b) for b in message.content]}
+def message_param(message: Message, loads: dict[str, list[str]] | None = None) -> dict[str, Any]:
+    """`message` as the API takes it. `loads` gives the tools each ToolSearch call loaded, by
+    its ID: its result goes as references to them, which loads their definitions."""
+    content = []
+    for block in message.content:
+        names = (
+            loads.get(block.tool_use_id) if loads and isinstance(block, ToolResultBlock) else None
+        )
+        if isinstance(block, ToolResultBlock) and names:
+            refs = [{"type": "tool_reference", "tool_name": name} for name in names]
+            content.append(
+                {"type": "tool_result", "tool_use_id": block.tool_use_id, "content": refs}
+            )
+        else:
+            content.append(block_param(block))
+    return {"role": message.role, "content": content}
+
+
+def _loads(messages: Sequence[Message], deferred: set[str]) -> dict[str, list[str]]:
+    """The deferred tools each ToolSearch call that worked loaded, by the call's ID."""
+    if not deferred:
+        return {}
+    calls = {
+        block.id: sorted(searched(block) & deferred)
+        for message in messages
+        for block in message.content
+        if isinstance(block, ToolUseBlock) and block.name == SEARCH
+    }
+    return {
+        block.tool_use_id: calls[block.tool_use_id]
+        for message in messages
+        for block in message.content
+        if isinstance(block, ToolResultBlock)
+        and not block.is_error
+        and calls.get(block.tool_use_id)
+    }
 
 
 def block_param(block: ContentBlock) -> dict[str, Any]:

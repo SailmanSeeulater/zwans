@@ -131,6 +131,10 @@ class Config(BaseModel):
     # Tools not to offer, by name, as ["Python", "Memory"]: for a model that does better
     # with fewer, or a project where one doesn't belong.
     disabled_tools: list[str] = []
+    # Offer only the everyday tools from the start, and load the rest when the model asks
+    # (tools/on_demand.py). always_tools adds to the everyday ones, by name.
+    tools_on_demand: bool = True
+    always_tools: list[str] = []
     subagent_max_steps: int = 30  # model calls allowed in one subagent's task
     # The model subagents run on, as "claude-haiku-5-5": a cheaper one for searches and
     # legwork, while the session's model keeps the judgment. Unset, they use the session's.

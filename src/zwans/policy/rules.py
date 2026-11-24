@@ -110,6 +110,7 @@ TOOL_NAMES = frozenset(
         "Skill",
         "Task",
         "TodoWrite",
+        "ToolSearch",
         "web_search",
         "web_fetch",
     }
