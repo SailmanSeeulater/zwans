@@ -17,6 +17,10 @@ With `loop`, the command runs as /loop does: Zwans runs the check after each tur
 what fails until it passes. A check in a project's file is a command that came with the
 folder, so it only runs once you've trusted that file as it is now, as with a project's
 policy hooks; your own files in ~/.zwans/commands need no trusting.
+
+Skills (ext/skills.py) are commands too: /debug <task> sends the debug skill's instructions
+with the task, for a model that wouldn't load the skill itself. A command file of the same
+name wins over a skill.
 """
 
 import re
@@ -26,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from zwans.ext.skills import FILE_NAME, Skill, find_skills, skill_folders
 from zwans.looping import DEFAULT_ROUNDS, MOST_ROUNDS, LoopSpec
 from zwans.policy.rules import is_trusted, trust
 
@@ -134,10 +139,11 @@ def _first_line(body: str) -> str:
 
 
 def load(
-    workspace: Path | None, home: Path, reserved: Iterable[str] = ()
+    workspace: Path | None, home: Path, reserved: Iterable[str] = (), builtin_skills: bool = True
 ) -> tuple[dict[str, CustomCommand], list[str]]:
-    """Your commands and the project's, by name, with the project's winning; and what's wrong
-    with any file that couldn't be used. A name Zwans already has stays Zwans's."""
+    """Your commands and the project's, by name, with the project's winning, then the skills
+    no command has taken; and what's wrong with any file that couldn't be used. A name Zwans
+    already has stays Zwans's. A chat (no workspace) has no skills."""
     taken = set(reserved) | RESERVED
     found: dict[str, CustomCommand] = {}
     problems: list[str] = []
@@ -157,7 +163,32 @@ def load(
                 problems.append(f"{path.name}: /{command.name} is one of Zwans's own commands")
                 continue
             found[command.name] = command
+    if workspace is not None:
+        for skill in find_skills(skill_folders(workspace, home, builtin_skills)):
+            name = skill.name.lower()
+            if name not in found and name not in taken and NAME.match(name):
+                found[name] = _skill_command(name, skill, workspace)
     return found, problems
+
+
+def _skill_command(name: str, skill: Skill, workspace: Path) -> CustomCommand:
+    """/<skill> <task>: the skill's instructions, then the task (or where $ARGUMENTS says)."""
+    try:
+        instructions = skill.instructions()
+    except (OSError, UnicodeDecodeError):
+        instructions = f"Load it with the Skill tool (name {skill.name!r})."
+    in_project = skill.folder.is_relative_to(workspace.resolve())
+    description = skill.description
+    if len(description) > 70:
+        description = description[:69].rstrip() + "…"
+    return CustomCommand(
+        name=name,
+        path=skill.folder / FILE_NAME,
+        scope="project" if in_project else "user",
+        body=f"Use the {skill.name} skill for this. Its instructions:\n\n{instructions}",
+        description=description,
+        args="[task]",
+    )
 
 
 def expand(command: CustomCommand, argument: str) -> str:

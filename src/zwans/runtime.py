@@ -225,11 +225,13 @@ def open_session(
             # too. It's saved once a reply from it comes in.
             unsaved_model = model
         meter = CostMeter.restore(info.usage)
-        skills = find_skills(skill_folders(Path(info.workspace), config.home))
+        skills = find_skills(
+            skill_folders(Path(info.workspace), config.home, config.builtin_skills)
+        )
     else:
         session_id = f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
         root = (config.home / CHATS / session_id if chat else workspace).resolve()
-        skills = find_skills(skill_folders(root, config.home))
+        skills = find_skills(skill_folders(root, config.home, config.builtin_skills))
         instructions = load_instructions(root, config.home)  # for a chat, only the user's own
         followed = [path for path, _ in instructions]
         notes = read_notes(config.home, root) if "Memory" not in config.disabled_tools else []

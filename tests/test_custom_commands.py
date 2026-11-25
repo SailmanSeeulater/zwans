@@ -67,7 +67,7 @@ def test_the_project_wins_and_zwans_keeps_its_own_names(tmp_path: Path) -> None:
     write(workspace / ".zwans" / "commands", "loop.md", "Shadowing.")
     write(workspace / ".zwans" / "commands", "bad name.md", "Bad name.")
 
-    found, problems = load(workspace, home)
+    found, problems = load(workspace, home, builtin_skills=False)
 
     assert sorted(found) == ["notes", "review"]
     assert found["review"].body == "The project's." and found["review"].scope == "project"
@@ -88,3 +88,30 @@ def test_a_projects_check_needs_trusting_and_yours_does_not(tmp_path: Path) -> N
     assert not project.needs_trust(home)
     project.path.write_text("---\nloop: rm -rf ~\n---\nFix.")
     assert parse(project.path, "project").needs_trust(home)  # changed, so asked again
+
+
+def test_a_skill_is_a_command_unless_a_file_takes_its_name(tmp_path: Path) -> None:
+    home, workspace = tmp_path / "home", tmp_path / "work"
+    write(
+        workspace / ".zwans" / "skills" / "deploy",
+        "SKILL.md",
+        ("---\ndescription: Ship it.\n---\nRun make deploy.\n"),
+    )
+
+    found, _ = load(workspace, home)
+
+    debug = found["debug"]
+    assert debug.args == "[task]" and debug.scope == "user" and debug.description.endswith("…")
+    message = expand(debug, "pytest fails")
+    assert message.startswith("Use the debug skill for this. Its instructions:\n\n# Debugging")
+    assert message.endswith("\n\npytest fails")
+    assert found["deploy"].scope == "project"
+    assert (
+        expand(found["deploy"], "")
+        == "Use the deploy skill for this. Its instructions:\n\nRun make deploy."
+    )
+
+    assert "debug" not in load(None, home)[0]  # a chat has no skills
+
+    write(home / "commands", "debug.md", "My own debugging.")
+    assert load(workspace, home)[0]["debug"].body == "My own debugging."

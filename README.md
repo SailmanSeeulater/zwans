@@ -246,7 +246,7 @@ file instead of refusing it. Images can be up to 3.75 MB, and each costs about 1
 | `/loop [rounds] until <check> [task]` | Keeps working until a check passes: Zwans runs the check (say `pytest -q`) after each turn and sends the model what fails, for at most 5 turns unless `rounds` says otherwise. Quote a check with spaces when a task follows: `/loop 8 until "npm test" fix the dates` |
 | `/plan [task \| off]` | Plan mode: the model looks and replies with a plan, and nothing changes until `/go` (see [Plan mode](#plan-mode)). With a task, sends it; `/plan off` leaves without carrying the plan out |
 | `/go` | Approves the plan: plan mode goes off and the model carries it out |
-| `/<name> [arguments]` | Runs a command of your own, from `.zwans/commands/<name>.md` or `~/.zwans/commands/<name>.md` (see [Your own commands](#your-own-commands)) |
+| `/<name> [arguments]` | Runs a command of your own, from `.zwans/commands/<name>.md` or `~/.zwans/commands/<name>.md` (see [Your own commands](#your-own-commands)), or a skill, such as `/debug <task>` |
 | `/resume [n]` | Lists recent sessions in this workspace, or switches to one |
 | `/exit` | Quits |
 
@@ -463,7 +463,16 @@ description: Write release notes from the git log. Use when asked for a changelo
 Only the names and descriptions go in the system prompt. The model loads a skill's
 instructions with the `Skill` tool when a task matches, and any other file in its folder the
 same way. A project's skill replaces the user's skill of the same name, and one in
-`.zwans/skills/` replaces one in `.claude/skills/`.
+`.zwans/skills/` replaces one in `.claude/skills/`. Typing `/<skill> <task>` sends a skill's
+instructions with the task, which works with a model that doesn't load skills on its own.
+
+One comes with Zwans: `debug`, for a failing test, an error or wrong output. It works like a
+detective. It reproduces the failure, then traces the bad value back step by step to where
+it went wrong, checking each step instead of assuming it. It tests one idea at a time,
+using `History` and `Bisect` when the code used to work. It proves the cause before
+changing code, then fixes it there rather than the symptom. It ends with the chain from the
+symptom to the cause. A skill of your own named `debug` replaces it, and
+`builtin_skills = false` leaves it out.
 
 ### MCP servers
 
@@ -657,6 +666,10 @@ A `loop` check in a project's file is a command that came with the folder, so Zw
 before running it, in the terminal or the web UI, and remembers the answer for that file
 as it is: a change to the file asks again. Your own files in `~/.zwans/commands` aren't
 asked about. A file can't take the name of one of Zwans's own commands.
+
+Every [skill](#skills) is a command too: `/debug pytest fails on the export` sends the
+`debug` skill's instructions with the task, for a model that wouldn't load the skill by
+itself. A command file of the same name wins over a skill.
 
 ### Instruction files
 
@@ -1351,6 +1364,7 @@ environment variables:
 | `disabled_tools` | none | Tools not to offer, by name |
 | `tools_on_demand` | `true` | Offer the everyday tools, and load the rest when the model asks |
 | `always_tools` | none | Tools to offer from the start, by name, with `tools_on_demand` |
+| `builtin_skills` | `true` | Offer the skills that come with Zwans, such as `debug` |
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
 | `subagent_model` | the session's | The model subagents run on, and the one that answers `WebFetch`'s questions about a page |
 | `follow_through` | `2` local, `0` other | Times a turn sends the model back when its final reply only announced the next step or showed code without writing it |

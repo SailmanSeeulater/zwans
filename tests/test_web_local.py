@@ -502,7 +502,7 @@ def test_a_session_gets_the_new_tools_unless_the_config_turns_them_off(tmp_path:
         *video, "NotebookEdit", "Logs", "Database", "Data", "ImageDiff", "Archive", "Imports",
         "OpenAPI", "Cron", "History", "Bisect", "Profile", "Benchmark", "Http", "Env", "Audit",
         *machine, *browser, "Python",
-        "ShowChanges", "Memory", "Chart", "WebFetch", "Packages", "ToolSearch",
+        "ShowChanges", "Memory", "Skill", "Chart", "WebFetch", "Packages", "ToolSearch",
     ]  # fmt: skip
     # AskUser is there only when someone can be asked.
     assert "AskUser" not in full
@@ -520,6 +520,7 @@ def test_a_session_gets_the_new_tools_unless_the_config_turns_them_off(tmp_path:
             web=False,
             video=False,
             browser=False,
+            builtin_skills=False,
             disabled_tools=off,
         )
     )

@@ -135,6 +135,9 @@ class Config(BaseModel):
     # (tools/on_demand.py). always_tools adds to the everyday ones, by name.
     tools_on_demand: bool = True
     always_tools: list[str] = []
+    # Offer the skills that come with Zwans (src/zwans/skills/), such as debug. A skill of
+    # the same name in ~/.zwans/skills or the project replaces one.
+    builtin_skills: bool = True
     subagent_max_steps: int = 30  # model calls allowed in one subagent's task
     # The model subagents run on, as "claude-haiku-5-5": a cheaper one for searches and
     # legwork, while the session's model keeps the judgment. Unset, they use the session's.

@@ -1,7 +1,8 @@
 """Skills: folders of instructions for particular kinds of task, loaded only when needed.
 
 A skill is a folder with a SKILL.md, in ~/.zwans/skills/, or in a project's .zwans/skills/
-or .claude/skills/ (where Claude Code keeps them, so those work too):
+or .claude/skills/ (where Claude Code keeps them, so those work too). A few come with Zwans,
+in src/zwans/skills/:
 
     ---
     name: release-notes
@@ -19,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 FILE_NAME = "SKILL.md"
+# The skills that come with Zwans, such as debug.
+BUILTIN = Path(__file__).resolve().parent.parent / "skills"
 
 
 @dataclass(frozen=True)
@@ -56,9 +59,12 @@ def find_skills(folders: list[Path]) -> list[Skill]:
     return list(found.values())
 
 
-def skill_folders(workspace: Path, home: Path | None) -> list[Path]:
-    """Where to look, in order: a later folder's skill replaces an earlier one's."""
-    folders = [home / "skills"] if home is not None else []
+def skill_folders(workspace: Path, home: Path | None, builtin: bool = False) -> list[Path]:
+    """Where to look, in order: a later folder's skill replaces an earlier one's, so the
+    user's and the project's replace the ones that come with Zwans."""
+    folders = [BUILTIN] if builtin else []
+    if home is not None:
+        folders.append(home / "skills")
     return [*folders, workspace / ".claude" / "skills", workspace / ".zwans" / "skills"]
 
 
