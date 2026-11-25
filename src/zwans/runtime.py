@@ -385,6 +385,7 @@ def open_session(
         system=info.system,  # a resumed session keeps the exact prompt it started with
         listeners=[*listeners, transcript.on_event, meter.on_event],
         max_steps=config.max_steps,
+        repeat_limit=config.repeat_limit,
         compactor=Compactor(
             provider,
             config.compact_at,

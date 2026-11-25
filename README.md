@@ -186,6 +186,12 @@ Things to know:
   by showing code it never wrote to a file is sent back to do it, up to twice a turn
   (`follow_through`). Errors also say what a tool takes and where a guessed path's file
   is, and Read opens the one file of a guessed name.
+- A model that keeps making a call it already made in the turn, getting the same result
+  with nothing changed in between, is told each time that it learned nothing new. On the
+  third repeat the turn stops with `[stopped: repeating]` rather than running on to
+  `max_steps` (`repeat_limit`). The web UI then offers to hand the task to Claude, as it
+  does for a turn that ran out of steps. A change (an edit, a command) resets the count,
+  and numbers such as test timings are ignored when comparing results.
 - Claude's web search and fetch run on Anthropic's servers, so other models get Zwans's own
   instead: `WebFetch`, and `WebSearch` once you say where to search (see "Web search and
   fetch").
@@ -1351,6 +1357,7 @@ environment variables:
 | `effort` | `medium` | How much the model thinks: `low` to `max` |
 | `max_tokens` | `64000` | Output limit per model call, thinking included |
 | `max_steps` | `50` | Model calls allowed in one turn |
+| `repeat_limit` | `3` | Tool calls in a turn that may repeat an earlier one, with the same result and nothing changed between, before the turn stops; `0` never stops one |
 | `subagents` | `true` | Offer the `Task` tool |
 | `todos` | `true` | Offer the `TodoWrite` tool |
 | `checkpoints` | `true` | Snapshot the workspace before each turn, so `/undo` can put files back |

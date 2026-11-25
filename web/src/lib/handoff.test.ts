@@ -25,6 +25,7 @@ const turn = (reason: string, ...calls: ToolCall[]): Turn => ({
 describe("stuckReason", () => {
   it("reads a turn that hit a limit or an error as stuck, and a stopped one as not", () => {
     expect(stuckReason(turn("max_steps"))).toBe("ran out of steps before finishing");
+    expect(stuckReason(turn("repeating"))).toBe("kept repeating the same tool calls");
     expect(stuckReason(turn("error"))).toBe("stopped on an error");
     expect(stuckReason(turn("interrupted"))).toBeNull();
     expect(stuckReason(undefined)).toBeNull();

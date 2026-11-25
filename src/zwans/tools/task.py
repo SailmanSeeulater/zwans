@@ -54,6 +54,7 @@ class Parent(Protocol):
     system: str
     permissions: Permissions | None
     hooks: Hooks | None
+    repeat_limit: int
 
     def emit(self, event: Event) -> None: ...
 
@@ -94,6 +95,7 @@ class TaskTool:
             max_steps=self.max_steps,
             permissions=parent.permissions,
             hooks=hooks,
+            repeat_limit=parent.repeat_limit,
         )
         async for event in turn:
             if isinstance(event, UsageUpdated):

@@ -3,6 +3,7 @@
 import asyncio
 from collections import Counter
 from collections.abc import AsyncIterator, Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,8 @@ from zwans.messages import (
 from zwans.policy.engine import Approval, PermissionRequest, Permissions, denial_message
 from zwans.policy.rules import Decision
 from zwans.providers.base import Provider, ProviderError, ServerBlock
+from zwans.repeats import NOTE as REPEATED
+from zwans.repeats import Repeats
 from zwans.tools.base import Tool, ToolContext, ToolError, ToolOutput
 from zwans.tools.hints import invalid_input, missing_path, workspace_root
 from zwans.tools.on_demand import split
@@ -64,6 +67,7 @@ async def run_turn(
     follow_through: int = 0,
     steer: Callable[[], list[str]] | None = None,
     limit: Callable[[], str | None] | None = None,
+    repeat_limit: int = 0,
 ) -> AsyncIterator[Event]:
     """Run one user turn and yield events as they happen.
 
@@ -82,6 +86,10 @@ async def run_turn(
     `limit` is asked before each model call; when it gives a reason, such as a spent
     budget, the call isn't made and the turn ends with stop_reason "budget".
 
+    `repeat_limit` is how many tool calls may repeat an earlier one in the turn, with the
+    same result and nothing changed between (see repeats.py), before the turn ends with
+    stop_reason "repeating". Each repeat's result says it was one. 0 never checks.
+
     `messages` must end with the user's message. The loop only ever appends to it: the
     model's replies, then the tool results. Earlier turns are never edited, which the API
     requires before it accepts the model's earlier thinking blocks back.
@@ -98,6 +106,7 @@ async def run_turn(
     changed = False  # whether a tool that can change files has run this turn
     stop_blocks: Counter[HookSpec] = Counter()  # how often each stop hook sent the model back
     sent_back = 0  # how often follow_through has sent the model back this turn
+    repeats = Repeats()
     for _ in range(max_steps):
         stop = limit() if limit is not None else None
         if stop is not None:
@@ -242,6 +251,11 @@ async def run_turn(
                                 images=output.images,
                                 app=output.app,
                             )
+                    tool = tools_by_name.get(call.name)
+                    if repeat_limit and tool is not None:
+                        read_only = tool.read_only
+                        if repeats.observe(call, output.content, output.is_error, read_only):
+                            output = replace(output, content=output.content + REPEATED)
                     outputs[call.id] = output
                     untrusted = False
                     if permissions is not None:
@@ -261,9 +275,14 @@ async def run_turn(
             messages.append(_results_message(calls, outputs, default=interrupted))
 
         # What the user sent while the tools ran goes after their results, in the same message.
-        for text in steer() if steer is not None else []:
+        said_since = steer() if steer is not None else []
+        for text in said_since:
             messages[-1].content.append(TextBlock(text=STEER + text))
             yield Steered(text=text)
+        if repeat_limit and repeats.count >= repeat_limit and not said_since:
+            detail = f"{repeats.count} tool calls repeated earlier ones with the same results"
+            yield TurnEnded(stop_reason="repeating", detail=detail)
+            return
 
     # A limit the agent ran into, not something that went wrong, so it ends the turn normally.
     yield TurnEnded(stop_reason="max_steps", detail=f"{max_steps} model calls without finishing")

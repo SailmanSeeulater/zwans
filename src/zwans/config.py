@@ -103,6 +103,9 @@ class Config(BaseModel):
     effort: Effort = "medium"  # how much the model thinks; the main cost and latency control
     max_tokens: int = 64_000  # per model call, thinking included
     max_steps: int = 50  # model calls allowed in one turn
+    # Tool calls in a turn that may repeat an earlier one, with the same result and nothing
+    # changed between, before the turn stops (repeats.py). 0 never stops one.
+    repeat_limit: int = Field(default=3, ge=0)
     subagents: bool = True  # offer the Task tool
     checkpoints: bool = True  # snapshot the workspace before each turn, so /undo works
     todos: bool = True  # offer TodoWrite, a checklist the model keeps for long tasks
