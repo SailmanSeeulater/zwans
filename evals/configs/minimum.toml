@@ -1,0 +1,11 @@
+# The cheapest run that still says something: Haiku 5.5 at low effort, with each attempt cut
+# off at 25 cents and 40 model calls. On the hard tier Haiku 5.5 passed 94% to Sonnet 5.5's
+# 97% for about an eighth of the cost (1.5 cents an attempt), so it is a fair first read of a
+# new tier. An attempt that hits either limit fails, which a floundering one would anyway.
+#
+#   zwans eval run --tasks evals/tasks-expert --config evals/configs/minimum.toml --budget 2
+
+model = "claude-haiku-5-5"
+effort = "low"
+max_steps = 40
+max_cost = 0.25

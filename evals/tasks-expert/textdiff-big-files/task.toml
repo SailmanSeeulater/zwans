@@ -1,0 +1,38 @@
+# linediff, a line-diff and patch library with a small CLI (~400 lines). ops.py, unified.py,
+# patch.py and cli.py are right; diff.py fills in the whole (N+1) x (M+1) table of
+# remaining edit costs and walks it, so a diff of two 30k-line files needs ~N*M comparisons
+# and ~N*M memory. Its output is exactly what the README specifies: the minimal script that
+# is "as high as possible" at every column (for each old line, the fewest new lines passed
+# before it). Minimal paths form a lattice, so that extreme path is unique; deleting first
+# also puts deletions before insertions within each change, and keeps the LAST of equal
+# lines when lines are deleted (x y x -> x keeps the final x).
+# Right answer: solution/linediff/diff.py. D from a Myers forward pass (one array of
+# furthest points per diagonal), then divide and conquer on the old lines: banded forward
+# and backward costs up to the middle column (band = diagonals a D-edit path can use), the
+# split is the smallest y where they add up to D, each half recursed with its own D.
+# O((N+M)D) comparisons (measured <= 0.25 of the README's 4*(N+M+1)*(D+1)), O(N+M) memory
+# (16-50 bytes per line against the README's 400).
+# Why it's hard: the visible tests pass on the table version. The textbook fix is Myers'
+# linear-space middle snake: minimal, linear, fast, but it picks other minimal scripts
+# (decoys/middle-snake). Hirschberg gets the choice and the memory right but makes N*M
+# comparisons (decoys/hirschberg). Myers with a trace, or a banded table, is right and
+# within the comparison budget but uses O(N*D) memory (decoys/banded-table). Stripping the
+# common prefix and suffix first, a standard speed-up, breaks the README's choice
+# (decoys/common-affixes: x y x -> x would keep the first x). The prompt says the output
+# must not change, and the README spells out the choice with examples. Hidden tests: 720
+# small random pairs against a full-DP oracle (exact script plus the comparison budget),
+# big files (20-30k lines, few edits) and many-edit files (1.5-3k lines, 250-500 edits)
+# against a banded oracle, tracemalloc on two many-edit files, and patch round trips. Line
+# objects count == and raise once over budget, so slow answers fail fast.
+prompt = """\
+Our nightly job diffs exported config dumps (30-50 thousand lines each, usually only a \
+few lines changed) with linediff, and it falls over: memory climbs until the box kills \
+the process, or it just runs for ages. Small files are fine. The README says what diff \
+has to produce and what it may cost on big inputs; diff doesn't live up to the cost part. \
+Can you fix it? Other tools parse our patches, so the scripts and hunks it produces today \
+must stay exactly the same.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1500
+max_cost = 3.00

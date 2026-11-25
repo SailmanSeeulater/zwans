@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from zwans.config import Config
 from zwans.context.compaction import Compactor
@@ -80,6 +80,7 @@ class EvalConfig(BaseModel):
     [[hooks]] entries, written as in a policy file (see ext/hooks.py), run during every
     attempt, such as a stop hook that runs the task's visible tests before the agent may
     finish. They run on this machine in the attempt's folder, whatever the executor.
+    A top-level `max_cost` lowers what one attempt may spend below each task's own.
     Settings start from EVAL_DEFAULTS, then yours, then the config's.
     """
 
@@ -89,6 +90,7 @@ class EvalConfig(BaseModel):
     settings: dict[str, Any] = {}
     tool_descriptions: dict[str, str] = {}
     hooks: list[HookSpec] = []
+    max_cost: float | None = Field(default=None, gt=0)
 
     def apply(self, base: Config) -> Config:
         try:
@@ -102,8 +104,13 @@ def load_eval_config(path: Path) -> EvalConfig:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
         descriptions = data.pop("tool_descriptions", {})
         hooks = data.pop("hooks", [])
+        max_cost = data.pop("max_cost", None)
         return EvalConfig(
-            name=path.stem, settings=data, tool_descriptions=descriptions, hooks=hooks
+            name=path.stem,
+            settings=data,
+            tool_descriptions=descriptions,
+            hooks=hooks,
+            max_cost=max_cost,
         )
     except (OSError, tomllib.TOMLDecodeError, ValidationError) as exc:
         raise EvalConfigError(f"{path}: {exc}") from exc

@@ -1,0 +1,42 @@
+# tollgate, an API gateway (~800 lines): config (TOML), routing, auth, per-key rate limits,
+# stats, reload, a replay CLI. Everything but the limiter and the gateway's notion of time is
+# right. limiter.py and gateway.py are wrong in five ways:
+# 1. Fixed windows (int(now // window) periods), so 2*limit requests get through around a
+#    period boundary.
+# 2. The raw clock reading is used, and a period index that goes down never resets the count,
+#    so a clock stepped back keeps a key throttled until the clock catches up (an hour for an
+#    hour's step).
+# 3. replan() wipes a key's count when a reload changes its window (history is lost).
+# 4. A key's last activity is only updated on allowed requests, so a key that is throttled
+#    the whole time gets forgotten as idle (and let back in fresh).
+# 5. `held` is a counter, not times kept, which happens to satisfy the memory rule.
+# Right answer: solution/tollgate/limiter.py (a deque of the newest `limit` allowed times;
+# allowed iff fewer than `limit` kept or the oldest kept is >= window old; trim on reload)
+# and solution/tollgate/gateway.py (_now: the gateway's own time, advancing by positive clock
+# differences only).
+# Why it's hard: the visible tests pass on the broken gateway. The textbook sliding log
+# prunes times that left the window (`while now - times[0] >= window: popleft()`); the README
+# rules that out ("not dropped just because it has left the window"), and it shows in `held`
+# and in a reload that widens the window (decoys/prunes-by-age). The obvious backward-clock
+# fix clamps to the largest reading seen, which freezes time after a step back instead of
+# letting no time pass across it (decoys/clamps-backward-clock). Other tempting answers:
+# fixed windows (decoys/fixed-windows), adding rejected requests to the log
+# (decoys/counts-rejected), keeping every time forever (decoys/keeps-every-timestamp: over
+# the memory rule, and a raised limit brings dropped times back), the two-bucket sliding
+# counter (decoys/approximate-counter: approximate), and activity counted on allowed
+# requests only (decoys/idle-on-allowed-only). The hidden tests replay 250 random streams
+# (jittered clock, backward steps, reloads with new plans, 401/404/405s, stats reads)
+# against a model that keeps every allowed request ever made, and check status, Retry-After
+# and the whole stats document; plus 16 targeted tests.
+prompt = """\
+We're getting two kinds of complaints about tollgate's rate limiting. Some customers manage \
+to push twice their plan's limit through in a few seconds, always right around the turn of \
+a minute. And after ops corrected the clock on one of the gateway hosts (it was running an \
+hour fast), a bunch of keys on that host were stuck getting 429s for about an hour. The \
+README is the spec for how limits, time, reloads and idle keys are supposed to behave; \
+please make tollgate do what it says. Config parsing and routing are fine.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1500
+max_cost = 3.00

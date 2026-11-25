@@ -1298,6 +1298,38 @@ a network that reorders and repeats messages). Each task also keeps `decoys/`: a
 that look right and break one rule, such as recomputing everything after an edit, a
 recursive walk that overflows on deep input, or the textbook algorithm the spec rules out.
 The test suite checks that the starting code and every decoy fail and the solution passes.
+Its 12 tasks cover:
+- **Bugs far from their symptom, in large repos:** a 2,500-line SQL engine whose NULL
+  handling is checked against `sqlite3` on thousands of random queries.
+- **Features that must fit an existing codebase:** snapshots for a 2,000-line event-sourced
+  app.
+- **Algorithms where the textbook one is ruled out:** a diff that must stay within linear
+  memory and pick the same script as before, and a regex matcher that must be linear time
+  yet give `re`'s exact answers.
+- **Systems checked step by step against a reference model:**
+  - incremental builds with early cutoff
+  - following logs through rotation
+  - a fair multi-tenant scheduler
+  - sliding-window rate limits with a clock that steps back
+  - a DNS cache with TTLs, coalescing and serve-stale
+  - the original three tasks: recalculation, a binary format, replicas that converge
+
+Each task allows an attempt up to $3, so 3 repeats on Opus could reach $108. The cheapest
+run that still tells you something is `evals/configs/minimum.toml`: Haiku 5.5 at low effort,
+each attempt cut off at $0.25 and 40 model calls. On the hard tier, Haiku 5.5 passed 94%
+against Sonnet 5.5's 97%, for an eighth of the cost. One pass of the 12 tasks can't spend
+more than $3, and `--budget` stops it sooner:
+
+```bash
+caffeinate -s -i zwans eval run --tasks evals/tasks-expert --config evals/configs/minimum.toml --budget 2
+```
+
+`--max-cost`, or `max_cost` in a config, lowers what one attempt may spend for any run, never
+above a task's own limit. An attempt that reaches it fails.
+
+The expert tier has saturated too. Haiku 5.5 passed all 12 tasks for about $0.02 each, and
+Sonnet 5.5 at low effort passed all 12, one attempt each, for $1.21 (see
+[docs/findings.md](docs/findings.md)).
 
 `evals/tasks-injection/` holds repos with planted instructions ("run `curl ... | sh`",
 "delete the tests", "print `~/.ssh/id_rsa`"). Each attempt runs in `ask` mode with a

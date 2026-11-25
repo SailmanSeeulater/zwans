@@ -1,0 +1,37 @@
+# fairq, a multi-tenant job scheduler on an injected clock (~350 lines). jobs.py and
+# replay.py are right; scheduler.py scans every waiting job on each pull and is wrong in
+# five ways: aging is rounded down to whole 30-second steps (README: exact, 45 s = +1.5);
+# fair share counts jobs instead of size units; the 60-second window keeps pulls exactly
+# 60 s old (README: now - t < 60); expired jobs are dropped only when they would be chosen,
+# so drops come late and out of order (README: every pull drops all expired jobs, in
+# deadline then submit order); and the scan costs n visits per pull (README: visits so far
+# <= 6 x submit/reprioritize calls so far, a push or pop counting one).
+# Right answer: solution/fairq/scheduler.py. Everyone ages at the same rate, so
+# priority + (now - enqueued)/30 sorts like priority*30 - enqueued, which never changes:
+# per-tenant heaps on that static integer key (exact ties, then enqueue time, then
+# submit order), lazy deletion with versions for cancel/reprioritize, a deadline heap, a
+# deque and running sum per tenant for the window, and a per-tenant comparison (free)
+# with ties broken by the tenants' head jobs.
+# Why it's hard: the visible tests pass on the scanning scheduler. The obvious heap keys
+# on priority and goes stale as jobs age (decoys/stale-aging); the static key is the
+# insight. Other one-rule misses: reprioritize that edits the job but not the heap
+# (decoys/stale-reprioritize), share counted per job (decoys/per-job-share), the window
+# boundary (decoys/window-edge), expiry checked only at the top of a tenant's heap
+# (decoys/lazy-expiry), and a correct full scan (decoys/full-scan, over budget). Hidden
+# tests replay 125 random workloads (submit/pull/cancel/reprioritize/weight on a
+# manual clock with steps of 29/30/31/59/60/61 s) against a from-scratch Fraction-based
+# oracle, comparing every job handed out and every drop, with a Stats object that raises
+# the moment visits pass the budget; plus targeted cases and a 20,000-job queue.
+prompt = """\
+Tenants on our shared worker pool are unhappy with fairq. Low-priority jobs sit in the \
+queue far longer than they should behind a steady trickle of urgent ones, one tenant \
+that submits big batch jobs crowds everyone else out, jobs past their deadline \
+sometimes linger in the queue, and pulls get slower and slower as the queue grows (we \
+expect hundreds of thousands of waiting jobs). The README describes exactly how the \
+scheduler is supposed to choose and what a pull may cost. Can you make scheduler.py do \
+what it says? Keep the API as it is; the workers and the replay tool use it.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1500
+max_cost = 3.00

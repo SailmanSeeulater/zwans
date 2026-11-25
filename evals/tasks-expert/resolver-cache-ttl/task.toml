@@ -1,0 +1,39 @@
+# relaydns, a caching resolver over a fake async upstream (~600 lines): records, zone files,
+# a FakeUpstream that answers one name at a time, counts requests, can fail, and can hold
+# replies until released; a whole-answer cache; a CLI. resolver.py is wrong in six ways:
+# 1. A chain's lifetime is its first record's TTL (the CNAME's), not the smallest along it.
+# 2. Answers are returned with the TTLs as fetched; nothing counts down, and a fresh chain
+#    answer doesn't show its lifetime either.
+# 3. The negative lifetime is the SOA minimum alone: not min(SOA TTL, minimum), not capped.
+# 4. No coalescing: identical queries in flight each walk the chain upstream.
+# 5. No loop detection: a CNAME loop is chased forever.
+# 6. Serve-stale has no time limit, shows the old TTLs, and a loop isn't kept out of it.
+# Right answer: solution/relaydns/resolver.py: lifetime = min over records (plus the capped
+# negative TTL); every TTL shown as fetched + lifetime - now; an asyncio task per key in
+# flight that removes itself in a finally; a seen-set on the chain (stop before asking for a
+# name again); stale only on UpstreamError and only while now < expires + serve_stale, with
+# TTL 30; a lifetime-0 answer drops the cached one.
+# Why it's hard: the visible tests pass on the broken resolver and the symptoms point at two
+# things (stale answers, a hammered upstream); the README has seven precise rules and the
+# hidden tests count upstream requests exactly. Tempting answers: caching a chain at its
+# first record's TTL (decoys/first-record-ttl), no coalescing (decoys/no-coalescing: the
+# request count), returning cached answers with their full TTLs (decoys/ttls-dont-count-down),
+# serve-stale without the window (decoys/stale-forever), and the half-remembered RFC rule
+# "the negative TTL is the SOA minimum" (decoys/negative-uses-soa-minimum). The hidden tests
+# run 150 random sequences of rounds (clock steps, zone changes, upstream down or one name
+# failing, 1-5 concurrent questions with duplicates) against a reference resolver written
+# from the README, comparing every answer (records, rcodes, TTLs) and the upstream request
+# count per round; plus 18 targeted tests driving the held upstream step by step.
+prompt = """\
+Two complaints about relaydns this week. Clients keep getting answers that are out of date: \
+someone repointed an alias's target, and machines were still connecting to the old address \
+minutes after its TTL should have run out; another team says an answer was still being \
+served long after the upstream went away. And the upstream DNS team says we hammer them \
+with identical questions whenever a popular name expires. The README describes how the \
+cache, the TTLs, and the upstream handling are supposed to work. Can you fix relaydns so it \
+behaves that way? The zone parser and FakeUpstream are fine.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1500
+max_cost = 3.00

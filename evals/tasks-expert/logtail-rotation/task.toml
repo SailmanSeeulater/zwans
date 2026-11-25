@@ -1,0 +1,41 @@
+# logtail, a `tail -F`-like follower (~390 lines) over FakeFS, an in-memory file system
+# with inodes (rename keeps the inode, create gives a path a new one, open handles and
+# writers stay on their inode). The shipped Follower re-stats the path each poll, keeps a
+# character offset, re-opens the path and reads everything from the offset in one read;
+# it holds unfinished lines but knows nothing of rotation: a renamed log looks like a
+# truncation (or like growth), so the old file's last lines are lost, the held partial is
+# glued onto the new file's first line, and memory grows with the file and its lines.
+# The README specifies the feature: follow by inode; on a different inode at the path,
+# drain the old file (including writes after the rename), deliver its held partial as a
+# line of its own, then read the new file from the start; keep the old file while the
+# path is missing; truncation (size < position) flushes the partial and restarts at 0;
+# lines longer than max_line come in max_line pieces, partial or not; reads of at most
+# chunk_size characters; each part of a file read once.
+# Right answer: solution/logtail/follower.py (keep an open handle, compare inodes at each
+# poll, drain/flush/switch, a chunked read loop, and a held buffer split at max_line).
+# Why it's hard: the visible tests pass on the shipped follower, and the obvious rotation
+# fix (notice the inode change and reopen the path) drops the old file's tail
+# (decoys/reopen-by-path). Other tempting answers each break one rule: delivering partial
+# text at every poll (decoys/partial-lines-early), dropping the held partial on rotation
+# or truncation (decoys/drops-partial-on-rotation), treating a missing path as rotation
+# and abandoning the old file a writer still uses (decoys/switches-when-missing),
+# splitting only finished lines at max_line (decoys/unbounded-partial), and reading the
+# rest of the file in one call (decoys/whole-file-reads; tracemalloc peak under 1 MB on
+# an 8 MB file, and a FakeFS that rejects reads over chunk_size). The hidden tests run 300
+# random sequences of writes (partial and long lines), rotations with and without create,
+# program reopens, copytruncate, unlink, partial truncation, moving app.log.1 back and
+# one-shot appends, polling at random, compared poll by poll with a reference model, plus
+# a chars_read bound and targeted tests per rule.
+prompt = """\
+logtail falls over when our logs get rotated. After logrotate runs we lose the last few \
+lines that were written before the switch, and sometimes the first line in the new file \
+comes out glued to a half line from the old one. Copytruncate rotation has similar \
+problems, and following a big file with very long lines eats memory. The README describes \
+how following is supposed to work: rotation, truncation, unfinished and overlong lines, \
+memory, and the new max_line and chunk_size options. Can you implement that in the \
+Follower? Keep the API the README shows; Tail and the command line build on it.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 1500
+max_cost = 3.00

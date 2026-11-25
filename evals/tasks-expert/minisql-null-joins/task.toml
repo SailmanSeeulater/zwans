@@ -1,0 +1,48 @@
+# minisql, a small SQL engine (~2,500 lines: tokenizer, parser, planner, executor,
+# expression compiler, aggregates, a shell). The README promises SQLite's rows for the
+# supported grammar and spells out the NULL rules and where the planner checks conditions.
+# The code is wrong in five places, each far from the symptom users see:
+# 1. expr.py: AND, OR, NOT and IN are two-valued (`truth()` turns NULL into false), so
+#    NOT (v > 4) keeps NULL rows, `k NOT IN (1, NULL)` is true, BETWEEN/NOT BETWEEN and
+#    selected conditions are wrong, and UPDATE/DELETE ... WHERE NOT ... touch NULL rows.
+# 2. planner.py: a LEFT JOIN is turned into an inner join whenever any WHERE part mentions
+#    the right table; the README allows that only when WHERE rejects padded rows. Rows
+#    vanish for `WHERE b.x IS NULL`, `COALESCE(b.x, 0) = 0`, `b.x > 1 OR a.id = 4`.
+# 3. values.py: key() gives each NULL its own unique stand-in, so GROUP BY and DISTINCT
+#    split NULLs into separate groups. The hash join keys on key() too, so today it is
+#    right by accident: NULL keys match nothing.
+# 4. aggregates.py: NULLs are fed to the accumulators: COUNT(x) counts them, AVG divides by
+#    them, MIN returns NULL, and SUM of no values is 0 instead of NULL.
+# 5. values.py sort_rows: NULLs last ascending and first descending (Postgres's default).
+# Right answer: solution/ (three-valued _and/_or/_not and IN; a structural null-rejection
+# test (_rejects_nulls/_is_strict) before turning LEFT into INNER; one shared NULL key for
+# grouping, plus an explicit skip of NULL keys in the hash join; aggregates skip NULLs with
+# COUNT(*) separate, SUM starting at None; NULLs smallest in ORDER BY).
+# Why it's hard: every visible test passes on the broken engine. Fixing #3 the obvious way
+# makes the hash join match NULL = NULL (decoys/null-keys-match). For #2 the easy fix is to
+# delete the LEFT-to-INNER rewrite; results are then right, but the README's "Where
+# conditions are checked" section requires right-table filters at the scan when WHERE
+# rejects padded rows, checked with stats.join_reads (decoys/never-rewrite-left-joins), and
+# dropping pushdown altogether breaks it for inner joins too (decoys/no-early-filters).
+# Fixing only NOT IN leaves NOT/AND/OR two-valued (decoys/not-in-patch); fixing everything
+# but the planner (decoys/evaluator-only) fails ~40% of the random seeds. The hidden tests
+# run 3,000 random queries (joins of up to three tables, LEFT/INNER/CROSS, nested
+# predicates, GROUP BY/HAVING, DISTINCT, ORDER BY with NULLS FIRST/LAST, LIMIT) and random
+# UPDATE/DELETE against the stdlib sqlite3 module, plus targeted tests per README rule and
+# join_reads bounds on 300-row tables.
+prompt = """\
+We use minisql for test fixtures and a couple of internal reports, and people keep hitting \
+wrong answers whenever NULLs are involved. Things I've collected: a LEFT JOIN report where \
+rows disappear as soon as the WHERE clause mentions the joined table (the classic "find \
+customers without orders" query returns almost nothing); `NOT IN` acting strangely when \
+the list has a NULL in it; COUNT(col) giving the same number as COUNT(*); GROUP BY \
+producing a separate group for every NULL; and NULLs showing up at the wrong end of ORDER \
+BY. The README says how NULLs are supposed to behave (it's meant to match SQLite) and how \
+the planner is supposed to handle WHERE conditions around joins. Can you track these down \
+and fix them? Please don't make it slower while you're at it; one of the reports joins \
+some big tables.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1500
+max_cost = 3.00

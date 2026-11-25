@@ -1,0 +1,45 @@
+# stockflow, an event-sourced inventory/orders app (~2,050 lines): an event registry with
+# schema versions (@event_type), upcasters (@upcaster) for StockReceived v1, StockAdjusted
+# v1/v2 and LineAdded v1, an InMemory and a file event store (JSON lines, flock, shared
+# between processes) with expected-version checks, aggregates with @handles handlers looked
+# up by name, a Repository with stats.events_replayed, services, projections registered with
+# @PROJECTIONS.register, a legacy scanner import that appends v1 events straight to the
+# store, settings from stockflow.toml with strict key validation, and a CLI. Everything
+# works; loads replay whole streams. The feature: snapshots, specified in the README's
+# "Snapshots" section.
+# Right answer (solution/): Settings.snapshot_every (default 100, [store] table, >= 0);
+# Aggregate.state_version, snapshot_state() (a deep copy of vars minus id/version/pending)
+# and restore_state(); Snapshot and save_snapshot/load_snapshot on both stores (memory: deep
+# copies; file: snapshots/<stream>.json, written atomically); Repository.load starts from a
+# usable snapshot and reads(after=version) through the same upcasting path, or replays
+# everything and rebuilds when the state_version differs; Repository.save snapshots after a
+# successful append when version - latest usable snapshot >= N.
+# Why it's hard: a multi-file change that has to fit the codebase (settings schema, store
+# interface, both stores, aggregate base, repository), and the README pins the policy
+# exactly: the hidden tests check events_replayed after every step, so the snapshot rule
+# (version - last >= N, not version % N), "only saves take snapshots" (imports don't), the
+# rebuild on a state_version change, and snapshots living in the store (a new Repository or
+# a reopened FileEventStore must use them) all show. Tempting answers: decoding events after
+# the snapshot without upcasting (decoys/skips-upcasters-after-snapshot), using any snapshot
+# whatever its state_version (decoys/ignores-state-version) or ignoring it without
+# rebuilding (decoys/no-rebuild), taking the snapshot before the append so a rejected save
+# leaves one ahead of the store (decoys/snapshot-before-append), a shallow snapshot that the
+# loaded aggregate's handlers mutate in place (decoys/shallow-snapshot: nested lots,
+# reservations and order lines), keeping snapshots on the Repository
+# (decoys/snapshots-in-repository), and snapshotting at multiples of N
+# (decoys/snapshot-on-multiples: multi-event saves and imports skip past them). The hidden
+# tests run 120 random histories (commands, scanner imports of v1 events, conflicting saves
+# from two repositories, reopening; memory and file stores; N in 0-8) and after every step
+# load every stream, comparing as_dict() and version with an independent fold of the raw
+# events and events_replayed with the README's rule; plus 16 targeted tests.
+prompt = """\
+Loading some of our older items has become painfully slow: bolt-m8 alone has around forty \
+thousand events, and every command that touches it replays all of them. We agreed on \
+snapshots as the fix, and the design is written up in the README's "Snapshots" section. \
+Can you implement it? It needs to fit how the rest of stockflow is put together (settings, \
+the stores, the repository), and work with both stores and the CLI.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 1500
+max_cost = 3.00

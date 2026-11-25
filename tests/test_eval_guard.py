@@ -271,6 +271,22 @@ def test_a_dry_run_lists_the_attempts_and_runs_nothing(tmp_path: Path) -> None:
     assert not out.exists()
 
 
+def test_max_cost_lowers_what_each_attempt_may_spend_never_raises_it(tmp_path: Path) -> None:
+    config = tmp_path / "cheap.toml"
+    config.write_text('effort = "low"\nmax_cost = 0.05\n', "utf-8")
+    one = ("--dry-run", "--only", "buggy-calc", "--repeats", "2")  # its own max_cost is $0.50
+
+    flag = eval_run(tmp_path, *one, "--max-cost", "0.1")
+    from_config = eval_run(tmp_path, *one, "--config", str(config))
+    both = eval_run(tmp_path, *one, "--config", str(config), "--max-cost", "0.2")
+    higher = eval_run(tmp_path, *one, "--max-cost", "5")
+
+    assert "up to $0.10" in flag.output and "At most $0.20 in all" in flag.output
+    assert "up to $0.05" in from_config.output
+    assert "up to $0.20" in both.output  # the flag wins over the config
+    assert "up to $0.50" in higher.output  # a task's own limit stays when it's lower
+
+
 def test_split_and_only_dont_go_together(tmp_path: Path) -> None:
     result = eval_run(tmp_path, "--dry-run", "--split", "train", "--only", "buggy-calc")
 

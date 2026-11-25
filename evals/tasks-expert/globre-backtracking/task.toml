@@ -1,0 +1,36 @@
+# logq, a log-search tool with its own pattern language (~450 lines): a subset of Python
+# regexes (literals, ., classes with ranges/negation, \d \w, escapes, * + ? {m} {m,} {m,n},
+# alternation, non-capturing groups, ^ $) that must answer exactly like re.search(...).span()
+# and re.fullmatch. syntax.py (parser, size, nullable check) is right; matcher.py is a
+# recursive continuation-passing backtracker: right answers, exponential steps on
+# (a|aa)*b, quadratic search, and a RecursionError on long lines.
+# The cost rule: a step is one test of a text character against a character item; a
+# pattern's size counts repeat copies ({m,n}: n, {m,}: m+1); one call may take at most
+# 2*size*(n+1) steps. Quantifiers on nullable things are refused, which removes the
+# empty-loop corner cases where re's semantics are hard to copy.
+# Right answer: solution/logq/matcher.py. Compile to a program (split/jump/char/asserts,
+# {m,n} as m copies plus nested optionals) and run Pike's VM: threads in priority order,
+# deduplicated per position, new start threads at lowest priority until a match, lower
+# threads cut when one matches. Measured <= 0.91*size*(n+1) steps.
+# Why it's hard: the visible tests pass on the backtracker. The textbook Thompson NFA
+# (state sets, leftmost-longest) is linear but gives POSIX spans, not re's (decoys/set-nfa:
+# a|ab on "ab"). Backtracking with an explicit stack is correct and survives long lines
+# but blows the budget (decoys/explicit-stack). Memoizing failed (instruction, position)
+# pairs is linear per start, but resetting the memo per start makes search quadratic
+# (decoys/memo-per-start); sharing it across starts is a valid answer unless it recurses,
+# which dies on long lines (decoys/recursive-memo). Hidden tests: 1,800 random patterns x
+# 12 texts against re with a meter that raises at the budget, 14 pathological cases with
+# hand-worked answers (re itself would hang), 30k-char lines against re, a 100k-char match,
+# and the refused-pattern rules.
+prompt = """\
+logq hangs on some searches. Someone ran `(a|aa)*b` over a log of long lines and it \
+never came back, and a perfectly ordinary pattern crashed with a RecursionError on a \
+very long line. The README describes the pattern language, what answers a match must \
+give, and what a match is allowed to cost; the matcher doesn't keep to the cost part. \
+Can you fix it? The answers must stay exactly what they are now (the same as Python's \
+re), and the pattern syntax mustn't change.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1500
+max_cost = 3.00

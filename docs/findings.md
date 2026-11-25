@@ -332,6 +332,124 @@ other `ZWANS_*` variables. Add `--executor jail` on Linux to run commands in zwa
 The dated entries behind the sections above, newest first, as written at the time. Later
 entries sometimes correct earlier ones.
 
+### 2026-11-24: every suite on three models, 155 of 156 attempts passed
+
+**Setup.** Every suite, one attempt per task, on `claude-haiku-5-5` low, `claude-sonnet-5-5`
+low and `claude-opus-5-5` medium (the expert tier only on Opus, since Haiku and Sonnet had
+done it earlier the same day). Each run had its own hard `--budget`; the caps added up to $43.
+Reports: `evals/reports/20261124-{starter,hard,injection}-{haiku55-low,sonnet55-low,opus55-medium}`
+and `20261124-expert-opus55-medium`.
+
+| Suite | Haiku 5.5 low | Sonnet 5.5 low | Opus 5.5 medium |
+|---|---|---|---|
+| Starter (27) | 27/27, $0.06 | 27/27, $0.74 | 27/27, $2.24 |
+| Hard (12) | 11/12, $0.22 | 12/12, $1.42 | 12/12, $5.29 |
+| Injection (9) | 9/9, $0.01 | 9/9, $0.16 | 9/9, $0.38 |
+| Expert (12) | (12/12 earlier) | (12/12 earlier) | 12/12, $5.60 |
+
+Per attempt, Opus spent $0.083 on starter, $0.441 on hard, $0.042 on injection and $0.466
+on expert (9.8 model calls, the dearest attempt $0.996, eventstore-snapshots). Its hard and
+starter costs are 12 to 29% below the 2026-11-20 runs, the injection cost about half. No
+attempt ended with an error, hit its budget or reached for the answer. The whole run cost
+$16.11.
+
+**The one failure.** Haiku on `stockroom-tenants`, 16 model calls, $0.02. It moved the file
+to a new `"version": 2` layout with every table under `tenants`, still reading old version-1
+files, and gave each tenant its own lookup cache, so `db.cache` went away. Two hidden tests
+failed: one wants a new file written as version 1 with tables at the top level, the other
+reads `db.cache.hits`. The prompt asks that old files keep loading and that the default
+tenant work "exactly as it does", not that the file layout or the cache attribute stay. So
+this is half a miss and half a test stricter than its prompt. Sonnet and Opus kept the layout
+and passed.
+
+**Two things went wrong with the harness, not the models.**
+
+- The Mac slept on battery mid-run and woke on another network. Three expert attempts sat on
+  half-open API streams until the SDK's 600 s read timeout, then retried and finished. The
+  per-attempt timeout didn't fire, because `asyncio.wait_for` counts on a monotonic clock that
+  stops while the machine sleeps. Plug in and keep the lid open for long runs.
+- An Opus Bash call with `timeout: 600` started `python /tmp/fuzz.py` at 19:58:20 and was
+  still running at 20:56, when I killed it by hand. It looked like the timeout had left the
+  child behind, but it hadn't. Python's monotonic clock on macOS is `mach_absolute_time()`,
+  which stops while the machine sleeps, and `pmset -g log` shows the lid closing at 19:59:49
+  and the Mac asleep, apart from 45-second dark wakes, until 20:53:56. By then the command had
+  been awake for about 490 of its 600 seconds, so the timeout was two minutes from firing.
+  The fuzzer itself got no more time than that. A command that times out awake is stopped
+  with everything it started: `bash -c` running a looping `python` with a 3 s timeout comes
+  back after 3.0 s with nothing left running.
+
+**What it means.** Every tier is saturated for every model, Haiku included. The suites still
+catch regressions in the harness, but they no longer separate models or settings. Room below
+the ceiling has to come from tasks that are long (many files, many steps) rather than tricky,
+or from scoring cost and calls instead of pass rate.
+
+### 2026-11-24: Haiku 5.5 and Sonnet 5.5 pass all twelve expert tasks
+
+**Setup.** The expert tier grown from 3 tasks to 12, on `claude-haiku-5-5` at low effort with
+`evals/configs/minimum.toml` (each attempt cut off at $0.25 and 40 model calls), one attempt
+per task, at the commit that added the tasks. Meant as a cheap pass to catch broken tasks
+before a $25 Sonnet and $43 Opus calibration. The first run was stopped by a signal after 9
+attempts. A second run did the 3 it never reached and tried again on the one it had failed.
+Reports: `evals/reports/expert-x1-haiku55-minimum` (cut off, so no `report.json`; the
+transcripts are there) and `expert-x1-haiku55-minimum-rest`.
+
+| Task | Passed | Model calls | Cost |
+|---|---|---|---|
+| `coedit-divergence` | yes | 6 | $0.004 |
+| `eventstore-snapshots` (2,000-line repo) | yes | 19 | $0.027 |
+| `gateway-rate-limits` | yes | 8 | $0.007 |
+| `globre-backtracking` | yes | 10 | $0.012 |
+| `jobqueue-starvation` | yes | 7 | $0.008 |
+| `logtail-rotation` | yes | 7 | $0.013 |
+| `minisql-null-joins` (2,500-line repo) | yes | 15 | $0.015 |
+| `resolver-cache-ttl` | yes | 13 | $0.012 |
+| `sheet-recalc-storm` | yes | 11 | $0.013 |
+| `taskgraph-stale-builds` | no, then yes | 12, 11 | $0.012, $0.012 |
+| `textdiff-big-files` | yes | 25 | $0.057 |
+| `trk-format-decoder` | yes | 15 | $0.030 |
+
+13 of 14 attempts passed, for $0.25 in all, including the attempts the signal cut short.
+
+Each task's hidden tests check its README's rules in bulk against an oracle. The suite's own
+tests show the starting code and every decoy (56 of them) fail, and the solution passes. So
+these are real passes. The transcripts show the work, not a shortcut:
+- On `globre-backtracking`, Haiku read the matcher, wrote a priority-ordered Pike VM in one
+  8,000-token reply, fuzzed it against `re` and measured its own step counts against the
+  README's bound before finishing.
+- On `textdiff-big-files` it took 25 calls and 8 minutes to get to a linear-space diff that
+  picks the same scripts.
+
+**What it means.**
+- The expert design (rules stated plainly, checked in bulk, decoys for the tempting wrong
+  answers) catches a careless answer, but not a careful model. A model that reads the README
+  and tests against it passes. Haiku 5.5 does exactly that, and cheaply: its prices ($0.10 and
+  $0.50 a million tokens) make an attempt cost about a cent and a half.
+- So Sonnet and Opus would almost certainly pass these too. The planned calibration runs
+  (up to $68) were not started: they would only have shown a ceiling.
+
+**Same day: Sonnet 5.5 at low effort, one attempt per task.** Run for a single data point
+($10 cap). Report: `evals/reports/expert-x1-sonnet55-low`.
+
+| Model | Passed | Mean $ / attempt | Model calls | Tool errors | Spent |
+|---|---|---|---|---|---|
+| claude-haiku-5-5, low, `minimum` | 12/12 tasks (13/14 attempts) | 0.018 | 12.0 | 3% | $0.25 |
+| claude-sonnet-5-5, low | 12/12 | 0.101 | 5.4 | 0% | $1.21 |
+
+Sonnet barely iterates. On most tasks it read the README and the code in two calls, wrote
+the whole fix in one reply of 2,500 to 3,400 tokens, and stopped. On `globre-backtracking`
+and `sheet-recalc-storm` it made no test run of its own. Its hardest task cost 26 cents and 9
+calls: `textdiff-big-files`, the same task that took Haiku longest. Haiku tests and repairs
+its way there instead, with twice the calls, at a fifth of the price.
+- This is the third tier to saturate (starter, hard, expert), each built to be harder than
+  the last. Tasks that a strong engineer can do in under an hour from a precise README are no
+  longer where these models fail. Room below the ceiling now has to come from somewhere
+  else:
+  - much larger, real codebases
+  - tasks that are underspecified on purpose, where the agent must find out what is wanted
+  - long-horizon work across many sessions
+  - limits that turn inefficiency into failure (steps, tokens, time)
+  - weaker setups, such as Haiku 4.5 or local models
+
 ### 2026-11-22: a 30B local model passes seven of the ten starter tasks
 
 The same ten starter tasks as the 7B runs below, once each, with `ollama/qwen3-coder:30b`

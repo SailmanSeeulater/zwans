@@ -1,0 +1,52 @@
+# taskgraph, a make-like task runner (~730 lines): tasks declare inputs and outputs, an
+# action may read more files through ctx.read (discovered dependencies, like a compiler's
+# includes), and the builder keeps per-task records in .taskgraph/state.json on a fake or
+# real file system. The README says a task runs exactly when it has no record, its
+# definition changed, something its last successful run read changed content (including
+# files that were looked for and missing), or an output is missing/edited; decisions are
+# made in dependency order, so changes propagate in one build and identical outputs cut
+# off the rebuild. The code is wrong in six ways:
+# 1. runner.py why(): staleness by mtime against the record's built_at, not content, so
+#    touch/rewrite-unchanged rebuilds and a file put back with an old mtime (cp -p) is
+#    missed; an upstream rewrite with identical text always reruns downstream.
+# 2. runner.py build(): the stale set is computed for every task before anything runs, so
+#    a task downstream of one that reruns is judged on the old outputs: stale until the
+#    next build.
+# 3. context.py read(): a path that doesn't exist isn't recorded, so a header that later
+#    appears earlier in the search path (include/local/) never triggers a rebuild.
+# 4. state.py fingerprint(): params left out, so changing them doesn't rebuild.
+# 5. runner.py _run(): a failed run still stores a record, so the next build skips the
+#    task and reports success (poisoned).
+# 6. graph.py: recursive DFS with a visited set: cycles aren't reported (tasks just run)
+#    and a 3,000-task chain hits the recursion limit.
+# Right answer: solution/taskgraph/ (content digests for reads and outputs, None for
+# absent reads; decide each task in order after its upstream; record only on success and
+# drop the record on failure; params in the fingerprint; iterative three-colour DFS that
+# raises CycleError with the cycle).
+# Why it's hard: the visible tests pass on the broken runner. The usual repair for #2 is
+# "rerun whatever is downstream of a task that ran", which kills early cutoff
+# (decoys/no-early-cutoff). Keeping mtimes and only fixing the ordering fails the
+# content rules (decoys/mtime-staleness). Absent-file reads are easy to miss
+# (decoys/forgets-missing-files). Merging old and new reads to be "safe" breaks "only the
+# last successful run counts" (decoys/accumulates-reads). Not overwriting the record on
+# failure but keeping the old one still skips a task that must run again
+# (decoys/keeps-old-record-on-failure). A recursive cycle check fails the long chain
+# (decoys/recursive-order). The hidden tests replay 80 random edit sequences of 14 builds
+# on a C-like sample (sources, headers found via a search path, comment stripping,
+# sorting compiler, link, docs with an optional footer, a release note) with touches,
+# old-mtime restores, param/version changes, hand-edited outputs and #error failures;
+# after each build the set that ran must equal a from-scratch reference's minimal set,
+# the files must match, and periodically a clean build must give the same files.
+prompt = """\
+Our builds with taskgraph have become unreliable. Sometimes an output is stale after an \
+edit and only comes right if you run the build a second time (or a third); sometimes a \
+header change never gets picked up at all. In the other direction, touching a file or \
+checking out a branch and back rebuilds half the project for nothing. And once a task \
+fails, the next build tends to say everything is fine. The README describes what a build \
+is supposed to run and when; please make the runner do that. The actions and the \
+Task/Project API are used all over our taskfiles, so keep those as they are.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "bug-fix"
+timeout = 1500
+max_cost = 3.00

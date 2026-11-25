@@ -97,6 +97,12 @@ def run_command(
     budget: Annotated[
         float | None, typer.Option(min=0, help="Stop the run once it has spent this many dollars.")
     ] = None,
+    max_cost: Annotated[
+        float | None,
+        typer.Option(
+            min=0.01, help="Most one attempt may spend, if less than its task's own max_cost."
+        ),
+    ] = None,
     out: Annotated[
         Path | None,
         typer.Option(help="Folder for the report. Default: evals/reports/<time>-<config>."),
@@ -118,6 +124,7 @@ def run_command(
         tasks = _select(load_suite(tasks_dir), only)
         if split is not None:
             tasks = split_suite(tasks, split.value, seed)
+        tasks = _capped(tasks, max_cost or eval_config.max_cost)
         if dry_run:
             _print_plan(tasks, repeats, agent_name, config, eval_config, budget)
             return
@@ -245,6 +252,13 @@ def _difference_line(diff: Difference) -> str:
     if diff.significant:
         line += "  " + typer.style("significant", bold=True)
     return line
+
+
+def _capped(tasks: list[Task], cap: float | None) -> list[Task]:
+    """Each task with its max_cost lowered to `cap`, if that's lower."""
+    if cap is None:
+        return tasks
+    return [task.model_copy(update={"max_cost": min(task.max_cost, cap)}) for task in tasks]
 
 
 def _count(n: int, noun: str) -> str:
