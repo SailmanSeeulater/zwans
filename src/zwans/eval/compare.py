@@ -8,6 +8,7 @@ simulation of 25 tasks x 3 repeats, this flags about 5% of same-config pairs as 
 (as a 95% interval should) and catches a 15-point drop about 60% of the time.
 """
 
+import dataclasses
 import math
 import random
 from collections.abc import Callable, Sequence
@@ -108,6 +109,97 @@ def wilson(passed: int, attempts: int) -> tuple[float, float]:
     middle = (rate + z * z / (2 * attempts)) / scale
     half = z * math.sqrt(rate * (1 - rate) / attempts + z * z / (4 * attempts * attempts)) / scale
     return max(0.0, middle - half), min(1.0, middle + half)
+
+
+@dataclass(frozen=True)
+class Standing:
+    """How one way of running the agent did on the tasks every ranked run attempted. Means
+    are over tasks, each task weighted equally, as in `compare`."""
+
+    label: str  # agent, model, effort and config, which runs are pooled by
+    reports: int
+    attempts: int
+    passed: int
+    pass_rate: float
+    dollars: float  # per attempt
+    model_calls: float  # per attempt
+    seconds: float  # per attempt
+    frontier: bool = False  # no other standing passes as often for less, or more for as little
+
+    @property
+    def dollars_per_pass(self) -> float | None:
+        """What one passed task costs: what an attempt costs over how often one passes."""
+        return self.dollars / self.pass_rate if self.pass_rate else None
+
+
+@dataclass(frozen=True)
+class Ranking:
+    tasks: list[str]  # ranked on: attempted, and counted, by every standing
+    left_out: dict[str, list[str]]  # label -> its tasks that not every standing attempted
+    standings: list[Standing]  # best first: highest pass rate, then cheapest per attempt
+
+
+def run_label(report: Report) -> str:
+    label = f"{report.agent} {report.model} {report.effort}"
+    return label if report.config.name == "default" else f"{label}, {report.config.name}"
+
+
+def rank(reports: Sequence[Report]) -> Ranking:
+    """Rank ways of running the agent by pass rate and by cost, over the tasks they share.
+
+    Reports with the same agent, model, effort and config are pooled, so the starter, hard
+    and injection runs of one model count as one standing. When every standing passes
+    nearly everything, pass rate stops telling them apart and what a pass costs, in dollars
+    and model calls, is what's left to compare."""
+    pooled: dict[str, list[AttemptResult]] = {}
+    counts: dict[str, int] = {}
+    for report in reports:
+        label = run_label(report)
+        pooled.setdefault(label, []).extend(report.attempts)
+        counts[label] = counts.get(label, 0) + 1
+    by_label = {label: _counted_by_task(attempts) for label, attempts in pooled.items()}
+    shared = set.intersection(*(set(t) for t in by_label.values())) if by_label else set()
+    tasks = sorted(shared)
+
+    standings = []
+    for label, by_task in by_label.items():
+        if not tasks:
+            standings.append(Standing(label, counts[label], 0, 0, 0.0, 0.0, 0.0, 0.0))
+            continue
+        attempts = [a for t in tasks for a in by_task[t]]
+        standings.append(
+            Standing(
+                label=label,
+                reports=counts[label],
+                attempts=len(attempts),
+                passed=sum(a.status == "passed" for a in attempts),
+                pass_rate=_over_tasks(by_task, tasks, METRICS["pass rate"]),
+                dollars=_over_tasks(by_task, tasks, METRICS["dollars"]),
+                model_calls=_over_tasks(by_task, tasks, METRICS["model calls"]),
+                seconds=_over_tasks(by_task, tasks, METRICS["seconds"]),
+            )
+        )
+    standings = [
+        dataclasses.replace(s, frontier=bool(tasks) and not _dominated(s, standings))
+        for s in standings
+    ]
+    standings.sort(key=lambda s: (-s.pass_rate, s.dollars, s.label))
+    left_out = {label: sorted(set(t) - shared) for label, t in by_label.items() if set(t) - shared}
+    return Ranking(tasks=tasks, left_out=left_out, standings=standings)
+
+
+def _over_tasks(by_task: dict[str, list[AttemptResult]], tasks: list[str], metric: Metric) -> float:
+    return _avg([_mean(by_task[t], metric) for t in tasks])
+
+
+def _dominated(s: Standing, others: Sequence[Standing]) -> bool:
+    """Some other standing passes at least as often for no more, and is better at one."""
+    return any(
+        o.pass_rate >= s.pass_rate
+        and o.dollars <= s.dollars
+        and (o.pass_rate > s.pass_rate or o.dollars < s.dollars)
+        for o in others
+    )
 
 
 def _counted_by_task(attempts: Sequence[AttemptResult]) -> dict[str, list[AttemptResult]]:

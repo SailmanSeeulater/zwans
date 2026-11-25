@@ -355,12 +355,14 @@ $16.11.
 
 **The one failure.** Haiku on `stockroom-tenants`, 16 model calls, $0.02. It moved the file
 to a new `"version": 2` layout with every table under `tenants`, still reading old version-1
-files, and gave each tenant its own lookup cache, so `db.cache` went away. Two hidden tests
+files, and gave each tenant its own lookup cache, so `db.cache` went away. Two tests
 failed: one wants a new file written as version 1 with tables at the top level, the other
-reads `db.cache.hits`. The prompt asks that old files keep loading and that the default
-tenant work "exactly as it does", not that the file layout or the cache attribute stay. So
-this is half a miss and half a test stricter than its prompt. Sonnet and Opus kept the layout
-and passed.
+reads `db.cache.hits`. At first that looked like hidden tests stricter than the prompt, but
+both are in the repo's own visible tests, unchanged, and the prompt says everything that
+works today must keep working exactly as it does. The transcript shows Haiku running them,
+seeing them fail, and then editing the two tests until they passed rather than its code. The
+check copies the originals back. A real miss, and the task stays as it is. Sonnet and Opus
+kept the layout and passed.
 
 **Two things went wrong with the harness, not the models.**
 
@@ -382,6 +384,20 @@ and passed.
 catch regressions in the harness, but they no longer separate models or settings. Room below
 the ceiling has to come from tasks that are long (many files, many steps) rather than tricky,
 or from scoring cost and calls instead of pass rate.
+
+`zwans eval rank`, added after this run, does the second. Over the 48 starter, hard and
+injection tasks all three attempted:
+
+| | Passed | $ per attempt | $ per pass | Model calls | Seconds | |
+|---|---|---|---|---|---|---|
+| Sonnet 5.5 low | 48/48 | 0.0482 | 0.0482 | 4.5 | 16 | frontier |
+| Opus 5.5 medium | 48/48 | 0.1649 | 0.1649 | 6.0 | 41 | |
+| Haiku 5.5 low | 47/48 | 0.0060 | 0.0061 | 7.1 | 30 | frontier |
+
+Opus passes nothing Sonnet doesn't and costs 3.4 times as much per task, so it's off the
+frontier. Haiku passes one task fewer for an eighth of Sonnet's price. The 95% ranges on
+the pass rates (89-100% for Haiku, 93-100% for the others) overlap, so on these suites the
+one failure doesn't show Haiku is worse.
 
 ### 2026-11-24: Haiku 5.5 and Sonnet 5.5 pass all twelve expert tasks
 

@@ -13,7 +13,7 @@ import typer
 from zwans.config import Config, ConfigError, load_credential, load_settings
 from zwans.eval.claude_code import ClaudeCodeAgent
 from zwans.eval.codex import CodexAgent
-from zwans.eval.compare import MIN_TASKS, Difference, compare
+from zwans.eval.compare import MIN_TASKS, Difference, compare, rank, wilson
 from zwans.eval.html import render_html
 from zwans.eval.runner import (
     Agent,
@@ -233,6 +233,59 @@ def compare_command(a: ReportPath, b: ReportPath) -> None:
         width = max(len(t) for t in changed)
         for task, (rate_a, rate_b) in sorted(changed.items(), key=lambda i: i[1][1] - i[1][0]):
             typer.echo(f"  {task:<{width}}  {rate_a:4.0%} -> {rate_b:4.0%}")
+
+
+@eval_app.command("rank")
+def rank_command(
+    reports: Annotated[
+        list[Path],
+        typer.Argument(exists=True, help="Report folders or report.json files, two or more."),
+    ],
+) -> None:
+    """Rank runs by pass rate and by what a pass costs, over the tasks they all attempted.
+
+    Runs of the same agent, model, effort and config are pooled, so a model's starter,
+    hard and injection runs count as one row. Rows on the frontier are the ones no other
+    row beats on both pass rate and cost.
+    """
+    try:
+        loaded = [_load_report(path) for path in reports]
+    except (OSError, ValueError) as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(2) from exc
+    result = rank(loaded)
+    if len(result.standings) < 2:
+        typer.secho("These reports are all one way of running the agent; nothing to rank.")
+        raise typer.Exit(2)
+    typer.secho(
+        f"{_count(len(result.tasks), 'task')} attempted by all {len(result.standings)} rows",
+        dim=True,
+    )
+    for label, missing in result.left_out.items():
+        typer.secho(
+            f"Left out, only some rows have them: {_count(len(missing), 'task')} of {label}",
+            fg="yellow",
+        )
+    if not result.tasks:
+        raise typer.Exit(1)
+
+    width = max(len(s.label) for s in result.standings)
+    typer.echo(
+        f"\n{'':<{width}}  {'passed':<13}  {'95% range':<9}  {'$/attempt':>9}  "
+        f"{'$/pass':>8}  {'calls':>5}  {'seconds':>7}"
+    )
+    for s in result.standings:
+        low, high = wilson(s.passed, s.attempts)
+        passed = f"{s.pass_rate:.0%} {s.passed}/{s.attempts}"
+        interval = f"{low:.0%}-{high:.0%}"
+        per_pass = f"{s.dollars_per_pass:8.4f}" if s.dollars_per_pass is not None else f"{'-':>8}"
+        line = (
+            f"{s.label:<{width}}  {passed:<13}  {interval:<9}  {s.dollars:9.4f}  {per_pass}  "
+            f"{s.model_calls:5.1f}  {s.seconds:7.0f}"
+        )
+        if s.frontier:
+            line += "  " + typer.style("frontier", bold=True)
+        typer.echo(line)
 
 
 def _load_report(path: Path) -> Report:

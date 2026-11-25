@@ -1243,6 +1243,7 @@ zwans eval run --repeats 3 --budget 5                  # every task, three times
 zwans eval run --only buggy-calc                       # one task
 zwans eval run --config evals/configs/vague-edit.toml  # a variant to compare
 zwans eval compare evals/reports/<run A> evals/reports/<run B>
+zwans eval rank evals/reports/<run>/ evals/reports/<run>/ ...  # several models side by side
 zwans eval run --agent claude-code --repeats 3          # the Claude Code baseline
 ZWANS_MODEL=openai/<id> zwans eval run --agent codex   # the Codex baseline, on an OpenAI model
 zwans eval run --tasks evals/tasks-hard                # the hard tier
@@ -1285,6 +1286,15 @@ spend, without running anything.
 time, each with a 95% confidence interval from a paired bootstrap over tasks. It calls a
 difference significant only when the interval leaves out zero and the runs share at least 5
 tasks. Use `--repeats 3` or more: a single attempt per task is mostly noise.
+
+`rank` puts several runs side by side, over the tasks they all attempted. Runs with the same
+agent, model, effort and config are pooled, so one model's starter, hard and injection runs
+make one row. Each row shows its pass rate with a 95% range, what an attempt costs, what a
+passed task costs, model calls and time, best pass rate first. A row is on the `frontier`
+when no other row both passes as often and costs as little. When every model passes nearly
+everything, as on the starter suite, that's what tells them apart: on 2026-11-24, Sonnet 5.5
+at low effort passed the same 48 tasks as Opus 5.5 at medium for $0.048 a task against
+$0.165, so Opus was off the frontier.
 
 `evals/tasks/` is the starter suite; strong models pass all of it, so it mostly measures cost.
 `evals/tasks-hard/` is a harder tier (larger repos, bugs far from their symptoms, long specs)

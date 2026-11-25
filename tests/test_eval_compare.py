@@ -1,10 +1,11 @@
 import random
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from zwans.cli.app import app
-from zwans.eval.compare import compare
+from zwans.eval.compare import compare, rank
 from zwans.eval.html import render_html
 from zwans.eval.runner import AttemptResult, EvalConfig, Report, Status, Summary
 
@@ -108,6 +109,71 @@ def test_compare_command(tmp_path: Path) -> None:
     pass_line = next(line for line in result.output.splitlines() if line.startswith("pass rate"))
     assert "significant" in pass_line
     assert "Tasks whose pass rate changed" in result.output
+
+
+def test_rank_pools_runs_of_one_config_over_the_tasks_all_attempted() -> None:
+    starter = report("cheap", [attempt("x", 1, "passed", 0.01), attempt("y", 1, "passed", 0.03)])
+    hard = report("cheap", [attempt("z", 1, "failed", 0.05)])
+    other = report("dear", [attempt(t, 1, "passed", 0.50) for t in ("x", "y", "z", "w")])
+    other.attempts.append(attempt("x", 2, "stopped", 9.0))  # not counted, not costed
+
+    result = rank([starter, hard, other])
+
+    assert result.tasks == ["x", "y", "z"]
+    assert result.left_out == {"zwans claude-opus-5-5 medium, dear": ["w"]}
+    dear, cheap = result.standings
+    assert (dear.label, dear.reports, dear.passed, dear.attempts) == (
+        "zwans claude-opus-5-5 medium, dear",
+        1,
+        3,
+        3,
+    )
+    assert dear.dollars == pytest.approx(0.50)
+    assert (cheap.reports, cheap.passed) == (2, 2)
+    assert cheap.pass_rate == pytest.approx(2 / 3)
+    assert cheap.dollars == pytest.approx(0.03)
+    assert cheap.dollars_per_pass == pytest.approx(0.045)
+    assert dear.frontier and cheap.frontier  # each beats the other on one count
+
+
+def test_a_run_beaten_on_pass_rate_and_cost_is_off_the_frontier() -> None:
+    tasks = ("x", "y")
+    best = report("best", [attempt(t, 1, "passed", 0.10) for t in tasks])
+    worse = report("worse", [attempt("x", 1, "passed", 0.20), attempt("y", 1, "failed", 0.20)])
+    none = report("none", [attempt(t, 1, "failed", 0.01) for t in tasks])
+
+    standings = rank([worse, none, best]).standings
+
+    assert [s.label.split(", ")[1] for s in standings] == ["best", "worse", "none"]
+    assert [s.frontier for s in standings] == [True, False, True]
+    assert standings[2].dollars_per_pass is None
+
+
+def test_rank_command(tmp_path: Path) -> None:
+    for name, chance, seed in (("baseline", 0.8, 1), ("vague-edit", 0.4, 2)):
+        (tmp_path / name).mkdir()
+        run = simulated(name, chance, seed)
+        (tmp_path / name / "report.json").write_text(run.model_dump_json(), "utf-8")
+
+    result = CliRunner().invoke(
+        app, ["eval", "rank", str(tmp_path / "vague-edit"), str(tmp_path / "baseline")]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "25 tasks attempted by all 2 rows" in result.output
+    rows = [line for line in result.output.splitlines() if line.startswith("zwans")]
+    assert "baseline" in rows[0] and "frontier" in rows[0]
+    assert "vague-edit" in rows[1] and "frontier" not in rows[1]  # same cost, fewer passes
+
+
+def test_rank_command_needs_two_ways_of_running(tmp_path: Path) -> None:
+    run = simulated("baseline", 0.8, 1)
+    (tmp_path / "report.json").write_text(run.model_dump_json(), "utf-8")
+
+    result = CliRunner().invoke(app, ["eval", "rank", str(tmp_path), str(tmp_path)])
+
+    assert result.exit_code == 2
+    assert "nothing to rank" in result.output
 
 
 def test_html_report_lists_attempts_and_escapes_output(tmp_path: Path) -> None:
