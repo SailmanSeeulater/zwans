@@ -82,6 +82,25 @@ def test_text_that_isnt_a_call_to_an_offered_tool_stays_text(text: str) -> None:
     assert find_call(text, TOOLS) is None
 
 
+def test_an_mcp_tool_called_by_its_own_name_is_found_when_only_one_server_has_it() -> None:
+    tools = {
+        **TOOLS,
+        "mcp__zands__search_news": {"properties": {"query": {"type": "string"}}},
+        "mcp__a__lookup": {"properties": {}},
+        "mcp__b__lookup": {"properties": {}},
+    }
+    # qwen2.5-coder on Ollama, with the server prefix left off
+    text = '{"name": "search_news", "arguments": {"query": "capital of Australia"}}'
+    assert find_call(text, tools) == TextCall(
+        "", "mcp__zands__search_news", {"query": "capital of Australia"}
+    )
+    xml = "<function=search_news>\n<parameter=query>\nNvidia\n</parameter>\n</function>"
+    assert find_call(xml, tools) == TextCall("", "mcp__zands__search_news", {"query": "Nvidia"})
+    assert find_call('{"name": "lookup", "arguments": {}}', tools) is None  # two servers
+    assert find_call('{"name": "news", "arguments": {}}', tools) is None  # not a whole name
+    assert find_call('{"name": "Search", "arguments": {}}', tools) is None  # not a built-in
+
+
 def test_a_call_in_qwen3_coders_form_is_found() -> None:
     # What qwen3-coder:30b on Ollama wrote on an eval task, ending its turn with nothing done.
     text = (
