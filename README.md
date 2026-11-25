@@ -711,14 +711,31 @@ Set `web = false` to turn them off.
 Other models have no web tools of their provider's, so Zwans gives them two of its own, which
 run on this machine:
 
-- `WebFetch` reads a page and returns it as text, with headings and links kept, up to 60,000
-  characters. It keeps the page's content, its `<main>` or `<article>`, and leaves out menus,
-  banners, footers and hidden elements, which on a typical docs page is a quarter to two
-  thirds less to read. Given a `question` as well, a model reads the page and only its
-  answer comes back: a few hundred tokens instead of the page's thousands. That model is
-  `subagent_model` when you set one, so a cheap one can do the reading for an expensive one.
-  It only reaches public addresses, and each redirect is checked too; for a server on this
-  machine, the model uses `curl` through Bash.
+- `WebFetch` reads a page and returns it as Markdown. It keeps the page's content, its
+  `<main>` or `<article>`, and leaves out menus, banners, footers and hidden elements, which
+  on a typical docs page is a quarter to two thirds less to read. Code blocks come through
+  exactly as written, fenced with their language, and tables as Markdown tables. A PDF comes
+  back as its text, page by page. A file on GitHub is fetched as the raw file, and an issue
+  or pull request through GitHub's API, as its description and comments without the page
+  around them. A page drawn by its JavaScript, which has little in its HTML, says so and
+  points to the Browser tool.
+
+  How much comes back at once follows the model's context window: up to 60,000 characters,
+  or a quarter of the window when the provider says how big it is (about 24,000 characters
+  for a local model with 32k tokens). A longer page is cut at a paragraph break and says
+  which `offset` to fetch it again with for the rest. Given a `question` as well, a model
+  reads the page and only its answer comes back: a few hundred tokens instead of the page's
+  thousands. That model is `subagent_model` when you set one, so a cheap one can do the
+  reading for an expensive one. A page too long for it is read in parts, up to four, and the
+  answers combined.
+
+  A server that times out or answers 429, 502, 503 or 504 is asked twice more, waiting as
+  long as its `Retry-After` says, up to ten seconds. A page fetched in the last ten minutes is
+  read from memory, so reading on with `offset` or asking another question about it doesn't
+  fetch it again. It only reaches public addresses, and each redirect is checked too. The
+  connection goes to the address that was checked, so a name that answers with a public
+  address and then a private one (DNS rebinding) is refused. For a server on this machine,
+  the model uses `curl` through Bash.
 - `WebSearch` is offered once the config says where to search: Brave's API, with its key in
   `BRAVE_API_KEY`, or a SearXNG server you run.
 
