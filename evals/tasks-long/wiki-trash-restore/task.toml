@@ -1,0 +1,60 @@
+# leafwiki, a wiki kept in a folder of JSON files (~4,400 lines of package code in 38
+# modules, plus ~600 lines of visible tests). It has pages with revisions, a markup
+# language with [[links]], a link graph (backlinks, wanted, orphans), a tag index, a saved
+# full-text index rebuilt on open when stale, attachments stored by hash, threaded comments,
+# watchers with an outbox, a recent-changes log, an RSS feed, a sitemap, static HTML and
+# Markdown exports, an importer, stats, a maintenance job, backups (a store dump), a
+# `check` command, a 1.x -> 2 upgrade, settings with strict keys, and a CLI. Deleting a
+# page throws it away. The feature: a trash, specified in the README's last section.
+#
+# Right answer (solution/, 15 files): delete_page writes a trash record (the page dict,
+# its comments, its watchers, deleted_at/by) and drops the page from every in-memory view
+# as before; trash()/restore_page()/purge_page() on Wiki; new Store methods for trash
+# records in base/memory/dir stores, included in dump/load_dump (backups); restore re-adds
+# the page to the slug map, tag index, link graph and search index, puts back comments
+# (CommentBook.put_page) and watchers, logs `restore`, notifies `restored`, raises
+# PageExists on a slug clash unless title= is given; purge removes the record and every
+# attachment blob no live or trashed page still uses, logs `purge`, notifies `purged` to
+# the watchers kept in the record; TrashEntryNotFound; CHANGE_KINDS and watch EVENTS gain
+# the new kinds; settings gain trash_retention_days (>= 1, default 30); maintenance purges
+# entries older than N days (strictly), reports trash_purged, and counts trashed pages'
+# blobs as used by the orphan-blob sweep; feeds drop <link> for items whose page_id isn't
+# live (today it falls back to the old title's slug: a dangling link); stats gain
+# `trashed`; the 1.x upgrade turns "deleted": true pages into trash entries (with their
+# comments, deleted_by "upgrade") instead of dropping them; CLI trash/restore/purge.
+#
+# Why it's hard: nothing is clever, but the change touches most layers and the easy
+# version ("keep the page record with a flag", or "move it aside") breaks something
+# somewhere: a flag leaks into the index rebuild on open, the tag/link rebuilds, the
+# sitemap/exports/stats loops, rename/create uniqueness checks; moving it aside forgets to
+# re-index/re-link/re-tag on restore, the blob sweep eats the trashed attachments, the
+# backup dump enumerates collections and misses the trash, comments/watchers left in their
+# own stores leak into stats/recent_comments/check, the feed keeps linking, the 1.x upgrade
+# still drops flagged pages, purge leaves blobs on disk. The hidden tests (about 85 plus a
+# seeded scenario) check each subsystem through the public API and documented outputs:
+# basics/exact restore/title rules (11), links/backlinks/tags/watched_by/recent_comments
+# (8), search live/reopen/rebuild/missing index (6), sitemap/static/Markdown export/feed/
+# recent changes (6), stats (3), watcher events incl. maintenance (5), storage: no trace
+# after purge, shared blobs, backups, check (6), maintenance: boundary, setting, blob
+# sweep, revision pruning (8), 1.x upgrade (5), CLI (5), and 10 random histories (memory
+# and disk, 70 steps each, with reopens and maintenance) against a model.
+#
+# Decoys (each = solution with one subsystem missed): sweep-ignores-trash (maintenance
+# deletes trashed pages' attachment contents), backup-drops-trash (dump/load_dump skip the
+# trash), feed-links-gone-pages (feeds.py unchanged), restore-skips-search (restore doesn't
+# re-index), restore-skips-backlinks (restore doesn't re-add the page's links),
+# upgrade-drops-deleted (migrate.py unchanged), purge-leaves-attachments (purge leaves
+# blobs for the sweep), watchers-not-kept (watchers dropped at delete), comments-left-in-
+# place (comments stay in the comment store while trashed), retention-counts-whole-days
+# (purges at exactly N days).
+prompt = """\
+People keep deleting the wrong page in our wiki, and a delete in leafwiki is forever (and, \
+from what I've seen, not even tidy about it). We sat down and agreed how a trash should \
+work; it's written up at the end of the README under "The trash". Can you build it? It has \
+to hold up everywhere in leafwiki, not just in delete_page: a page in the trash should be \
+gone from everything until someone restores it, and then come back exactly as it was.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 2400
+max_cost = 4.00

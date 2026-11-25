@@ -332,6 +332,53 @@ other `ZWANS_*` variables. Add `--executor jail` on Linux to run commands in zwa
 The dated entries behind the sections above, newest first, as written at the time. Later
 entries sometimes correct earlier ones.
 
+### 2026-11-24: a long tier, and the first one Opus wins
+
+**Setup.** Six new tasks in `evals/tasks-long/`, each a 4,000-6,000-line project asked for
+one cross-cutting change (exact money, time zones, a trash, roles and redaction, merging
+contacts, product variants) that the solution makes in 15 to 34 files. One attempt per task
+on Haiku 5.5 low ($3 budget), Sonnet 5.5 low ($8) and Opus 5.5 medium ($12, then $6 for the
+two attempts the first budget cut off). Reports: `evals/reports/20261125-long-*`.
+
+| Task | Haiku 5.5 low | Sonnet 5.5 low | Opus 5.5 medium |
+|---|---|---|---|
+| ledger-exact-money | fail* | fail* | pass, $3.27 |
+| clinic-zoned-bookings | pass, $0.11 | pass, $1.06 | pass, $2.69 |
+| wiki-trash-restore | pass, $0.07 | pass, $0.50 | pass, $1.61 |
+| helpdesk-agent-roles | fail* | fail | pass, $2.12 |
+| crm-merge-contacts | fail | fail* | pass, $1.41 |
+| catalog-product-variants | pass, $0.13 | fail | pass, $2.84 |
+| **Passed** | 3/6 (5/6 after fixes) | 2/6 (4/6 after fixes) | 6/6 |
+| **$ per attempt** | 0.10 | 0.88 | 2.83 |
+| **Model calls** | 43.5 | 24.8 | 33.8 |
+
+**Four of the failures were the tests' fault** (marked *). Every failed attempt missed only
+one or two of about 180 hidden tests, so I read each one against the README:
+
+- ledger: both models made a report's `to_dict` hold amounts as export-form strings; the
+  test wanted Decimals, which the README never says (it only fixes what `--json` prints).
+- helpdesk (Haiku): an unknown `--role` exited 2, as an argparse usage error; the test
+  wanted 1. Both fit.
+- crm (Sonnet): each CLI run restarts the `ORBIT_NOW` clock and the timeline sorts by time,
+  so whether a note added after a merge sorts last depends on how many clock readings the
+  merge took.
+- catalog: an importer row giving a variant its own price equal to the one it inherited
+  counts as "unchanged" in the test; Sonnet's "updated" fits the README too. (Sonnet's
+  attempt also failed a fair test, so it stays a fail.)
+
+All four now accept either reading. The rest were real misses of stated rules: Haiku put a
+deal's contacts in the wrong order after a merge ("in A's place"), Sonnet let a refusal's
+audit entry vanish when an outer transaction rolled back, and Sonnet left stock out of
+`product show`. Opus ran after the fixes; Haiku and Sonnet ran before, and their "after
+fixes" counts are worked out from which tests failed, not re-run.
+
+**What it means.** This is the first tier where Opus is clearly ahead: 6/6 against 4/6 and
+5/6, and its attempts were the only ones with no misses at all. It pays for it, at 3 to 28
+times the cost. Haiku's failures look like running out: three of its six attempts hit the
+50-step limit (`max_steps`), and one of those still passed. One attempt per task is too
+few to rank Haiku and Sonnet against each other; the next step is three repeats, which on
+Sonnet would cost about $16.
+
 ### 2026-11-24: every suite on three models, 155 of 156 attempts passed
 
 **Setup.** Every suite, one attempt per task, on `claude-haiku-5-5` low, `claude-sonnet-5-5`

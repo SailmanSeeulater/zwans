@@ -1,0 +1,66 @@
+{
+  "version": 2,
+  "app": "billfold",
+  "settings": {"base_currency": "EUR", "large_transaction": null, "history_limit": 50},
+  "counters": {"acc": 2, "rec": 1, "rule": 1, "txn": 8, "xfer": 1},
+  "accounts": [
+    {"id": "acc-1", "name": "Checking", "currency": "EUR", "kind": "checking",
+     "opening_balance": 1200.0, "opened": "2025-12-01", "closed": false, "notes": ""},
+    {"id": "acc-2", "name": "Savings", "currency": "EUR", "kind": "savings",
+     "opening_balance": 10000.0, "opened": "2025-12-01", "closed": false, "notes": ""}
+  ],
+  "categories": ["Food", "Food:Groceries", "Gifts", "Rent", "Salary", "Subscriptions"],
+  "transactions": [
+    {"id": "txn-1", "account": "acc-1", "date": "2026-01-02", "amount": 2400.0,
+     "payee": "ACME GmbH", "memo": "", "category": "Salary"},
+    {"id": "txn-2", "account": "acc-1", "date": "2026-01-05", "amount": -1100.0,
+     "payee": "Landlord", "memo": "", "category": "Rent", "recurring_id": "rec-1"},
+    {"id": "txn-3", "account": "acc-1", "date": "2026-01-10", "amount": -250.0,
+     "payee": "Transfer to Savings", "memo": "", "category": null, "transfer_id": "xfer-1"},
+    {"id": "txn-4", "account": "acc-2", "date": "2026-01-10", "amount": 250.0,
+     "payee": "Transfer from Checking", "memo": "", "category": null, "transfer_id": "xfer-1"},
+    {"id": "txn-5", "account": "acc-1", "date": "2026-01-12", "amount": -38.75,
+     "payee": "REWE Markt", "memo": "", "category": "Food:Groceries", "cleared": true},
+    {"id": "txn-6", "account": "acc-1", "date": "2026-02-02", "amount": 2400.0,
+     "payee": "ACME GmbH", "memo": "", "category": "Salary"},
+    {"id": "txn-7", "account": "acc-1", "date": "2026-02-05", "amount": -1100.0,
+     "payee": "Landlord", "memo": "", "category": "Rent", "recurring_id": "rec-1"},
+    {"id": "txn-8", "account": "acc-1", "date": "2026-02-14", "amount": -64.5,
+     "payee": "Blumen Rausch", "memo": "", "category": "Gifts"}
+  ],
+  "budgets": [
+    {"category": "Food", "month": "2026-02", "amount": 400.0, "rollover": false}
+  ],
+  "rules": [
+    {"id": "rule-1", "name": "Netflix", "conditions": ["payee~netflix"],
+     "category": "Subscriptions", "rename": null, "split": null, "tags": [],
+     "priority": 100, "enabled": true}
+  ],
+  "recurring": [
+    {"id": "rec-1", "account": "acc-1", "payee": "Landlord", "amount": -1100.0,
+     "frequency": "monthly", "start": "2026-01-05", "next_date": "2026-03-05",
+     "category": "Rent", "memo": "", "end": null, "instalments": null, "done": 2,
+     "active": true}
+  ],
+  "rates": [
+    {"base": "EUR", "quote": "USD", "date": "2026-01-01", "rate": 1.08}
+  ],
+  "balances": {
+    "acc-1": {"amount": 3446.75, "count": 7},
+    "acc-2": {"amount": 10250.0, "count": 1}
+  },
+  "history": [
+    {"seq": 1, "at": "2026-02-05T08:00:01Z", "op": "recurring",
+     "summary": "booked 1 recurring entries", "before": [],
+     "after": [{"id": "txn-7", "account": "acc-1", "date": "2026-02-05", "amount": -1100.0,
+                "payee": "Landlord", "memo": "", "category": "Rent", "splits": [],
+                "tags": [], "transfer_id": null, "recurring_id": "rec-1", "cleared": false,
+                "import_ref": null}]},
+    {"seq": 2, "at": "2026-02-14T17:30:12Z", "op": "add", "summary": "added txn-8",
+     "before": [],
+     "after": [{"id": "txn-8", "account": "acc-1", "date": "2026-02-14", "amount": -64.5,
+                "payee": "Blumen Rausch", "memo": "", "category": "Gifts", "splits": [],
+                "tags": [], "transfer_id": null, "recurring_id": null, "cleared": false,
+                "import_ref": null}]}
+  ]
+}

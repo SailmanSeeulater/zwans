@@ -1,0 +1,28 @@
+{
+  "clinics": [
+    {"id": "camden", "name": "Camden Clinic", "zone": "Europe/London", "hours": "08:30-17:30", "days": "mon-fri", "phone": "+44 20 7946 0000"},
+    {"id": "brooklyn", "name": "Brooklyn Clinic", "zone": "America/New_York", "hours": "07:30-19:00", "days": "mon-sat"}
+  ],
+  "rooms": [
+    {"id": "C1", "clinic": "camden", "name": "Room 1"},
+    {"id": "B1", "clinic": "brooklyn"}
+  ],
+  "clinicians": [
+    {"id": "dr-osei", "name": "Dr Ama Osei", "clinic": "camden"},
+    {"id": "dr-park", "name": "Dr Jun Park", "clinic": "brooklyn"}
+  ],
+  "patients": [
+    {"id": "P0001", "name": "Jo Bloggs", "phone": "+44 7700 900001"},
+    {"id": "P0002", "name": "Maria Lopez", "email": "maria@example.com"}
+  ],
+  "bookings": [
+    {"id": "A0001", "clinic": "camden", "clinician": "dr-osei", "room": "C1", "patient": "P0001", "when": "2025-06-02 09:30", "duration": 30, "type": "consult", "state": "booked"},
+    {"id": "A0002", "clinic": "camden", "clinician": "dr-osei", "room": "C1", "patient": "P0001", "when": "2025-06-02 14:00", "duration": 30, "type": "review", "state": "done"},
+    {"id": "A0003", "clinic": "brooklyn", "clinician": "dr-park", "room": "B1", "patient": "P0002", "when": "2025-11-03 10:00", "duration": 60, "type": "consult", "state": "booked", "notes": "interpreter"}
+  ],
+  "reminders": [
+    {"id": "R0001", "booking": "A0001", "hours": 24, "due": "2025-06-01 09:30", "sent": "2025-06-01 09:31"},
+    {"id": "R0002", "booking": "A0003", "hours": 24, "due": "2025-11-02 10:00", "sent": null}
+  ],
+  "next_ids": {"patient": 2, "booking": 3, "reminder": 2}
+}

@@ -1,0 +1,33 @@
+{
+ "format": "shopdesk",
+ "version": 1,
+ "saved_at": "2025-11-20T17:30:00Z",
+ "settings": {"shop_name": "Corner Shop", "currency": "GBP"},
+ "counters": {"order": 2, "cart": 3},
+ "categories": [
+  {"slug": "home", "name": "Home", "parent": null},
+  {"slug": "kitchen", "name": "Kitchen", "parent": "home"}
+ ],
+ "products": [
+  {"sku": "MUG-01", "name": "Blue mug", "price": "11.00", "cost": "4.00", "category": "kitchen",
+   "brand": "Potter", "barcode": "5012345678900", "tax_class": "standard", "reorder_level": 5,
+   "active": true},
+  {"sku": "JUG-04", "name": "Milk jug", "price": "18.50", "cost": "7.25", "category": "kitchen",
+   "brand": "Potter", "barcode": "5012345678948", "tax_class": "standard", "reorder_level": 0,
+   "active": true},
+  {"sku": "OLD-99", "name": "Discontinued tray", "price": "5", "cost": "1.10", "category": null,
+   "brand": "", "barcode": null, "tax_class": "standard", "reorder_level": 0, "active": false}
+ ],
+ "stock": {"MUG-01": 12, "JUG-04": 3, "OLD-99": 0},
+ "orders": [
+  {"number": "SO-000001", "placed_at": "2025-11-18T10:00:00Z", "customer": "Ann Lee",
+   "status": "placed", "lines": [
+    {"sku": "MUG-01", "name": "Blue mug", "qty": 2, "price": "11.00"},
+    {"sku": "JUG-04", "name": "Milk jug", "qty": 1, "price": "18.50"}
+   ]},
+  {"number": "SO-000002", "placed_at": "2025-11-19T15:45:00Z", "customer": "Bob Ray",
+   "status": "cancelled", "lines": [
+    {"sku": "MUG-01", "name": "Blue mug", "qty": 4, "price": "11.00"}
+   ]}
+ ]
+}

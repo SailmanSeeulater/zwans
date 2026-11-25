@@ -1,0 +1,68 @@
+# shopdesk, the back office of a small shop (~4,300 lines of package code in 45 modules,
+# plus ~1,000 lines of visible tests): catalog and category tree, price lists and
+# discounts, a stock ledger over several warehouses with low-stock alerts, carts /
+# checkout / orders / invoices with VAT, a search index with facets, an XML and a CSV
+# product feed, a supplier CSV importer, sales and stock reports, an outbox of
+# notifications, an audit log, a versioned JSON data file with migrations and backups,
+# and an argparse CLI, all wired through an event bus in shop.py. Everything is keyed by
+# product SKU. The feature: product variants, specified in the README's "Product
+# variants" section (the prompt points there).
+#
+# Right answer (solution/, 26 files changed): a Variant model and Product.variants
+# (products made without variants get one whose SKU is the product's); the catalog keeps
+# a variant-SKU index, get() accepts product or variant SKUs, resolve() only variant SKUs,
+# add/update/remove variant, SKU and barcode uniqueness across all variants; and then
+# every place that dealt in product SKUs: price engine (list entry for the variant, then
+# for the product, then the variant's price, then the product's), price lists (store the
+# entry under the SKU given, not the resolved product), discounts (product target matches
+# the variant's product), ledger (moves under the variant SKU, product-only SKU refused),
+# alerts (variant's own reorder level, recheck on product/variant level changes),
+# notifications (variant SKU, display name, per-warehouse stock), carts (display name
+# "Logo tee (colour: red, size: M)"), orders and invoices (product_sku on lines, invoice
+# EAN from the variant), search (variant SKUs/barcodes/option values in the tokens, any
+# variant in stock, lowest variant price, options facet, options filter), feed items (one
+# per variant, item_group_id), the CSV columns AND the separate XML field list plus
+# <option> elements, the importer (parent_sku/options columns, variant rows, a variant
+# SKU without parent updating that variant), the sales report (roll up by product_sku,
+# by_variant=True per variant, category report via the product), the stock report (one
+# row per variant) and valuation (sum of the variants' stock), the codec, a migration
+# step for old files (variants from the old barcode, product_sku on old order/invoice
+# lines), the backup's own list of readable versions, the Shop facade and the CLI
+# (variant add/remove, product show, search --option, report sales --by-variant).
+#
+# Why it's hard: no single edit is clever; it is ~25 coordinated edits across every
+# layer, and making catalog.get() accept variant SKUs makes most code "work" while
+# silently using the product's price, barcode, reorder level, name or stock. The easy
+# misses: the discount check compares the line SKU, the price list stores entries under
+# the resolved product, alerts read product.reorder_level, the notification uses the
+# product name, the search doc reads stock and price by product SKU, the XML feed has
+# its own FIELDS tuple, the importer drops parent_sku into `extras`, the sales report
+# groups by line SKU, valuation sums on_hand(product.sku), old orders lack product_sku,
+# and backup.py hard-codes READABLE_VERSIONS = (1, 2) so a version bump breaks restore.
+#
+# Hidden tests (106): catalog 10, pricing 6, stock/alerts/notifications 7, carts/orders/
+# invoices 7, search 7, feeds 7, importer 6, reports 6, storage/backups 7, CLI 5, and 25
+# seeded random histories (receive, sell, cancel, transfer, add variant, product and
+# variant price and reorder changes, save-and-reopen) checked after every step against
+# tests/variant_model.py (stock per warehouse, prices, open alerts) and every 20 steps on
+# the views (both sales reports, feed, stock report, valuation, search in-stock).
+# Visible tests (88) test today's behaviour and still pass with the solution.
+#
+# Decoys (each is the solution with one place missed): discount-matches-variant-sku,
+# alerts-ignore-variant-reorder-level, xml-feed-not-updated, sales-report-not-rolled-up,
+# search-stock-and-price-by-product-sku, importer-not-updated, backup-refuses-new-version,
+# notification-uses-product-name, old-orders-lack-product-sku,
+# valuation-counts-product-sku-only, price-list-entries-stored-on-product.
+prompt = """\
+We've started selling clothes, so shopdesk needs product variants: a tee in three sizes \
+and two colours is one product with six variants, each with its own SKU, stock and \
+sometimes its own price or barcode. We agreed on the design and wrote it up in the \
+README's "Product variants" section. Can you implement it? It has to work everywhere in \
+shopdesk, not just in the catalog. Our current data file and our old backups must keep \
+working: every product we have today simply becomes a product with one variant that has \
+the same SKU.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 2400
+max_cost = 4.00

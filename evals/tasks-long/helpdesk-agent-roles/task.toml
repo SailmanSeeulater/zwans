@@ -1,0 +1,84 @@
+# deskline, a small helpdesk (~5,000 lines of package code in 44 modules, plus ~600 lines of
+# visible tests): customers, agents, teams, queues with keyword routing, tickets with a
+# status workflow, public replies and internal notes, macros (lists of ticket actions,
+# all-or-nothing), bulk updates, merging, saved searches with a small query language, SLA
+# targets with a breach job, satisfaction surveys, an email-in gateway (parser + routing)
+# and templated email-out to an outbox, CSV export/import, backups, reports (SLA, workload,
+# satisfaction), an audit log and its viewer, a JSON API layer of handler functions, a
+# JSON file store with v1/v2 upgrades and all-or-nothing transactions, and an argparse CLI.
+# Every service function takes a Context saying who acts (an agent, or the system).
+#
+# The change: roles (viewer/agent/lead/admin) with the permission table and the redaction
+# rules written up in the README's "Roles and permissions" section, enforced on every
+# operation, with contact details (customer email/phone/address) shown as "[redacted]" in
+# every output for roles without contact.view. Denials raise PermissionDenied (code
+# "forbidden", .permission), change nothing, and leave a permission.denied audit entry that
+# survives the rollback.
+#
+# Places it must reach (solution/ touches 34 files; hidden test files in brackets):
+#  1. Agent.role (default "agent", old files load as agents), create_agent(role=),
+#     set_role, the API (role in agent views, agents.create role, agents.set_role) and the
+#     CLI (agent add --role, agent role, role column) [test_hidden_roles]
+#  2. A denial that outlives the rollback: the store's transaction restores everything on
+#     error, audit entries included, so the refusal must be recorded after the rollback and
+#     saved to the file [test_hidden_ticket_permissions, scenario, api, cli]
+#  3. tickets: create/reply/note/status/priority/queue/tags/take/assign/delete, with the
+#     agent-role "own or unassigned" rule; take = ticket.edit, assigning others = assign
+#     [test_hidden_ticket_permissions, scenario]
+#  4. customers, the customer importer; agents/teams/queues/settings/backup/restore/jobs
+#     (admin); SLA policies (sla.manage) [test_hidden_roles]
+#  5. macros: macro.manage for editing; apply needs macro.run AND each action's own
+#     permission (the actions go through unchecked change_* helpers) [compound, scenario]
+#  6. bulk updates: every change on every ticket (also via unchecked helpers) [compound]
+#  7. merging: ticket.edit on both tickets [compound, scenario]
+#  8. search.run: redacted rows, email:/phone: terms need contact.view [search]
+#  9. saved searches: save/share permissions; run_saved builds its own rows and compiles
+#     its own query, so it needs its own redaction and contact-term check, with the
+#     runner's permissions [search, cli]
+# 10. API views: requester, comment from_address, customers, rows [api]
+# 11. CSV exports (tickets and customers) + the export query's contact terms [outputs]
+# 12. reports: SLA report missed-target email/phone, satisfaction follow-up [outputs]
+# 13. audit viewer: audit.view; redact email/phone/address/from_address in details,
+#     including inside "changes" lists [outputs]
+# 14. agent notifications rendered for the RECIPIENT's role (templates.ticket_context is
+#     shared with customer mail, which must stay unredacted); previews for the asker [mail]
+# 15. the CLI: ticket show / customer show / customer list format straight from models,
+#     the outbox listing, exit status 3 [cli]. (A builder had left an argparse clash in
+#     the repo, `audit --actor` sharing dest with the global --as; it was a lone trap
+#     rather than a place the change must reach, so the repo ships with it fixed.)
+# 16. the mail gateway must keep working whatever context feeds it (it creates tickets
+#     through the now-checked tickets.create) [mail]
+# Plus test_hidden_scenario: 8 seeded random histories x 220 steps of every operation by
+# every role (and the system), with role changes mid-run, checked against an independent
+# statement of the table (oracle.py): refused <=> the table says so, the permission named
+# is one that's missing, a refusal changes nothing and adds exactly one denial entry; and
+# periodically each agent's search/API/export output leaks contact details iff lead/admin.
+#
+# Expected misses: the macro/bulk paths (they call the unchecked helpers), the merge
+# source, run_saved's own row builder and query, the denial vanishing with the rollback,
+# the audit viewer's nested "changes", notifications by actor role, the CLI's direct
+# model formatting, the satisfaction follow-up list.
+#
+# Decoys (solution with one subsystem missed), each fails the check:
+#   macro-checks-run-only        apply_macro checks macro.run only
+#   bulk-checks-first-ticket     bulk checks only the first ticket
+#   merge-checks-target-only     merge checks the target, not the source
+#   csv-export-unredacted        exports check `export` but don't redact
+#   notifications-by-actor-role  agent mail redacted by the actor's role, not the recipient's
+#   saved-search-owner-role      saved searches run with the owner's permissions
+#   denials-rolled-back          the denial entry is written inside the transaction
+#   audit-viewer-unredacted      audit viewer checks audit.view but doesn't redact
+#   sla-report-unredacted        SLA report shows contact details to everyone
+prompt = """\
+Right now anyone with an agent login can do anything in deskline, and every screen, export \
+and email shows customers' phone numbers and home addresses to whoever looks. We've agreed \
+on roles and contact-detail redaction, written up in the README under "Roles and \
+permissions". Please implement that. The permissions have to hold for every operation \
+however it's reached, and contact details must not leak through any output to a role that \
+isn't allowed to see them. Existing helpdesk files, and scripts that don't know about roles, \
+should keep working.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 2400
+max_cost = 4.00

@@ -1,0 +1,42 @@
+{
+  "format": 1,
+  "site_name": "Allotment Notes",
+  "pages": [
+    {
+      "title": "Front Page",
+      "tags": ["home"],
+      "history": [
+        {"at": "2024-04-02T08:00:00Z", "author": "ida", "summary": "Created", "body": "Our plot. See [[Potatoes]] and [[Runner Beans]]."},
+        {"at": "2024-05-10T19:30:00Z", "author": "jon", "summary": "beans", "body": "Our plot. See [[Potatoes]], [[Runner Beans]] and [[Compost]]."}
+      ]
+    },
+    {
+      "title": "Potatoes",
+      "tags": ["Veg", "spring"],
+      "history": [
+        {"at": "2024-04-03T09:15:00Z", "author": "ida", "summary": "Created", "body": "Chit the seed potatoes in February. Earth up when shoots show."}
+      ]
+    },
+    {
+      "title": "Old Shed",
+      "tags": ["structures"],
+      "deleted": true,
+      "history": [
+        {"at": "2024-04-04T10:00:00Z", "author": "jon", "summary": "Created", "body": "The shed by the gate leaks; the felt roof needs replacing."},
+        {"at": "2024-06-01T11:00:00Z", "author": "ida", "summary": "gone", "body": "The shed was taken down in May. Wheelbarrow lives in the [[Compost]] corner now."}
+      ]
+    },
+    {
+      "title": "Compost",
+      "tags": ["soil"],
+      "history": [
+        {"at": "2024-05-11T07:45:00Z", "author": "jon", "summary": "Created", "body": "Two bays. Turn monthly. Greens and browns half and half."}
+      ]
+    }
+  ],
+  "comments": [
+    {"page": "Potatoes", "author": "jon", "at": "2024-04-05T12:00:00Z", "text": "Maris Piper did best last year."},
+    {"page": "Old Shed", "author": "ida", "at": "2024-04-06T12:00:00Z", "text": "I can bring roofing felt on Saturday."},
+    {"page": "Compost", "author": "ida", "at": "2024-05-12T12:00:00Z", "text": "Please no cooked food in the bays."}
+  ]
+}

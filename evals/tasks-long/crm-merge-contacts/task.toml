@@ -1,0 +1,68 @@
+# orbit, a small CRM (~4,250 lines of package code in 45 modules plus 9 __init__ files, and
+# ~950 lines of visible tests): contacts, companies, deals with stages and a stage history, notes/tasks/emails,
+# tags, typed custom fields, an activity timeline that keeps its own copy of contact names,
+# a duplicate-detection index, a full-text search index and a tag index (all in memory,
+# rebuilt on open, kept current from an event bus), webhooks through an outbox, CSV import
+# (matching rows by id, then by email through the dedupe index) and export, JSON and vCard
+# exports, an undo log saved in the data file (store watchers record before-images per
+# operation, nested operations make one entry, failures roll back), backups whose restore
+# copies only the tables it knows (backup.REQUIRED), reports that loop over the raw tables,
+# reminders, a dispatcher, and an argparse CLI. Contacts are never deleted today, and ids
+# are "one past the highest id in the table". The feature: merging duplicate contacts,
+# specified in the README's "Merging contacts" section (the prompt points there).
+#
+# Right answer (solution/, 17 changed files + services/merge.py): a tombstone table
+# ("merged": id -> into) added to store TABLES and backup.REQUIRED; resolve_contact_id()
+# following chains, used by ContactService.get/exists and by every place that looks a
+# contact up on its own: activities (_contact, notes/tasks/emails listings), deals
+# (_check_contacts, move's contact_id, for_contact, remove_contact), companies
+# (set_primary_contact), fields.set, timeline.for_contact, webhooks.subscribe, the CSV
+# importer's id column, the JSON contact export, Crm.duplicates_of; ids.next_id counting
+# tombstoned ids; MergeService.merge inside one Crm.operation: A's emails/phones/tags/
+# custom fields (A wins unless empty; multi = union, A first)/company/last_contacted_at,
+# notes/tasks/emails/subscriptions re-pointed, deal contact lists (B removed if A is there,
+# else replaced in place) and stage history, company primary contacts, timeline rows
+# re-pointed AND renamed to A's name, B deleted, tombstone written, a "merged" timeline
+# entry, then deal.updated per changed deal and one contact.merged (payload {"contact",
+# "merged_id"}), with "contact.merged" added to webhooks.EVENTS; the search, dedupe and tag
+# indexes handle contact.merged (drop B, reindex A); `orbit merge KEEP OTHER`.
+#
+# Why it's hard: nothing is clever; it is ~25 coordinated edits and the obvious version
+# (move the notes, delete B, add an alias lookup in ContactService.get) misses most of
+# them. Easy misses: the timeline's copied contact_name, a deal listing A twice, the stage
+# history's contact ids, the seven services that call store.get("contacts", id) directly
+# instead of ContactService.get, the timeline's raw-id filter, the importer's id column,
+# the dedupe index (B's addresses must now find A, B must vanish from duplicates), the
+# search index (B's notes must find A, B's name must find nobody), the tag index, ids
+# reused because next_id is max+1, backup.REQUIRED silently dropping a new table on
+# restore, webhooks.EVENTS filtering out the new event, emitting contact.updated by
+# reusing ContactService.save, and making the merge one undo step.
+#
+# Hidden tests (95 new + the 76 visible): kept contact 12, references 11, ids accepted
+# everywhere 10, search/duplicates/tags live and after reopening 11, webhooks 6, undo 6,
+# storage/backup/v1 file 5, import/export/reports 9, CLI 5, and 20 seeded random
+# histories (contacts, notes, deals, stage moves, tags, fields, merges incl. chains and
+# merged ids as arguments, undo, save-and-reopen; ~60 merges, ~30 through tombstones)
+# checked after every step against tests/merge_model.py (contacts, emails, tags, fields,
+# notes per contact, timeline names, id resolution, deal contacts and history, tag counts,
+# duplicate groups, search by note text).
+#
+# Decoys (each is the solution with one place missed; failing hidden tests in brackets):
+# timeline-keeps-old-names [21], deal-lists-a-twice [12], stage-history-left-on-b [7],
+# subscriptions-stay-on-b [2], merge-sends-contact-updated [4],
+# multi-fields-not-combined [2], merge-not-undoable [12], duplicates-index-not-told [21],
+# search-index-not-told [10], import-ignores-merged-ids [1], backup-drops-merges [1],
+# merged-ids-reused [12], timeline-ignores-merged-ids [4],
+# contact-merged-not-a-webhook-event [5].
+prompt = """\
+Our sales people keep adding the same person twice (a new email address, a typo in the \
+name...) and then the history is split between two contacts. orbit needs a way to merge \
+duplicates. We worked out how it should behave and wrote it down in the README, under \
+"Merging contacts". Can you build it? It has to hold up everywhere: the Python API and \
+the CLI, search and duplicate detection, the timeline, imports and exports, reports, \
+webhooks, undo and backups. Old data files must keep working.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 2400
+max_cost = 4.00

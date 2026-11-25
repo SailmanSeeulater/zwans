@@ -1,0 +1,66 @@
+# billfold, a personal bookkeeping app (~4,600 lines in 39 modules plus ~860 lines of
+# visible tests): accounts in several currencies (JPY has no decimals), transactions,
+# splits, transfers with exchange rates, categorisation rules, budgets with rollover and
+# weighted allocation, recurring entries with instalments, undo history, search, alerts
+# (subscribers + alerts.jsonl), CSV and bank-statement importers, CSV/JSON/QIF exports, a
+# versioned JSON data file with a persisted balance cache, tar.gz backups with a manifest,
+# reconcile, monthly/yearly/net-worth reports and a CLI. Money is a float everywhere.
+#
+# The change: the README's "Exact money" section (8 rules). Decimal everywhere with the
+# currency's places, floats refused (TypeError), extra places refused (MoneyError /
+# ImportProblem with the line), exact arithmetic, rounding only in conversion (half up,
+# once; net-worth total from exact unrounded conversions), averages (half up), even shares
+# (leftover units to the first parts), weighted shares (largest remainder, ties first),
+# data file v3 with string amounts and old floats read at repr + half up in EVERY section,
+# exports/alerts/--json as plain strings, backups with string manifest balances and old
+# backups restorable, CLI reading every amount form.
+#
+# Places the solution touches (27 files): money.py (parse/to_amount/round/share helpers),
+# models, book (amounts, even split, transfer with explicit rate, undo revive with currency),
+# rates (Decimal, half-up, divide by the opposite rate), rules (condition amounts, percent
+# splits = largest remainder), search (amount terms), audit (history snapshots as strings),
+# notifications (payload strings), budgets (Decimal lines, allocate = largest remainder),
+# recurring (instalments = even share), reconcile, storage/serialize (strings, cache,
+# threshold, rates, percentages), storage/migrations (v2->v3 converting every section,
+# including balances and history), backup (manifest strings, exact verify, old manifests),
+# reports monthly/yearly (exact totals, half-up averages) and networth (exact total),
+# exporters csv/json/qif (currency places: JPY), importers base/csv/statement (Decimal,
+# place check with line, exact statement checks), cli parser/output/commands.
+# Easy to miss: the persisted balance cache, the undo history (in memory and in old files),
+# alert payloads, the QIF and CSV exporters only differing for JPY, the search query
+# parser, rule conditions, the net-worth total, the instalment and allocation remainder
+# rules, old rates/percentages/budgets/thresholds, the backup manifest.
+#
+# Hidden tests (186, ~1.5 s): copies of the 90 visible tests, plus per subsystem: core
+# types/input/conversion/split 14, rules+search 8, budgets+alerts 8, recurring 6,
+# reports 9, storage+migration 13, exports 8, imports 10, backup 5, CLI 9, and 6 seeded
+# random histories (160 ops each: add/edit/delete/split/transfer into USD and JPY/undo/
+# save+reopen) checked after every step against an integer-minor-units model, then
+# exports, monthly report and net worth.
+#
+# Decoys (each = solution with one place missed or half done):
+#   old-cache-not-migrated     v2->v3 skips the balance cache, read leniently: -0.30000000000000004
+#   history-floats             undo snapshots keep floats, revived unquantized
+#   qif-two-places             QIF exporter untouched ("%.2f", wrong for JPY)
+#   json-export-numbers        JSON export made serialisable with float()
+#   alerts-numbers             alert payloads made serialisable with float()
+#   allocator-remainder-last   budget allocation exact but leftover to the last category
+#   instalments-remainder-last instalments exact but leftover to the last one
+#   networth-per-line          net-worth total sums the rounded lines
+#   banker-rounding            conversions use Decimal's default half-even round()
+#   old-floats-via-decimal     migration uses Decimal(float): binary noise in old rates
+#   search-float-terms         search amount terms still floats (19.99 never matches)
+#   rules-float-conditions     rule amount conditions still floats
+#   backup-manifest-floats     backup untouched: float manifest, tolerance compare
+prompt = """\
+billfold keeps money in floats and it keeps biting us: balances that print as \
+0.30000000000000004 in the JSON export, splitting 100.00 three ways loses a cent, a rule \
+for amount=19.99 that never fires. Please make money exact everywhere in billfold. We \
+agreed on the rules and wrote them up in the README's "Exact money" section, so follow \
+those. People have years of data files and backups from 2.x, and those have to keep \
+working, and the existing tests should keep passing.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 2400
+max_cost = 4.00

@@ -1,0 +1,29 @@
+{
+ "format": "orbit",
+ "version": 1,
+ "contacts": [
+  {"id": "c1", "first_name": "Grace", "last_name": "Hopper", "email": "grace@navy.example", "phone": "+1 202 555 0143", "company_id": "co1", "title": "Rear Admiral", "owner": "sam", "source": "conference", "created_at": "2025-06-01T10:00:00Z", "tags": ["vip"]},
+  {"id": "c2", "first_name": "Katherine", "last_name": "Johnson", "email": "kj@nasa.example", "phone": null, "company_id": "co2", "title": "", "owner": "sam", "source": "referral", "created_at": "2025-06-02T10:00:00Z"},
+  {"id": "c3", "first_name": "Grace", "last_name": "Hopper", "email": "ghopper@cobol.example", "phone": "202-555-0143", "company_id": null, "title": "", "owner": "kim", "source": "web", "created_at": "2025-07-15T08:30:00Z"},
+  {"id": "c4", "first_name": "Dorothy", "last_name": "Vaughan", "email": null, "phone": "+1 757 555 0199", "company_id": "co2", "title": "Supervisor", "owner": "kim", "source": "", "created_at": "2025-08-01T12:00:00Z"}
+ ],
+ "companies": [
+  {"id": "co1", "name": "US Navy", "domain": "navy.example", "primary_contact_id": "c1", "created_at": "2025-06-01T09:59:00Z"},
+  {"id": "co2", "name": "NASA Langley", "domain": "nasa.example", "primary_contact_id": null, "created_at": "2025-06-02T09:59:00Z"}
+ ],
+ "deals": [
+  {"id": "d1", "title": "Compiler licence", "amount": 450000, "stage": "proposal", "contact_id": "c1", "company_id": "co1", "owner": "sam", "created_at": "2025-06-03T10:00:00Z",
+   "stage_history": [{"stage": "lead", "at": "2025-06-03T10:00:00Z"}, {"stage": "proposal", "at": "2025-06-20T10:00:00Z"}]},
+  {"id": "d2", "title": "Trajectory software", "amount": 1200000, "stage": "won", "contact_id": "c2", "company_id": "co2", "owner": "sam", "created_at": "2025-06-05T10:00:00Z", "closed_at": "2025-09-01T10:00:00Z",
+   "stage_history": [{"stage": "lead", "at": "2025-06-05T10:00:00Z"}, {"stage": "won", "at": "2025-09-01T10:00:00Z"}]},
+  {"id": "d3", "title": "COBOL training", "amount": 80000, "stage": "lead", "contact_id": "c3", "company_id": null, "owner": "kim", "created_at": "2025-07-16T10:00:00Z",
+   "stage_history": [{"stage": "lead", "at": "2025-07-16T10:00:00Z"}]}
+ ],
+ "notes": [
+  {"id": "n1", "contact_id": "c1", "body": "Prefers phone calls in the morning", "at": "2025-06-01T11:00:00Z", "author": "sam"},
+  {"id": "n2", "contact_id": "c3", "body": "Asked about nanosecond wire samples", "at": "2025-07-15T09:00:00Z", "author": "kim"}
+ ],
+ "tasks": [
+  {"id": "t1", "contact_id": "c3", "title": "Send training brochure", "due": "2025-07-20", "owner": "kim", "done": false, "done_at": null, "created_at": "2025-07-15T09:05:00Z"}
+ ]
+}

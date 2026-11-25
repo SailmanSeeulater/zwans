@@ -1,0 +1,7 @@
+clinic,clinician,room,patient_name,patient_phone,date,time,minutes,kind,status,notes
+camden,dr-osei,C1,Jo Bloggs,+44 7700 900001,2025-11-03,09:30,30,consult,attended,
+camden,dr-lind,C2,Priya Shah,+44 7700 900111,03/11/2025,10:00,45,review,completed,
+camden,dr-osei,C1,Tom Okafor,,2025-12-15,14:15,30,consult,DNA,
+camden,dr-osei,C2,Jo Bloggs,07700 900001,2026-01-19,11:00,30,follow-up,booked,Follow up on bloods
+camden,dr-lind,C1,Priya Shah,+44 7700 900111,2026-01-20,08:30,30,consult,booked,
+camden,dr-lind,C9,Kit Moreau,,2026-01-21,09:00,30,consult,booked,

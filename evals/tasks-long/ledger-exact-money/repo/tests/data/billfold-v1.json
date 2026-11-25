@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "currency": "EUR",
+  "accounts": {
+    "Girokonto": {
+      "type": "checking",
+      "opening": 1500.0,
+      "opened": "2025-10-01",
+      "entries": [
+        {"date": "2025-10-03", "amount": -54.5, "payee": "Edeka", "category": "Lebensmittel"},
+        {"date": "2025-10-15", "amount": 2100.0, "payee": "Arbeitgeber", "category": "Gehalt"},
+        {"date": "2025-11-01", "amount": -950.0, "payee": "Vermieter", "category": "Miete"},
+        {"date": "2025-11-04", "amount": -800.0, "payee": "Tagesgeld", "memo": "sparen"}
+      ]
+    },
+    "Tagesgeld": {
+      "type": "savings",
+      "opening": 3000.0,
+      "opened": "2025-10-01",
+      "entries": [
+        {"date": "2025-11-04", "amount": 800.0, "payee": "Girokonto", "memo": "sparen"}
+      ]
+    }
+  },
+  "budgets": {"2025-11": {"Lebensmittel": 300.0, "Miete": 950.0}},
+  "rates": {"EUR/USD": {"2025-11-01": 1.05}}
+}

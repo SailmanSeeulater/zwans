@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "settings": {
+    "grid_minutes": 5,
+    "slot_minutes": 15,
+    "search_days": 28,
+    "reminder_hours": [24, 2],
+    "no_show_grace": 15,
+    "waitlist_expiry_days": 60,
+    "webhook_url": "",
+    "webhook_secret": "",
+    "webhook_max_attempts": 6
+  },
+  "counters": {"patient": 4, "appointment": 8, "series": 1, "reminder": 11, "waitlist": 1, "message": 3, "delivery": 1},
+  "clinics": [
+    {"id": "camden", "name": "Camden Clinic", "zone": "Europe/London",
+     "hours": {"mon": ["08:00-18:00"], "tue": ["08:00-18:00"], "wed": ["08:00-18:00"], "thu": ["08:00-18:00"], "fri": ["08:00-18:00"], "sat": ["09:00-13:00"]},
+     "closures": {"2026-04-03": "Good Friday"}, "address": "12 Pratt Street, London", "phone": "+44 20 7946 0000", "reminder_hours": null},
+    {"id": "brooklyn", "name": "Brooklyn Clinic", "zone": "America/New_York",
+     "hours": {"mon": ["07:30-19:00"], "tue": ["07:30-19:00"], "wed": ["07:30-19:00"], "thu": ["07:30-19:00"], "fri": ["07:30-19:00"]},
+     "closures": {}, "address": "88 Court Street, Brooklyn NY", "phone": "+1 718 555 0100", "reminder_hours": [48, 2]},
+    {"id": "bondi", "name": "Bondi Clinic", "zone": "Australia/Sydney",
+     "hours": {"mon": ["08:00-17:00"], "tue": ["08:00-17:00"], "wed": ["08:00-17:00"], "thu": ["08:00-17:00"], "fri": ["08:00-17:00"], "sat": ["08:00-12:00"]},
+     "closures": {}, "address": "3 Hall Street, Bondi Beach NSW", "phone": "+61 2 5550 1234", "reminder_hours": null}
+  ],
+  "rooms": [
+    {"id": "C1", "clinic": "camden", "name": "Room 1", "active": true},
+    {"id": "C2", "clinic": "camden", "name": "Room 2", "active": true},
+    {"id": "B1", "clinic": "brooklyn", "name": "Suite A", "active": true},
+    {"id": "B2", "clinic": "brooklyn", "name": "Suite B", "active": true},
+    {"id": "S1", "clinic": "bondi", "name": "Room 1", "active": true}
+  ],
+  "clinicians": [
+    {"id": "dr-osei", "name": "Dr Ama Osei", "clinics": ["camden"], "specialty": "general practice", "active": true},
+    {"id": "dr-park", "name": "Dr Jun Park", "clinics": ["brooklyn", "camden"], "specialty": "dermatology", "active": true},
+    {"id": "dr-hale", "name": "Dr Ruth Hale", "clinics": ["bondi"], "specialty": "general practice", "active": true}
+  ],
+  "patients": [
+    {"id": "P0001", "name": "Jo Bloggs", "phone": "+44 7700 900001", "email": "", "channel": "sms"},
+    {"id": "P0002", "name": "Maria Lopez", "phone": "", "email": "maria@example.com", "channel": "email"},
+    {"id": "P0003", "name": "Liam Nguyen", "phone": "+61 412 555 019", "email": "", "channel": "sms"},
+    {"id": "P0004", "name": "Hannah Brook", "phone": "+44 7700 900044", "email": "", "channel": "sms"}
+  ],
+  "appointments": [
+    {"id": "A0001", "clinic": "camden", "clinician": "dr-osei", "room": "C1", "patient": "P0001", "start": "2026-03-02T09:00", "minutes": 30, "kind": "consult", "status": "booked", "series": null, "notes": "", "created": "2026-02-20T10:15", "source": "desk"},
+    {"id": "A0002", "clinic": "brooklyn", "clinician": "dr-park", "room": "B1", "patient": "P0002", "start": "2026-03-09T09:00", "minutes": 45, "kind": "consult", "status": "booked", "series": null, "notes": "", "created": "2026-02-21T15:00", "source": "desk"},
+    {"id": "A0003", "clinic": "bondi", "clinician": "dr-hale", "room": "S1", "patient": "P0003", "start": "2026-03-03T08:00", "minutes": 30, "kind": "review", "status": "booked", "series": null, "notes": "", "created": "2026-02-22T09:40", "source": "desk"},
+    {"id": "A0004", "clinic": "camden", "clinician": "dr-park", "room": "C2", "patient": "P0004", "start": "2026-03-23T10:00", "minutes": 60, "kind": "procedure", "status": "booked", "series": "S0001", "notes": "", "created": "2026-02-23T11:00", "source": "series"},
+    {"id": "A0005", "clinic": "camden", "clinician": "dr-park", "room": "C2", "patient": "P0004", "start": "2026-03-30T10:00", "minutes": 60, "kind": "procedure", "status": "booked", "series": "S0001", "notes": "", "created": "2026-02-23T11:00", "source": "series"},
+    {"id": "A0006", "clinic": "brooklyn", "clinician": "dr-park", "room": "B2", "patient": "P0001", "start": "2026-02-16T11:00", "minutes": 30, "kind": "consult", "status": "completed", "series": null, "notes": "", "created": "2026-02-02T16:20", "source": "desk"},
+    {"id": "A0007", "clinic": "bondi", "clinician": "dr-hale", "room": "S1", "patient": "P0002", "start": "2026-02-10T16:00", "minutes": 30, "kind": "consult", "status": "no_show", "series": null, "notes": "", "created": "2026-02-01T12:00", "source": "desk"},
+    {"id": "A0008", "clinic": "brooklyn", "clinician": "dr-park", "room": "B1", "patient": "P0003", "start": "2026-03-10T14:00", "minutes": 30, "kind": "consult", "status": "cancelled", "series": null, "notes": "cancelled: travelling", "created": "2026-02-24T08:05", "source": "desk"}
+  ],
+  "series": [
+    {"id": "S0001", "clinic": "camden", "clinician": "dr-park", "room": "C2", "patient": "P0004", "start": "2026-03-23T10:00", "minutes": 60, "rule": {"freq": "weekly", "count": 2, "until": null, "interval": 1}, "kind": "procedure"}
+  ],
+  "reminders": [
+    {"id": "R0001", "appointment": "A0001", "hours_before": 24, "due": "2026-03-01T09:00", "sent": null},
+    {"id": "R0002", "appointment": "A0001", "hours_before": 2, "due": "2026-03-02T07:00", "sent": null},
+    {"id": "R0003", "appointment": "A0002", "hours_before": 48, "due": "2026-03-07T09:00", "sent": null},
+    {"id": "R0004", "appointment": "A0002", "hours_before": 2, "due": "2026-03-09T07:00", "sent": null},
+    {"id": "R0005", "appointment": "A0003", "hours_before": 24, "due": "2026-03-02T08:00", "sent": null},
+    {"id": "R0006", "appointment": "A0003", "hours_before": 2, "due": "2026-03-03T06:00", "sent": null},
+    {"id": "R0007", "appointment": "A0004", "hours_before": 24, "due": "2026-03-22T10:00", "sent": null},
+    {"id": "R0008", "appointment": "A0004", "hours_before": 2, "due": "2026-03-23T08:00", "sent": null},
+    {"id": "R0009", "appointment": "A0005", "hours_before": 24, "due": "2026-03-29T10:00", "sent": null},
+    {"id": "R0010", "appointment": "A0005", "hours_before": 2, "due": "2026-03-30T08:00", "sent": null},
+    {"id": "R0011", "appointment": "A0006", "hours_before": 48, "due": "2026-02-14T11:00", "sent": "2026-02-14T11:05"}
+  ],
+  "waitlist": [
+    {"id": "W0001", "patient": "P0004", "clinic": "camden", "minutes": 30, "kind": "consult", "clinician": null, "earliest": "2026-03-02T08:00", "latest": "2026-03-06T18:00", "added": "2026-02-25T12:00", "status": "waiting", "appointment": null}
+  ],
+  "messages": [
+    {"id": "M0001", "to": "+44 7700 900001", "channel": "sms", "template": "confirmation", "text": "Jo, your consult with Dr Ama Osei at Camden Clinic is booked for Mon 2 Mar at 09:00.", "at": "2026-02-20T10:15", "appointment": "A0001"},
+    {"id": "M0002", "to": "maria@example.com", "channel": "email", "template": "confirmation", "text": "Maria, your consult with Dr Jun Park at Brooklyn Clinic is booked for Mon 9 Mar at 09:00.", "at": "2026-02-21T20:00", "appointment": "A0002"},
+    {"id": "M0003", "to": "+61 412 555 019", "channel": "sms", "template": "confirmation", "text": "Liam, your review with Dr Ruth Hale at Bondi Clinic is booked for Tue 3 Mar at 08:00.", "at": "2026-02-21T22:40", "appointment": "A0003"}
+  ],
+  "webhook_queue": [
+    {"id": "D0001", "payload": {"event": "appointment.booked", "delivery": "D0001", "at": "2026-02-21T22:40", "appointment": {"id": "A0003"}}, "attempts": 2, "next_attempt": "2026-02-21T22:48", "last_error": "HTTP 503"}
+  ],
+  "audit": [
+    {"seq": 1, "at": "2026-02-20T10:15", "action": "appointment.booked", "entity": "A0001", "details": {"start": "2026-03-02T09:00", "minutes": 30, "room": "C1"}},
+    {"seq": 2, "at": "2026-02-21T20:00", "action": "appointment.booked", "entity": "A0002", "details": {"start": "2026-03-09T09:00", "minutes": 45, "room": "B1"}},
+    {"seq": 3, "at": "2026-02-21T22:40", "action": "appointment.booked", "entity": "A0003", "details": {"start": "2026-03-03T08:00", "minutes": 30, "room": "S1"}}
+  ]
+}

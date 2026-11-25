@@ -44,6 +44,7 @@ extend-exclude = [
     "evals/tasks",
     "evals/tasks-hard",
     "evals/tasks-expert",
+    "evals/tasks-long",
     "evals/tasks-injection",
 ]  # task repos hold deliberately flawed code
 

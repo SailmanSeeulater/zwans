@@ -1,0 +1,81 @@
+# clinicbook, appointment booking for a group of clinics (~3,800 lines in 41 modules, plus
+# ~1,150 lines of visible tests): clinics with opening hours, closures and a `zone` that
+# nothing uses, clinicians working at several clinics, rooms, patients, bookings with
+# clinician/room/patient clash checks through a day-bucketed BusyIndex, series
+# (Recurrence), reminders planned on an event bus, notifications to an outbox, webhooks
+# with a retry queue, an audit log, a slot finder and a waitlist, jobs (reminders,
+# no-shows, webhook retries, waitlist), agenda/utilisation/no-show reports, iCalendar and
+# CSV exports, an importer for the old diary system's CSV, a JSON store (version 1, with a
+# migration chain from 0.x), zip backups with a manifest, and a CLI. Every time is a naive
+# local datetime. The task: make it time-zone correct, as specified in the README's
+# "Time zones" section (16 rules).
+#
+# Right answer (solution/, 24 files): timeutil gets zone/localize (gap -> InvalidTime,
+# fold=0, lenient mode for old files)/in_zone/instant/format_instant/parse_instant/end_of/
+# local_midnight; models: Appointment.end is real time, overlaps compares instants,
+# Clinic.tz; validation.check_zone looks the zone up; booking.when() turns naive input into
+# the clinic's zone and aware input into that instant, end is real time, "not in the past"
+# compares instants; hours.covers judges the local end of `minutes` real minutes;
+# busyindex buckets by UTC day and looks one day back; repository sorts and windows by
+# instant; series repeats the naive wall time (so gaps are skipped via InvalidTime);
+# reminders subtract real hours and compare instants; slots localize each candidate start,
+# skip gaps, take `after`/`before`/now in the clinic's zone; waitlist localizes its window
+# and compares instants; jobs compare instants; agenda and utilisation use local midnight
+# to local midnight; iCal stamps in UTC with Z; CSV gains utc_start/utc_end; the importer
+# localizes rows (gap rows become errors) and dedupes by instant; serialize writes
+# YYYY-MM-DDTHH:MM:SSZ and reads each record back in its clinic's zone; migrations gain a
+# 1 -> 2 step (clinic records local, lenient; messages/queue/audit UTC); backup writes a
+# UTC taken_at and accepts store_version <= current; webhooks write UTC and add `zone`;
+# audit details in UTC; ClinicBook normalizes the clock (naive = UTC); the CLI parses
+# --now/CLINICBOOK_NOW as UTC and picks the agenda's default day in the clinic's zone.
+#
+# Why it's hard: nothing is clever; there are just many places, and Python makes several
+# of them look right when they aren't. Aware arithmetic on a ZoneInfo datetime is
+# wall-clock arithmetic, so `start - timedelta(hours=48)` silently gives the wrong
+# reminder instant and `start + timedelta(minutes=...)` the wrong end; same-zone
+# comparisons ignore fold; the busy index buckets by `.date()`, which becomes a local date
+# and misses clashes between Sydney and New York; the importer bypasses booking() and
+# builds Appointments itself; the webhook payload and the audit log format with
+# format_datetime, which happily prints an aware datetime without its zone; the backup
+# restore refuses any store_version but the current one, so bumping the file version
+# breaks old backups; the agenda and utilisation reports build their own day windows; the
+# v1 migration has to know each record's clinic (a reminder's through its appointment).
+# Visible tests keep passing throughout (they run in London in winter, where local = UTC).
+#
+# Hidden tests (174, ~1 s): copies of the 79 visible tests, plus per-rule tests:
+# zones/input/output/gaps/fold/durations/past (14), clashes across zones, date lines and
+# the repeated hour (9), opening hours on DST nights and local weekdays/closures (5),
+# series across three zones' changes and gap skipping (6), reminders (8), no-shows, slot
+# search and waitlist (8), agenda and utilisation day boundaries (5), iCal and CSV export
+# and import (10), storage v2 format, round trip, v1 and 0.x migration (10), backups and
+# webhooks (6), CLI (6), and 8 seeded random histories (160 operations each: book,
+# reschedule, cancel around six DST transitions in four clinics) checked step by step
+# against tests/reference.py, then agendas, iCal, the saved file and a reopened book.
+# Instants are compared via astimezone(UTC): an aware time in a repeated hour never
+# compares equal to one in another zone (PEP 495), so tests must not use == directly.
+#
+# Decoys (each is the solution with one place missed or half-done):
+#   reminders-wall-clock         reminders subtract hours from the local start (wall time)
+#   busy-index-local-days        index left as it was: local-date buckets, no look-back
+#   ical-floating-times          iCalendar export left as it was (floating local times)
+#   old-files-read-as-utc        the 1 -> 2 migration takes naive times as UTC
+#   restore-refuses-old-backups  restore still demands store_version == current
+#   webhook-local-times          webhook payloads left as they were (local, no zone)
+#   importer-ignores-zone        imported rows stored as UTC
+#   agenda-utc-day               the agenda's day is a UTC day
+#   hours-wall-clock-end         opening-hours check adds minutes to the local start
+#   series-steps-in-utc          series stepped from the UTC instant (drifts at changes)
+prompt = """\
+We've had clinics in New York and Sydney for a while now, and clinicbook still treats \
+every time as a plain local time with no zone. It was fine when it was just Camden, but \
+now it double-books people who work in two cities, sends reminders at the wrong moment, \
+and the calendar export puts New York appointments five hours out in everyone's phone.
+
+Please make clinicbook handle time zones properly. I've written down how it should work \
+in the "Time zones" section of the README. It has to hold everywhere, not just for new \
+bookings, and our existing data files and backups have to keep working.\
+"""
+check = "python -m pytest -q -p no:cacheprovider"
+category = "feature"
+timeout = 2400
+max_cost = 4.00

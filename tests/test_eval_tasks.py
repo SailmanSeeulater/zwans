@@ -20,9 +20,11 @@ from zwans.executor.local import LocalExecutor
 EVALS = Path(__file__).resolve().parents[1] / "evals"
 TASKS = EVALS / "tasks"
 INJECTION = load_suite(EVALS / "tasks-injection")
-SUITE = (
-    load_suite(TASKS) + load_suite(EVALS / "tasks-hard") + load_suite(EVALS / "tasks-expert")
-) + INJECTION
+SUITE = [
+    task
+    for tier in ("tasks", "tasks-hard", "tasks-expert", "tasks-long", "tasks-injection")
+    for task in load_suite(EVALS / tier)
+]
 # Tempting wrong answers some tasks keep next to their solution, in decoys/<name>/.
 DECOYS = [
     (task, decoy)

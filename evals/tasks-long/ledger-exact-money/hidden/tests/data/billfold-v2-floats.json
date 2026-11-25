@@ -1,0 +1,318 @@
+{
+ "version": 2,
+ "app": "billfold",
+ "settings": {
+  "base_currency": "EUR",
+  "large_transaction": 999.99,
+  "history_limit": 50
+ },
+ "counters": {
+  "acc": 3,
+  "rec": 2,
+  "rule": 2,
+  "txn": 8
+ },
+ "accounts": [
+  {
+   "id": "acc-1",
+   "name": "Checking",
+   "currency": "EUR",
+   "kind": "checking",
+   "opening_balance": 100.1,
+   "opened": "2025-12-01",
+   "closed": false,
+   "notes": ""
+  },
+  {
+   "id": "acc-2",
+   "name": "Yen",
+   "currency": "JPY",
+   "kind": "cash",
+   "opening_balance": 15000.0,
+   "opened": "2025-12-01",
+   "closed": false,
+   "notes": ""
+  },
+  {
+   "id": "acc-3",
+   "name": "Card",
+   "currency": "EUR",
+   "kind": "credit",
+   "opening_balance": 0.0,
+   "opened": "2025-12-01",
+   "closed": false,
+   "notes": ""
+  }
+ ],
+ "categories": [
+  "Food",
+  "Food:Snacks",
+  "Household",
+  "Salary",
+  "Subscriptions"
+ ],
+ "transactions": [
+  {
+   "id": "txn-1",
+   "account": "acc-1",
+   "date": "2026-01-03",
+   "amount": -0.1,
+   "payee": "Kiosk",
+   "memo": "",
+   "category": "Food:Snacks"
+  },
+  {
+   "id": "txn-2",
+   "account": "acc-1",
+   "date": "2026-01-03",
+   "amount": -0.2,
+   "payee": "Kiosk",
+   "memo": "",
+   "category": "Food:Snacks"
+  },
+  {
+   "id": "txn-3",
+   "account": "acc-1",
+   "date": "2026-01-05",
+   "amount": -19.99,
+   "payee": "Streamly",
+   "memo": "",
+   "category": "Subscriptions"
+  },
+  {
+   "id": "txn-4",
+   "account": "acc-1",
+   "date": "2026-01-06",
+   "amount": -33.33,
+   "payee": "Market",
+   "memo": "",
+   "category": null,
+   "splits": [
+    {
+     "category": "Food",
+     "amount": -20.0,
+     "memo": ""
+    },
+    {
+     "category": "Household",
+     "amount": -13.33,
+     "memo": ""
+    }
+   ]
+  },
+  {
+   "id": "txn-5",
+   "account": "acc-1",
+   "date": "2026-01-10",
+   "amount": 1234.56,
+   "payee": "ACME GmbH",
+   "memo": "",
+   "category": "Salary"
+  },
+  {
+   "id": "txn-6",
+   "account": "acc-2",
+   "date": "2026-01-12",
+   "amount": -1200.0,
+   "payee": "Ramen Ya",
+   "memo": "",
+   "category": "Food"
+  },
+  {
+   "id": "txn-7",
+   "account": "acc-3",
+   "date": "2026-01-15",
+   "amount": -0.1,
+   "payee": "Shop",
+   "memo": "",
+   "category": null
+  },
+  {
+   "id": "txn-8",
+   "account": "acc-3",
+   "date": "2026-01-15",
+   "amount": -0.2,
+   "payee": "Shop",
+   "memo": "",
+   "category": null
+  }
+ ],
+ "budgets": [
+  {
+   "category": "Food",
+   "month": "2026-01",
+   "amount": 120.1,
+   "rollover": true
+  },
+  {
+   "category": "Subscriptions",
+   "month": "2026-01",
+   "amount": 19.99,
+   "rollover": false
+  }
+ ],
+ "rules": [
+  {
+   "id": "rule-1",
+   "name": "Streaming",
+   "conditions": [
+    "amount=19.99",
+    "payee~stream"
+   ],
+   "category": "Subscriptions",
+   "rename": null,
+   "split": null,
+   "tags": [],
+   "priority": 100,
+   "enabled": true
+  },
+  {
+   "id": "rule-2",
+   "name": "Costco",
+   "conditions": [
+    "payee~costco"
+   ],
+   "category": null,
+   "rename": null,
+   "split": {
+    "Food": 50.0,
+    "Household": 50.0
+   },
+   "tags": [],
+   "priority": 100,
+   "enabled": true
+  }
+ ],
+ "recurring": [
+  {
+   "id": "rec-1",
+   "account": "acc-1",
+   "payee": "Insurer",
+   "amount": -100.0,
+   "frequency": "monthly",
+   "start": "2026-01-20",
+   "next_date": "2026-01-20",
+   "category": "Insurance",
+   "memo": "",
+   "end": null,
+   "instalments": 3,
+   "done": 0,
+   "active": true
+  },
+  {
+   "id": "rec-2",
+   "account": "acc-1",
+   "payee": "Gym",
+   "amount": -24.9,
+   "frequency": "monthly",
+   "start": "2026-02-01",
+   "next_date": "2026-02-01",
+   "category": null,
+   "memo": "",
+   "end": null,
+   "instalments": null,
+   "done": 0,
+   "active": true
+  }
+ ],
+ "rates": [
+  {
+   "base": "EUR",
+   "quote": "USD",
+   "date": "2026-01-01",
+   "rate": 1.0825
+  },
+  {
+   "base": "EUR",
+   "quote": "JPY",
+   "date": "2026-01-01",
+   "rate": 161.5
+  },
+  {
+   "base": "EUR",
+   "quote": "GBP",
+   "date": "2026-01-01",
+   "rate": 0.85
+  }
+ ],
+ "balances": {
+  "acc-1": {
+   "amount": 1281.04,
+   "count": 5
+  },
+  "acc-2": {
+   "amount": 13800.0,
+   "count": 1
+  },
+  "acc-3": {
+   "amount": -0.30000000000000004,
+   "count": 2
+  }
+ },
+ "history": [
+  {
+   "seq": 1,
+   "at": "2026-01-15T10:00:00Z",
+   "op": "add",
+   "summary": "added txn-7",
+   "before": [],
+   "after": [
+    {
+     "id": "txn-7",
+     "account": "acc-3",
+     "date": "2026-01-15",
+     "amount": -0.1,
+     "payee": "Shop",
+     "memo": "",
+     "category": null,
+     "splits": [],
+     "tags": [],
+     "transfer_id": null,
+     "recurring_id": null,
+     "cleared": false,
+     "import_ref": null
+    }
+   ]
+  },
+  {
+   "seq": 2,
+   "at": "2026-01-16T10:00:00Z",
+   "op": "edit",
+   "summary": "edited txn-2",
+   "before": [
+    {
+     "id": "txn-2",
+     "account": "acc-1",
+     "date": "2026-01-03",
+     "amount": -0.3,
+     "payee": "Kiosk",
+     "memo": "",
+     "category": "Food:Snacks",
+     "splits": [],
+     "tags": [],
+     "transfer_id": null,
+     "recurring_id": null,
+     "cleared": false,
+     "import_ref": null
+    }
+   ],
+   "after": [
+    {
+     "id": "txn-2",
+     "account": "acc-1",
+     "date": "2026-01-03",
+     "amount": -0.2,
+     "payee": "Kiosk",
+     "memo": "",
+     "category": "Food:Snacks",
+     "splits": [],
+     "tags": [],
+     "transfer_id": null,
+     "recurring_id": null,
+     "cleared": false,
+     "import_ref": null
+    }
+   ]
+  }
+ ]
+}

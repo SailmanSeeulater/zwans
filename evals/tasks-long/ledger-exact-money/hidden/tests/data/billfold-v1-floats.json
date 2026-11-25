@@ -1,0 +1,39 @@
+{
+ "version": 1,
+ "currency": "GBP",
+ "accounts": {
+  "Current": {
+   "type": "checking",
+   "opening": 0.7,
+   "opened": "2025-06-01",
+   "entries": [
+    {
+     "date": "2025-06-02",
+     "amount": -0.1,
+     "payee": "Bus"
+    },
+    {
+     "date": "2025-06-03",
+     "amount": -0.2,
+     "payee": "Bus"
+    },
+    {
+     "date": "2025-06-04",
+     "amount": 10.01,
+     "payee": "Refund",
+     "category": "Misc"
+    }
+   ]
+  }
+ },
+ "budgets": {
+  "2025-06": {
+   "Travel": 12.3
+  }
+ },
+ "rates": {
+  "GBP/EUR": {
+   "2025-06-01": 1.17
+  }
+ }
+}
