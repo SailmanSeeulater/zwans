@@ -45,6 +45,7 @@ class Connection(ABC):
     def __init__(self, name: str) -> None:
         self.name = name
         self.server_info: JsonObject = {}
+        self.instructions = ""  # what the server says about using its tools, from initialize
         self.protocol_version = PROTOCOL_VERSION
         self._ids = itertools.count(1)
 
@@ -57,6 +58,8 @@ class Connection(ABC):
         }
         result = await self.request("initialize", params, START_TIMEOUT)
         self.server_info = result.get("serverInfo") or {}
+        instructions = result.get("instructions")
+        self.instructions = instructions.strip() if isinstance(instructions, str) else ""
         self.protocol_version = result.get("protocolVersion") or PROTOCOL_VERSION
         await self.notify("notifications/initialized")
 

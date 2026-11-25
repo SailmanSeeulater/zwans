@@ -130,6 +130,7 @@ def main() -> None:
                 "protocolVersion": message["params"]["protocolVersion"],
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": "fake", "version": "1"},
+                "instructions": "  Use echo to repeat text back.\n",
             }
             send({"jsonrpc": "2.0", "id": request_id, "result": result})
         elif method == "tools/list":

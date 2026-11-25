@@ -499,7 +499,10 @@ headers = { Authorization = "Bearer ${DOCS_TOKEN}" }
 tool is called `mcp__<server>__<tool>` and goes through the policy like any other: tools the
 server marks read-only run without asking, and the rest ask, in `auto` mode too, since they
 reach whatever the server does. A server that won't start is skipped with a warning. Its
-stderr goes to `~/.zwans/mcp-logs/<server>.log`.
+stderr goes to `~/.zwans/mcp-logs/<server>.log`. The `instructions` a server sends when it
+starts (when and how to use its tools) go in the system prompt, marked as that server's, up
+to 2,000 characters each; small local models rarely work out when a tool applies from its
+name alone. MCP tools are always offered, never left for `ToolSearch` to load.
 
 ### MCP Apps
 

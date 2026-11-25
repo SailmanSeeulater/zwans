@@ -34,7 +34,7 @@ from zwans.messages import Message
 from zwans.policy.engine import Approver, Permissions
 from zwans.policy.rules import LoadedPolicy, Mode, load_policy
 from zwans.pricing import CostMeter
-from zwans.prompt import chat_prompt, system_prompt
+from zwans.prompt import MCP_MARK, chat_prompt, mcp_instructions, system_prompt
 from zwans.providers.base import Provider
 from zwans.providers.catalog import canonical, is_known
 from zwans.providers.fake import FakeProvider
@@ -146,6 +146,11 @@ class OpenedSession:
             return [], []
         tools, problems = await self.mcp.start()
         self.session.tools.extend(tools)
+        # What the servers say about their tools joins the prompt before the first turn. A
+        # resumed session's saved prompt may have it already, so it's never added twice.
+        extra = mcp_instructions(self.mcp.instructions())
+        if extra and MCP_MARK not in self.session.system:
+            self.session.system += extra
         return tools, problems
 
     async def close(self) -> None:
