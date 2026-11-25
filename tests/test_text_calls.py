@@ -101,6 +101,18 @@ def test_an_mcp_tool_called_by_its_own_name_is_found_when_only_one_server_has_it
     assert find_call('{"name": "Search", "arguments": {}}', tools) is None  # not a built-in
 
 
+def test_a_tool_named_in_another_case_is_found() -> None:
+    # qwen2.5-coder on Ollama ended a turn with this as its answer, WebSearch being offered.
+    tools = {**TOOLS, "WebSearch": {"properties": {"query": {"type": "string"}}}}
+    text = '{"name": "web_search", "arguments": {"query": "cat fact"}}'
+    assert find_call(text, tools) == TextCall("", "WebSearch", {"query": "cat fact"})
+    assert find_call('{"name": "read", "arguments": {"path": "a"}}', tools) == TextCall(
+        "", "Read", {"path": "a"}
+    )
+    both = {**tools, "web_search": {"properties": {}}, "Web-Search": {"properties": {}}}
+    assert find_call('{"name": "websearch", "arguments": {}}', both) is None  # which one?
+
+
 def test_a_call_in_qwen3_coders_form_is_found() -> None:
     # What qwen3-coder:30b on Ollama wrote on an eval task, ending its turn with nothing done.
     text = (

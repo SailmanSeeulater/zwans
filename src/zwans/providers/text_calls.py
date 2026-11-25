@@ -83,14 +83,22 @@ def _xml_call(
 
 
 def _offered(name: str, tools: Mapping[str, Any]) -> str | None:
-    """`name` as a tool the request offered: itself, or the one MCP tool whose own name it is.
-    Small models often drop the `mcp__<server>__` prefix (`search_news` for
-    `mcp__zands__search_news`); two servers with a tool of that name make it ambiguous, so
-    then it isn't a call."""
+    """`name` as a tool the request offered: itself, the one tool it names in another case
+    (`web_search` for `WebSearch`), or the one MCP tool whose own name it is. Small models
+    write tool names in the style they were trained on, and often drop the
+    `mcp__<server>__` prefix (`search_news` for `mcp__zands__search_news`); when two tools
+    fit, it's ambiguous, so then it isn't a call."""
     if name in tools:
         return name
+    same = [tool for tool in tools if _folded(tool) == _folded(name)]
+    if len(same) == 1:
+        return same[0]
     matches = [tool for tool in tools if tool.startswith("mcp__") and tool.endswith(f"__{name}")]
     return matches[0] if len(matches) == 1 else None
+
+
+def _folded(name: str) -> str:
+    return name.replace("_", "").replace("-", "").lower()
 
 
 def _typed(value: str, schema: Mapping[str, Any]) -> Any:
