@@ -119,7 +119,7 @@ const TOOLS: { group: string; tools: [string, string][] }[] = [
     group: "Planning and help",
     tools: [
       ["TodoWrite", "A to-do list you see as a checklist"],
-      ["Task", "Hand part of the work to a subagent"],
+      ["Task", "Hand part of the work to a subagent, or to an agent type such as reviewer"],
       ["Skill", "Load instructions for a kind of task"],
       ["ToolSearch", "Load a tool that isn't offered yet; only the everyday ones start out loaded"],
       ["AskUser", "Ask you a question and wait for the answer"],

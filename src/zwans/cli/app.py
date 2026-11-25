@@ -34,6 +34,8 @@ from zwans.context.compaction import SUMMARY_HEADER
 from zwans.events import TextDelta, ToolCallRequested, ToolResult, TurnEnded
 from zwans.executor.docker import DockerError
 from zwans.executor.shutdown import SessionRunner
+from zwans.ext.agents import BUILTIN as BUILTIN_AGENTS
+from zwans.ext.agents import agent_folders, find_agents
 from zwans.messages import TextBlock, ToolResultBlock, ToolUseBlock
 from zwans.policy import PolicyError
 from zwans.policy.engine import Approval, PermissionRequest
@@ -240,6 +242,35 @@ def models(
             "models are <provider>/<model ID>; add your own under [providers.<name>].",
             dim=True,
         )
+
+
+@app.command()
+def agents(workspace: Workspace = Path(".")) -> None:
+    """List the agent types subagents can be started as, and where each is defined."""
+    try:
+        config, _ = load_settings()
+    except ConfigError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(2) from exc
+    found = find_agents(agent_folders(workspace.resolve(), config.home, config.builtin_agents))
+    if not found:
+        typer.echo("No agent types.")
+    for agent in found:
+        where = "comes with Zwans" if agent.path.is_relative_to(BUILTIN_AGENTS) else ""
+        where = where or _short_path(str(agent.path), 60)
+        details = [
+            agent.model or "the subagent model",
+            ", ".join(agent.tools) if agent.tools else "all tools",
+        ]
+        if agent.max_steps:
+            details.append(f"{agent.max_steps} steps")
+        typer.echo(f"{typer.style(agent.name, bold=True)} ({'; '.join(details)})")
+        typer.echo(f"  {agent.description}")
+        typer.secho(f"  {where}", dim=True)
+    typer.secho(
+        "\nAdd your own as .zwans/agents/<name>.md in a project, or in ~/.zwans/agents/.",
+        dim=True,
+    )
 
 
 def _short_path(path: str, width: int) -> str:

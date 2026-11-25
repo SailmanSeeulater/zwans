@@ -26,6 +26,7 @@ from zwans.executor.docker import SANDBOX_OS, DockerExecutor
 from zwans.executor.jail import JAIL_OS, JailExecutor
 from zwans.executor.local import LocalExecutor, find_bash
 from zwans.executor.seatbelt import SEATBELT_OS, SeatbeltError, SeatbeltExecutor
+from zwans.ext.agents import agent_folders, find_agents
 from zwans.ext.hooks import Hooks
 from zwans.ext.skills import find_skills, skill_folders
 from zwans.followthrough import follow_through_for
@@ -365,7 +366,8 @@ def open_session(
         if skills:
             tools.append(SkillTool(skills))
         if config.subagents:
-            tools.append(TaskTool(config.subagent_max_steps))
+            agents = find_agents(agent_folders(root, config.home, config.builtin_agents))
+            tools.append(TaskTool(config.subagent_max_steps, agents))
     # Charts are drawn in the web UI, for a session or a chat; the terminal gets their summary.
     tools.append(ChartTool())
     if config.web:

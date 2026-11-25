@@ -141,6 +141,7 @@ class Config(BaseModel):
     # Offer the skills that come with Zwans (src/zwans/skills/), such as debug. A skill of
     # the same name in ~/.zwans/skills or the project replaces one.
     builtin_skills: bool = True
+    builtin_agents: bool = True  # offer the agent types that come with Zwans
     subagent_max_steps: int = 30  # model calls allowed in one subagent's task
     # The model subagents run on, as "claude-haiku-5-5": a cheaper one for searches and
     # legwork, while the session's model keeps the judgment. Unset, they use the session's.

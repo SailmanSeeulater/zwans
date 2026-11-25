@@ -85,6 +85,7 @@ Commands the agent runs never see these variables.
 zwans                                        # chat in the current folder
 zwans run "make the tests pass" -w path/to/project
 zwans sessions                               # list saved sessions
+zwans agents                                 # the agent types subagents can start as
 zwans --resume 20261008-1412                 # continue one (the start of its id is enough)
 zwans --resume 20261008-1412 --rewind 3      # continue from the end of turn 3
 zwans replay 20261008-1412                   # save it as an HTML page that plays it back
@@ -557,6 +558,52 @@ subagent_model = "claude-haiku-5-5"   # or a local one: "ollama/qwen3-coder:30b"
 
 `/model` changes the session's model only; subagents stay on theirs. Their cost counts at
 their own model's prices.
+
+#### Agent types
+
+An agent type is a subagent defined once: its instructions, the model it runs on, the tools
+it may use and how many steps it gets. The model sees each type's name and description in
+the `Task` tool and starts one by name, so the same cheap, read-only reviewer runs each time
+it's asked for, rather than whatever brief the model thought to write that day. Two come
+with Zwans:
+
+- `explore` searches the codebase and reports where things are and how they work. It may
+  only read: `Read`, `Glob`, `Grep`, `Outline`, `References` and `History`.
+- `reviewer` reviews a change for bugs and reports each as `path:line` with the case that
+  fails, checking each before it reports it. It reads, looks at the session's changes and
+  runs the tests, and edits nothing.
+
+Add your own as a Markdown file in a project's `.zwans/agents/` or in `~/.zwans/agents/`:
+
+```markdown
+---
+name: security
+description: Checks a change for injection, secrets in code and unsafe file access. Use before a change that handles user input is done.
+model: claude-haiku-5-5
+tools: Read, Glob, Grep, References
+max_steps: 20
+---
+You review code for security problems. For each one, give path:line, what an attacker
+would send, and what they would get. Report only what you can show in the code.
+```
+
+Only `description` is needed. The name is the file's unless `name` gives another. Without
+`model` (or with `inherit`) it runs on `subagent_model`, or the session's model; without
+`tools` it gets all the session's, except `Task`; without `max_steps`, `subagent_max_steps`.
+A tool the file names that the session doesn't have is left out. The rest of the file is
+its instructions, given to it on top of the session's prompt. A project's type replaces
+the user's of the same name, and the user's replaces one that comes with Zwans.
+
+Claude Code's subagents, in `.claude/agents/`, work as they are: `model: haiku`, `sonnet`
+and `opus` stand for the latest of each. `zwans agents` lists the types a project has, with
+each one's model, tools and file. Set `builtin_agents = false` to leave out the two that
+come with Zwans.
+
+To have the model split up a task, say how in the prompt:
+
+```bash
+zwans run --mode read-only "Audit src/zwans/tools: start one reviewer agent per file, in parallel, then check what they report and list the real bugs."
+```
 
 ### Rooms
 
@@ -1392,6 +1439,7 @@ environment variables:
 | `tools_on_demand` | `true` | Offer the everyday tools, and load the rest when the model asks |
 | `always_tools` | none | Tools to offer from the start, by name, with `tools_on_demand` |
 | `builtin_skills` | `true` | Offer the skills that come with Zwans, such as `debug` |
+| `builtin_agents` | `true` | Offer the agent types that come with Zwans, `explore` and `reviewer` |
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
 | `subagent_model` | the session's | The model subagents run on, and the one that answers `WebFetch`'s questions about a page |
 | `follow_through` | `2` local, `0` other | Times a turn sends the model back when its final reply only announced the next step or showed code without writing it |
