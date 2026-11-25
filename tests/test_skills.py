@@ -115,3 +115,19 @@ def test_loading_a_skill_needs_no_approval_but_counts_as_untrusted(tmp_path: Pat
     assert perms.check(tool, {"name": "x"}).decision == Decision.ALLOW
     assert perms.observe(tool.name, is_error=False)
     assert perms.tainted
+
+
+def test_zwans_comes_with_a_debug_skill_that_the_users_or_projects_replaces(
+    tmp_path: Path,
+) -> None:
+    home, workspace = tmp_path / "home", tmp_path / "ws"
+
+    [debug] = find_skills(skill_folders(workspace, home, builtin=True))
+    assert debug.name == "debug" and "reproduce it" in debug.description
+    steps = debug.instructions()
+    assert "## 4. Trace backwards" in steps and "Bisect" in steps
+
+    write_skill(workspace / ".zwans" / "skills", "debug", "description: The project's way.")
+    [ours] = find_skills(skill_folders(workspace, home, builtin=True))
+    assert ours.description == "The project's way."
+    assert find_skills(skill_folders(tmp_path / "empty", None)) == []  # builtin_skills = false

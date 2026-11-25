@@ -80,7 +80,7 @@ def test_a_page_becomes_text_with_its_headings_and_links() -> None:
     assert text.splitlines() == [  # the menu is left out
         "# Install",
         "",
-        "Run pip install zwans, then read the guide (https://docs.example.com/install/guide.html).",
+        "Run `pip install zwans`, then read the guide (https://docs.example.com/install/guide.html).",
         "",
         "- One",
         "",
@@ -108,7 +108,7 @@ def test_the_main_content_is_kept_and_what_surrounds_it_left_out() -> None:
     title, text = to_text(ARTICLE, "https://example.com/retries")
 
     assert title == "Retries"
-    assert text.startswith("# Retries\n\nSet retries = 3 in the client.")
+    assert text.startswith("# Retries\n\nSet `retries = 3` in the client.")
     assert "Note: retries are off by default." in text  # an aside inside the content stays
     for gone in ("Example", "(https://example.com/a)", "B", "Related", "Copyright", "cookies"):
         assert gone not in text
@@ -219,7 +219,9 @@ def test_a_long_page_is_cut_and_says_so(ctx: ToolContext) -> None:
     output = fetch(fetcher(handler), ctx, "https://example.com/long")
 
     assert len(output.content) < MAX_CHARS + 200
-    assert output.content.endswith("[Only the first 60,000 of 100,000 characters are shown.]")
+    assert output.content.endswith(
+        "[Characters 0-60,000 of 100,000 are shown; fetch it again with offset=60000 for the rest.]"
+    )
 
 
 class Session:
@@ -502,7 +504,7 @@ def test_a_session_gets_the_new_tools_unless_the_config_turns_them_off(tmp_path:
         *video, "NotebookEdit", "Logs", "Database", "Data", "ImageDiff", "Archive", "Imports",
         "OpenAPI", "Cron", "History", "Bisect", "Profile", "Benchmark", "Http", "Env", "Audit",
         *machine, *browser, "Python",
-        "ShowChanges", "Memory", "Chart", "WebFetch", "Packages", "ToolSearch",
+        "ShowChanges", "Memory", "Skill", "Chart", "WebFetch", "Packages", "ToolSearch",
     ]  # fmt: skip
     # AskUser is there only when someone can be asked.
     assert "AskUser" not in full
@@ -520,6 +522,7 @@ def test_a_session_gets_the_new_tools_unless_the_config_turns_them_off(tmp_path:
             web=False,
             video=False,
             browser=False,
+            builtin_skills=False,
             disabled_tools=off,
         )
     )

@@ -26,6 +26,7 @@ from zwans.executor.docker import SANDBOX_OS, DockerExecutor
 from zwans.executor.jail import JAIL_OS, JailExecutor
 from zwans.executor.local import LocalExecutor, find_bash
 from zwans.executor.seatbelt import SEATBELT_OS, SeatbeltError, SeatbeltExecutor
+from zwans.ext.agents import agent_folders, find_agents
 from zwans.ext.hooks import Hooks
 from zwans.ext.skills import find_skills, skill_folders
 from zwans.followthrough import follow_through_for
@@ -34,7 +35,7 @@ from zwans.messages import Message
 from zwans.policy.engine import Approver, Permissions
 from zwans.policy.rules import LoadedPolicy, Mode, load_policy
 from zwans.pricing import CostMeter
-from zwans.prompt import chat_prompt, system_prompt
+from zwans.prompt import MCP_MARK, chat_prompt, mcp_instructions, system_prompt
 from zwans.providers.base import Provider
 from zwans.providers.catalog import canonical, is_known
 from zwans.providers.fake import FakeProvider
@@ -146,6 +147,11 @@ class OpenedSession:
             return [], []
         tools, problems = await self.mcp.start()
         self.session.tools.extend(tools)
+        # What the servers say about their tools joins the prompt before the first turn. A
+        # resumed session's saved prompt may have it already, so it's never added twice.
+        extra = mcp_instructions(self.mcp.instructions())
+        if extra and MCP_MARK not in self.session.system:
+            self.session.system += extra
         return tools, problems
 
     async def close(self) -> None:
@@ -225,11 +231,13 @@ def open_session(
             # too. It's saved once a reply from it comes in.
             unsaved_model = model
         meter = CostMeter.restore(info.usage)
-        skills = find_skills(skill_folders(Path(info.workspace), config.home))
+        skills = find_skills(
+            skill_folders(Path(info.workspace), config.home, config.builtin_skills)
+        )
     else:
         session_id = f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
         root = (config.home / CHATS / session_id if chat else workspace).resolve()
-        skills = find_skills(skill_folders(root, config.home))
+        skills = find_skills(skill_folders(root, config.home, config.builtin_skills))
         instructions = load_instructions(root, config.home)  # for a chat, only the user's own
         followed = [path for path, _ in instructions]
         notes = read_notes(config.home, root) if "Memory" not in config.disabled_tools else []
@@ -358,7 +366,8 @@ def open_session(
         if skills:
             tools.append(SkillTool(skills))
         if config.subagents:
-            tools.append(TaskTool(config.subagent_max_steps))
+            agents = find_agents(agent_folders(root, config.home, config.builtin_agents))
+            tools.append(TaskTool(config.subagent_max_steps, agents))
     # Charts are drawn in the web UI, for a session or a chat; the terminal gets their summary.
     tools.append(ChartTool())
     if config.web:
@@ -383,6 +392,7 @@ def open_session(
         system=info.system,  # a resumed session keeps the exact prompt it started with
         listeners=[*listeners, transcript.on_event, meter.on_event],
         max_steps=config.max_steps,
+        repeat_limit=config.repeat_limit,
         compactor=Compactor(
             provider,
             config.compact_at,

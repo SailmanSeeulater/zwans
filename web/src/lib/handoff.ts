@@ -14,6 +14,7 @@ export function stuckReason(turn: Turn | undefined): string | null {
   const { reason } = turn.stop;
   if (reason === "interrupted" || reason === "refusal") return null; // the person's call, or a choice
   if (reason === "max_steps") return "ran out of steps before finishing";
+  if (reason === "repeating") return "kept repeating the same tool calls";
   if (reason === "max_tokens") return "ran out of room in its reply";
   if (reason === "error") return "stopped on an error";
 

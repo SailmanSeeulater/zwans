@@ -85,6 +85,7 @@ Commands the agent runs never see these variables.
 zwans                                        # chat in the current folder
 zwans run "make the tests pass" -w path/to/project
 zwans sessions                               # list saved sessions
+zwans agents                                 # the agent types subagents can start as
 zwans --resume 20261008-1412                 # continue one (the start of its id is enough)
 zwans --resume 20261008-1412 --rewind 3      # continue from the end of turn 3
 zwans replay 20261008-1412                   # save it as an HTML page that plays it back
@@ -186,6 +187,12 @@ Things to know:
   by showing code it never wrote to a file is sent back to do it, up to twice a turn
   (`follow_through`). Errors also say what a tool takes and where a guessed path's file
   is, and Read opens the one file of a guessed name.
+- A model that keeps making a call it already made in the turn, getting the same result
+  with nothing changed in between, is told each time that it learned nothing new. On the
+  third repeat the turn stops with `[stopped: repeating]` rather than running on to
+  `max_steps` (`repeat_limit`). The web UI then offers to hand the task to Claude, as it
+  does for a turn that ran out of steps. A change (an edit, a command) resets the count,
+  and numbers such as test timings are ignored when comparing results.
 - Claude's web search and fetch run on Anthropic's servers, so other models get Zwans's own
   instead: `WebFetch`, and `WebSearch` once you say where to search (see "Web search and
   fetch").
@@ -246,7 +253,7 @@ file instead of refusing it. Images can be up to 3.75 MB, and each costs about 1
 | `/loop [rounds] until <check> [task]` | Keeps working until a check passes: Zwans runs the check (say `pytest -q`) after each turn and sends the model what fails, for at most 5 turns unless `rounds` says otherwise. Quote a check with spaces when a task follows: `/loop 8 until "npm test" fix the dates` |
 | `/plan [task \| off]` | Plan mode: the model looks and replies with a plan, and nothing changes until `/go` (see [Plan mode](#plan-mode)). With a task, sends it; `/plan off` leaves without carrying the plan out |
 | `/go` | Approves the plan: plan mode goes off and the model carries it out |
-| `/<name> [arguments]` | Runs a command of your own, from `.zwans/commands/<name>.md` or `~/.zwans/commands/<name>.md` (see [Your own commands](#your-own-commands)) |
+| `/<name> [arguments]` | Runs a command of your own, from `.zwans/commands/<name>.md` or `~/.zwans/commands/<name>.md` (see [Your own commands](#your-own-commands)), or a skill, such as `/debug <task>` |
 | `/resume [n]` | Lists recent sessions in this workspace, or switches to one |
 | `/exit` | Quits |
 
@@ -463,7 +470,16 @@ description: Write release notes from the git log. Use when asked for a changelo
 Only the names and descriptions go in the system prompt. The model loads a skill's
 instructions with the `Skill` tool when a task matches, and any other file in its folder the
 same way. A project's skill replaces the user's skill of the same name, and one in
-`.zwans/skills/` replaces one in `.claude/skills/`.
+`.zwans/skills/` replaces one in `.claude/skills/`. Typing `/<skill> <task>` sends a skill's
+instructions with the task, which works with a model that doesn't load skills on its own.
+
+One comes with Zwans: `debug`, for a failing test, an error or wrong output. It works like a
+detective. It reproduces the failure, then traces the bad value back step by step to where
+it went wrong, checking each step instead of assuming it. It tests one idea at a time,
+using `History` and `Bisect` when the code used to work. It proves the cause before
+changing code, then fixes it there rather than the symptom. It ends with the chain from the
+symptom to the cause. A skill of your own named `debug` replaces it, and
+`builtin_skills = false` leaves it out.
 
 ### MCP servers
 
@@ -484,7 +500,10 @@ headers = { Authorization = "Bearer ${DOCS_TOKEN}" }
 tool is called `mcp__<server>__<tool>` and goes through the policy like any other: tools the
 server marks read-only run without asking, and the rest ask, in `auto` mode too, since they
 reach whatever the server does. A server that won't start is skipped with a warning. Its
-stderr goes to `~/.zwans/mcp-logs/<server>.log`.
+stderr goes to `~/.zwans/mcp-logs/<server>.log`. The `instructions` a server sends when it
+starts (when and how to use its tools) go in the system prompt, marked as that server's, up
+to 2,000 characters each; small local models rarely work out when a tool applies from its
+name alone. MCP tools are always offered, never left for `ToolSearch` to load.
 
 ### MCP Apps
 
@@ -539,6 +558,52 @@ subagent_model = "claude-haiku-5-5"   # or a local one: "ollama/qwen3-coder:30b"
 
 `/model` changes the session's model only; subagents stay on theirs. Their cost counts at
 their own model's prices.
+
+#### Agent types
+
+An agent type is a subagent defined once: its instructions, the model it runs on, the tools
+it may use and how many steps it gets. The model sees each type's name and description in
+the `Task` tool and starts one by name, so the same cheap, read-only reviewer runs each time
+it's asked for, rather than whatever brief the model thought to write that day. Two come
+with Zwans:
+
+- `explore` searches the codebase and reports where things are and how they work. It may
+  only read: `Read`, `Glob`, `Grep`, `Outline`, `References` and `History`.
+- `reviewer` reviews a change for bugs and reports each as `path:line` with the case that
+  fails, checking each before it reports it. It reads, looks at the session's changes and
+  runs the tests, and edits nothing.
+
+Add your own as a Markdown file in a project's `.zwans/agents/` or in `~/.zwans/agents/`:
+
+```markdown
+---
+name: security
+description: Checks a change for injection, secrets in code and unsafe file access. Use before a change that handles user input is done.
+model: claude-haiku-5-5
+tools: Read, Glob, Grep, References
+max_steps: 20
+---
+You review code for security problems. For each one, give path:line, what an attacker
+would send, and what they would get. Report only what you can show in the code.
+```
+
+Only `description` is needed. The name is the file's unless `name` gives another. Without
+`model` (or with `inherit`) it runs on `subagent_model`, or the session's model; without
+`tools` it gets all the session's, except `Task`; without `max_steps`, `subagent_max_steps`.
+A tool the file names that the session doesn't have is left out. The rest of the file is
+its instructions, given to it on top of the session's prompt. A project's type replaces
+the user's of the same name, and the user's replaces one that comes with Zwans.
+
+Claude Code's subagents, in `.claude/agents/`, work as they are: `model: haiku`, `sonnet`
+and `opus` stand for the latest of each. `zwans agents` lists the types a project has, with
+each one's model, tools and file. Set `builtin_agents = false` to leave out the two that
+come with Zwans.
+
+To have the model split up a task, say how in the prompt:
+
+```bash
+zwans run --mode read-only "Audit src/zwans/tools: start one reviewer agent per file, in parallel, then check what they report and list the real bugs."
+```
 
 ### Rooms
 
@@ -658,6 +723,10 @@ before running it, in the terminal or the web UI, and remembers the answer for t
 as it is: a change to the file asks again. Your own files in `~/.zwans/commands` aren't
 asked about. A file can't take the name of one of Zwans's own commands.
 
+Every [skill](#skills) is a command too: `/debug pytest fails on the export` sends the
+`debug` skill's instructions with the task, for a model that wouldn't load the skill by
+itself. A command file of the same name wins over a skill.
+
 ### Instruction files
 
 Standing instructions go in `~/.zwans/ZWANS.md` for all projects, and for one project in
@@ -689,14 +758,31 @@ Set `web = false` to turn them off.
 Other models have no web tools of their provider's, so Zwans gives them two of its own, which
 run on this machine:
 
-- `WebFetch` reads a page and returns it as text, with headings and links kept, up to 60,000
-  characters. It keeps the page's content, its `<main>` or `<article>`, and leaves out menus,
-  banners, footers and hidden elements, which on a typical docs page is a quarter to two
-  thirds less to read. Given a `question` as well, a model reads the page and only its
-  answer comes back: a few hundred tokens instead of the page's thousands. That model is
-  `subagent_model` when you set one, so a cheap one can do the reading for an expensive one.
-  It only reaches public addresses, and each redirect is checked too; for a server on this
-  machine, the model uses `curl` through Bash.
+- `WebFetch` reads a page and returns it as Markdown. It keeps the page's content, its
+  `<main>` or `<article>`, and leaves out menus, banners, footers and hidden elements, which
+  on a typical docs page is a quarter to two thirds less to read. Code blocks come through
+  exactly as written, fenced with their language, and tables as Markdown tables. A PDF comes
+  back as its text, page by page. A file on GitHub is fetched as the raw file, and an issue
+  or pull request through GitHub's API, as its description and comments without the page
+  around them. A page drawn by its JavaScript, which has little in its HTML, says so and
+  points to the Browser tool.
+
+  How much comes back at once follows the model's context window: up to 60,000 characters,
+  or a quarter of the window when the provider says how big it is (about 24,000 characters
+  for a local model with 32k tokens). A longer page is cut at a paragraph break and says
+  which `offset` to fetch it again with for the rest. Given a `question` as well, a model
+  reads the page and only its answer comes back: a few hundred tokens instead of the page's
+  thousands. That model is `subagent_model` when you set one, so a cheap one can do the
+  reading for an expensive one. A page too long for it is read in parts, up to four, and the
+  answers combined.
+
+  A server that times out or answers 429, 502, 503 or 504 is asked twice more, waiting as
+  long as its `Retry-After` says, up to ten seconds. A page fetched in the last ten minutes is
+  read from memory, so reading on with `offset` or asking another question about it doesn't
+  fetch it again. It only reaches public addresses, and each redirect is checked too. The
+  connection goes to the address that was checked, so a name that answers with a public
+  address and then a private one (DNS rebinding) is refused. For a server on this machine,
+  the model uses `curl` through Bash.
 - `WebSearch` is offered once the config says where to search: Brave's API, with its key in
   `BRAVE_API_KEY`, or a SearXNG server you run.
 
@@ -882,7 +968,10 @@ uv tool install --reinstall '.[browser]'
 records, an Excel workbook or a Parquet file. It gives the row and column counts, then for
 each column its type, how many values are empty and how many distinct, the range and mean
 of numbers and dates, and the most common values of a column with few of them, followed by
-the first rows as a table. Excel is read without an Excel library; Parquet is read by a
+the first rows as a table. With `group_by` set to a column, it also gives each of that
+column's values its row count and the sum and mean of every number column (or of those named
+in `columns`), the 40 biggest groups first: the average price per region without writing a
+script. Excel is read without an Excel library; Parquet is read by a
 small script run with the project's own Python, which needs pyarrow, pandas or duckdb. For a
 file over 100 MB only the start is read, and the summary says so.
 
@@ -1400,6 +1489,7 @@ environment variables:
 | `effort` | `medium` | How much the model thinks: `low` to `max` |
 | `max_tokens` | `64000` | Output limit per model call, thinking included |
 | `max_steps` | `50` | Model calls allowed in one turn |
+| `repeat_limit` | `3` | Tool calls in a turn that may repeat an earlier one, with the same result and nothing changed between, before the turn stops; `0` never stops one |
 | `subagents` | `true` | Offer the `Task` tool |
 | `todos` | `true` | Offer the `TodoWrite` tool |
 | `checkpoints` | `true` | Snapshot the workspace before each turn, so `/undo` can put files back |
@@ -1413,6 +1503,8 @@ environment variables:
 | `disabled_tools` | none | Tools not to offer, by name |
 | `tools_on_demand` | `true` | Offer the everyday tools, and load the rest when the model asks |
 | `always_tools` | none | Tools to offer from the start, by name, with `tools_on_demand` |
+| `builtin_skills` | `true` | Offer the skills that come with Zwans, such as `debug` |
+| `builtin_agents` | `true` | Offer the agent types that come with Zwans, `explore` and `reviewer` |
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
 | `subagent_model` | the session's | The model subagents run on, and the one that answers `WebFetch`'s questions about a page |
 | `follow_through` | `2` local, `0` other | Times a turn sends the model back when its final reply only announced the next step or showed code without writing it |

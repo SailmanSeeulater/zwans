@@ -103,6 +103,9 @@ class Config(BaseModel):
     effort: Effort = "medium"  # how much the model thinks; the main cost and latency control
     max_tokens: int = 64_000  # per model call, thinking included
     max_steps: int = 50  # model calls allowed in one turn
+    # Tool calls in a turn that may repeat an earlier one, with the same result and nothing
+    # changed between, before the turn stops (repeats.py). 0 never stops one.
+    repeat_limit: int = Field(default=3, ge=0)
     subagents: bool = True  # offer the Task tool
     checkpoints: bool = True  # snapshot the workspace before each turn, so /undo works
     todos: bool = True  # offer TodoWrite, a checklist the model keeps for long tasks
@@ -135,6 +138,10 @@ class Config(BaseModel):
     # (tools/on_demand.py). always_tools adds to the everyday ones, by name.
     tools_on_demand: bool = True
     always_tools: list[str] = []
+    # Offer the skills that come with Zwans (src/zwans/skills/), such as debug. A skill of
+    # the same name in ~/.zwans/skills or the project replaces one.
+    builtin_skills: bool = True
+    builtin_agents: bool = True  # offer the agent types that come with Zwans
     subagent_max_steps: int = 30  # model calls allowed in one subagent's task
     # The model subagents run on, as "claude-haiku-5-5": a cheaper one for searches and
     # legwork, while the session's model keeps the judgment. Unset, they use the session's.

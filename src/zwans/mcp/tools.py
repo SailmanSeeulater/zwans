@@ -37,6 +37,7 @@ PREFIX = "mcp__"
 VARIABLE = re.compile(r"\$\{(\w+)\}")
 UNSAFE_NAME = re.compile(r"[^A-Za-z0-9_-]")  # the API's rule for tool names
 MAX_NAME = 64
+MAX_INSTRUCTIONS = 2000  # characters of a server's instructions that go in the prompt
 
 
 class McpInput(BaseModel):
@@ -161,6 +162,16 @@ class McpServers:
                     self.tools[tool.server, tool.remote_name] = tool
                 tools.extend(tool for tool in outcome if "model" in tool.visibility)
         return tools, problems
+
+    def instructions(self) -> list[tuple[str, str]]:
+        """(server, text) for each server that started and said how to use its tools. Without
+        them a model, a small one most of all, often doesn't see when a server's tools apply."""
+        started = {tool.server for tool in self.tools.values()}
+        return [
+            (c.name, c.instructions[:MAX_INSTRUCTIONS])
+            for c in self.connections
+            if c.instructions and c.name in started
+        ]
 
     def app_tool(self, server: str, name: str) -> McpTool | None:
         """A tool a view from `server` may call: one on the same server, open to views."""

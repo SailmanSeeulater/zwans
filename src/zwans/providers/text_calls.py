@@ -70,8 +70,8 @@ def _xml_call(
     text: str, tools: Mapping[str, Mapping[str, Any]]
 ) -> tuple[int, str, dict[str, Any]] | None:
     for match in XML_CALL.finditer(text):
-        name = match.group(1)
-        if name not in tools:
+        name = _offered(match.group(1), tools)
+        if name is None:
             continue
         properties = tools[name].get("properties") or {}
         arguments = {
@@ -80,6 +80,25 @@ def _xml_call(
         }
         return match.start(), name, arguments
     return None
+
+
+def _offered(name: str, tools: Mapping[str, Any]) -> str | None:
+    """`name` as a tool the request offered: itself, the one tool it names in another case
+    (`web_search` for `WebSearch`), or the one MCP tool whose own name it is. Small models
+    write tool names in the style they were trained on, and often drop the
+    `mcp__<server>__` prefix (`search_news` for `mcp__zands__search_news`); when two tools
+    fit, it's ambiguous, so then it isn't a call."""
+    if name in tools:
+        return name
+    same = [tool for tool in tools if _folded(tool) == _folded(name)]
+    if len(same) == 1:
+        return same[0]
+    matches = [tool for tool in tools if tool.startswith("mcp__") and tool.endswith(f"__{name}")]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _folded(name: str) -> str:
+    return name.replace("_", "").replace("-", "").lower()
 
 
 def _typed(value: str, schema: Mapping[str, Any]) -> Any:
@@ -111,7 +130,8 @@ def _as_call(value: object, tools: Mapping[str, Any]) -> tuple[str, dict[str, An
         return None
     name = value.get("name")
     keys = [key for key in ARGUMENT_KEYS if key in value]
-    if not isinstance(name, str) or name not in tools or len(keys) != 1:
+    name = _offered(name, tools) if isinstance(name, str) else None
+    if name is None or len(keys) != 1:
         return None
     arguments = value[keys[0]]
     if isinstance(arguments, str):  # the API's own form: the arguments as a JSON string

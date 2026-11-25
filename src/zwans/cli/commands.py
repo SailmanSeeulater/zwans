@@ -190,7 +190,8 @@ class Commands:
     def custom(self) -> tuple[dict[str, custom_commands.CustomCommand], list[str]]:
         """Your commands and the project's, read again each time so an edit shows at once."""
         workspace = None if self.opened.chat else Path(self.opened.info.workspace)
-        return custom_commands.load(workspace, self.opened.config.home, KNOWN)
+        config = self.opened.config
+        return custom_commands.load(workspace, config.home, KNOWN, config.builtin_skills)
 
     async def _custom(self, name: str, argument: str) -> Outcome:
         found, problems = self.custom()

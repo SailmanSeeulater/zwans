@@ -15,6 +15,7 @@ from zwans.mcp.client import HttpConnection
 from zwans.mcp.tools import McpInput, McpServers, McpTool, expand, result_text, tool_name
 from zwans.policy.engine import Permissions
 from zwans.policy.rules import Decision, Policy, PolicyFile
+from zwans.prompt import MCP_MARK, mcp_instructions
 from zwans.tools.base import ToolContext, ToolError, input_schema
 
 FAKE_SERVER = Path(__file__).parent / "fake_mcp_server.py"
@@ -69,6 +70,55 @@ def test_a_stdio_servers_tools_become_zwans_tools(tmp_path: Path) -> None:
         assert await call(tools["mcp__fake__fail"], tmp_path) == ("That didn't work.", True)
 
     with_servers(tmp_path, {"fake": fake_server()}, body)
+
+
+def test_server_instructions_are_kept_for_the_prompt(tmp_path: Path) -> None:
+    async def go() -> None:
+        manager = McpServers(
+            {"fake": fake_server(), "broken": McpServerConfig(command="no-such-command-zwans")},
+            tmp_path,
+            {},
+            tmp_path / "logs",
+        )
+        try:
+            await manager.start()
+            assert manager.instructions() == [("fake", "Use echo to repeat text back.")]
+        finally:
+            await manager.close()
+
+    asyncio.run(go())
+    block = mcp_instructions([("fake", "Use echo to repeat text back.")])
+    assert '<mcp_server_instructions server="fake">\nUse echo to repeat text back.\n' in block
+    assert block.startswith("\n\n") and MCP_MARK in block
+    assert mcp_instructions([]) == ""
+
+
+def test_a_started_session_has_the_servers_instructions_in_its_prompt_once(
+    tmp_path: Path,
+) -> None:
+    from zwans.providers.fake import FakeProvider
+    from zwans.runtime import open_session
+
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    opened = open_session(
+        Config(home=tmp_path / "home", mcp_servers={"fake": fake_server()}),
+        {},
+        workspace=workspace,
+        make_provider=lambda config, model: FakeProvider([]),
+    )
+
+    async def go() -> None:
+        try:
+            await opened.start()
+            assert opened.session.system.count(MCP_MARK) == 1
+            assert "Use echo to repeat text back." in opened.session.system
+            await opened.start()  # started again, as a resumed session's saved prompt has it
+            assert opened.session.system.count(MCP_MARK) == 1
+        finally:
+            await opened.close()
+
+    asyncio.run(go())
 
 
 def test_calls_can_overlap_and_the_server_can_ping_the_client(tmp_path: Path) -> None:

@@ -394,7 +394,8 @@ class LiveSession:
     def slash_commands(self) -> tuple[dict[str, custom_commands.CustomCommand], list[str]]:
         """Your slash commands and the project's, read again each time so edits show."""
         workspace = None if self.opened.chat else Path(self.opened.info.workspace)
-        return custom_commands.load(workspace, self.opened.config.home)
+        config = self.opened.config
+        return custom_commands.load(workspace, config.home, builtin_skills=config.builtin_skills)
 
     def command(self, name: str, argument: str, trusted: bool = False) -> None:
         """Run /<name>, a command from a Markdown file: send its text, or loop until its

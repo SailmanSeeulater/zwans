@@ -43,6 +43,7 @@ class Session:
         hooks: Hooks | None = None,
         follow_through: Callable[[], int] | None = None,
         subagent_provider: Provider | None = None,
+        repeat_limit: int = 0,
     ) -> None:
         self.provider = provider
         self.subagent_provider = subagent_provider or provider  # subagent_model, if set
@@ -51,6 +52,7 @@ class Session:
         self.system = system  # fixed for the whole session, so earlier turns stay valid
         self.listeners = list(listeners)
         self.max_steps = max_steps
+        self.repeat_limit = repeat_limit  # see repeats.py
         self.compactor = compactor
         self.permissions = permissions  # None runs every call without checking
         self.hooks = hooks
@@ -151,6 +153,7 @@ class Session:
             follow_through=self.follow_through() if self.follow_through else 0,
             steer=self._take_steering,
             limit=self.limit,
+            repeat_limit=self.repeat_limit,
         )
         try:
             async for event in turn:

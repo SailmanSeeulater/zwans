@@ -93,6 +93,34 @@ def read_pdf(data: bytes, name: str, pages: str) -> ToolOutput:
     return ToolOutput(content="\n".join(lines), images=tuple(images))
 
 
+def pdf_text(data: bytes, name: str) -> tuple[str, str]:
+    """A whole PDF's text, page by page, and its title, for WebFetch. Raises ToolError for
+    one that can't be read."""
+    from pypdf import PdfReader
+    from pypdf.errors import PdfReadError
+
+    try:
+        reader = PdfReader(io.BytesIO(data))
+        if reader.is_encrypted and not reader.decrypt(""):
+            raise ToolError(f"{name} is protected with a password.")
+        pages = list(reader.pages)
+    except PdfReadError as exc:
+        raise ToolError(f"{name} couldn't be read as a PDF: {exc}") from exc
+    parts = []
+    for number, page in enumerate(pages, start=1):
+        try:
+            text = page.extract_text() or ""
+        except Exception as exc:  # pypdf raises many kinds for a damaged page
+            text = f"(This page's text couldn't be read: {exc})"
+        text = re.sub(r"[ \t]+\n", "\n", text).strip() or "(No text on this page.)"
+        parts.append(f"--- Page {number} ---\n{text}")
+    metadata = reader.metadata
+    title = metadata.get("/Title") if metadata is not None else None
+    title = title.strip() if isinstance(title, str) else ""
+    head = f"A PDF of {len(pages)} page{'s' if len(pages) != 1 else ''}."
+    return title, head + "\n\n" + "\n\n".join(parts)
+
+
 def _page_images(page: Any, label: str) -> list[ImageBlock]:
     found: list[ImageBlock] = []
     try:

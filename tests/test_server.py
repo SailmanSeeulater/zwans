@@ -618,7 +618,7 @@ def test_commands_from_files_run_over_the_websocket(server: Server) -> None:
         ws.send_json({"type": "command", "name": "nope", "argument": ""})
         missing = until(ws, "server_error")[-1]
 
-    assert [c["name"] for c in status["commands"]] == ["finish", "review"]
+    assert [c["name"] for c in status["commands"]] == ["finish", "review", "debug"]  # a skill
     assert status["commands"][1]["description"] == "Review a file"
     started = next(m for m in reviewed if m["type"] == "turn_started")
     assert started["prompt"] == "Review app.py."
