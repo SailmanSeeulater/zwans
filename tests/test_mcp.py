@@ -14,8 +14,8 @@ from zwans.executor.local import LocalExecutor
 from zwans.mcp.client import HttpConnection
 from zwans.mcp.tools import McpInput, McpServers, McpTool, expand, result_text, tool_name
 from zwans.policy.engine import Permissions
-from zwans.prompt import MCP_MARK, mcp_instructions
 from zwans.policy.rules import Decision, Policy, PolicyFile
+from zwans.prompt import MCP_MARK, mcp_instructions
 from zwans.tools.base import ToolContext, ToolError, input_schema
 
 FAKE_SERVER = Path(__file__).parent / "fake_mcp_server.py"
