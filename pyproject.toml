@@ -12,6 +12,7 @@ dependencies = [
     "pypdf>=5",  # Read on a PDF
     "rich>=13.7",  # the chat's markdown
     "typer>=0.15",
+    "tzdata; sys_platform == 'win32'",  # Cron's time zones: Windows has no zone database
     "uvicorn>=0.30",
     "websockets>=13",  # the server's WebSockets, and zwans attach
 ]

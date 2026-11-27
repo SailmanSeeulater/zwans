@@ -1,6 +1,7 @@
 import asyncio
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -69,6 +70,7 @@ def test_a_draft_names_a_branch_and_lists_the_files() -> None:
     assert slug("") == "changes"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the fake gh is a shell script")
 def test_shipping_commits_only_the_sessions_files_pushes_and_opens_a_pr(
     project: Path, fake_gh: Path
 ) -> None:

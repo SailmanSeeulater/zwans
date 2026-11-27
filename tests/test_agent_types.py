@@ -247,7 +247,8 @@ def test_an_agent_type_runs_on_its_own_model(tmp_path: Path) -> None:
     assert first.content == "No bugs."
     assert second.is_error
     assert second.text().startswith(
-        "The broken agent (/agents/broken.md) runs on openrouter/some-model, which can't be used:"
+        f"The broken agent ({Path('/agents/broken.md')}) runs on openrouter/some-model, "
+        "which can't be used:"
     )
 
 

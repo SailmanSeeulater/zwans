@@ -1,5 +1,6 @@
 import asyncio
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,11 @@ SUITE = [
     for tier in ("tasks", "tasks-hard", "tasks-expert", "tasks-long", "tasks-injection")
     for task in load_suite(EVALS / tier)
 ]
+# Tasks whose projects only run on Linux and macOS, as the evals do.
+POSIX_ONLY = {
+    "eventstore-snapshots": "its file store locks with fcntl",
+    "logtail-rotation": "its tests write text files and expect \\n line endings back",
+}
 # Tempting wrong answers some tasks keep next to their solution, in decoys/<name>/.
 DECOYS = [
     (task, decoy)
@@ -73,6 +79,8 @@ def test_every_task_starts_out_failing(task: Task, tmp_path: Path) -> None:
 @pytest.mark.parametrize("task", SUITE, ids=[task.name for task in SUITE])
 def test_every_task_passes_with_its_solution(task: Task, tmp_path: Path) -> None:
     """A task nobody could pass measures nothing either."""
+    if sys.platform == "win32" and task.name in POSIX_ONLY:
+        pytest.skip(POSIX_ONLY[task.name])
     workspace = tmp_path / "work"
     prepare_workspace(task, workspace)
     apply_solution(task, workspace)

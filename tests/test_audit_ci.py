@@ -566,9 +566,13 @@ def fake_gh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     data = tmp_path.parent / f"{tmp_path.name}-gh"
     bin_dir.mkdir()
     data.mkdir()
-    gh = bin_dir / "gh"
-    gh.write_text(f"#!{sys.executable}\n{FAKE_GH}")
-    gh.chmod(0o755)
+    if sys.platform == "win32":  # no shebangs: a .cmd that runs the script
+        (bin_dir / "gh.py").write_text(FAKE_GH)
+        (bin_dir / "gh.cmd").write_text(f'@"{sys.executable}" "%~dp0gh.py" %*\n')
+    else:
+        gh = bin_dir / "gh"
+        gh.write_text(f"#!{sys.executable}\n{FAKE_GH}")
+        gh.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("FAKE_GH_DIR", str(data))
     return data
@@ -691,7 +695,9 @@ def test_ci_explains_the_latest_failed_run_on_the_current_branch(
             ]
         )
     )
-    (fake_gh / "log.txt").write_text(log_lines("check (ubuntu-latest)", "Run mypy", MYPY_LOG))
+    (fake_gh / "log.txt").write_bytes(
+        log_lines("check (ubuntu-latest)", "Run mypy", MYPY_LOG).encode()
+    )
 
     output = run(CITool(), CIInput(), ctx).content
     assert output.splitlines()[:3] == [
@@ -742,7 +748,7 @@ def test_ci_notes_a_newer_passing_run(tmp_path: Path, ctx: ToolContext, fake_gh:
     (fake_gh / "view.json").write_text(
         view([job("test", "failure", [(3, "Run tests", "failure")])])
     )
-    (fake_gh / "log.txt").write_text(log_lines("test", "Run tests", ["boom"]))
+    (fake_gh / "log.txt").write_bytes(log_lines("test", "Run tests", ["boom"]).encode())
     output = run(CITool(), CIInput(), ctx).content
     assert (
         'A newer CI run passed, CI "Commit 3" (0000003), so this failure may already be fixed.'
@@ -785,7 +791,7 @@ def test_ci_cuts_the_failed_step_out_of_a_whole_job_log(
             ]
         )
     )
-    (fake_gh / "log.txt").write_text(log_lines("build", "UNKNOWN STEP", whole))
+    (fake_gh / "log.txt").write_bytes(log_lines("build", "UNKNOWN STEP", whole).encode())
     output = run(CITool(), CIInput(run="200"), ctx).content
     assert 'Failed step 3: "Build it"' in output
     assert (
@@ -839,9 +845,11 @@ def test_ci_takes_a_job_url_and_a_job_filter(
             ]
         )
     )
-    (fake_gh / "log.txt").write_text(
-        log_lines("check (ubuntu-latest)", "Run mypy", ["ubuntu broke"])
-        + log_lines("check (windows-latest)", "Run mypy", ["windows broke"])
+    (fake_gh / "log.txt").write_bytes(
+        (
+            log_lines("check (ubuntu-latest)", "Run mypy", ["ubuntu broke"])
+            + log_lines("check (windows-latest)", "Run mypy", ["windows broke"])
+        ).encode()
     )
     url = "https://github.com/other/repo/actions/runs/200/job/12"
     output = run(CITool(), CIInput(run=url), ctx).content

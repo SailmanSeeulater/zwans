@@ -157,7 +157,7 @@ def test_archive_skips_a_symlink_in_a_tar_and_keeps_the_executable_bit(
     output = run(ArchiveTool(), ArchiveInput(path="tool.tar.gz", to="unpacked"), ctx)
     script = tmp_path / "unpacked" / "tool" / "run.sh"
     assert script.read_bytes().startswith(b"#!/bin/sh")
-    assert script.stat().st_mode & 0o111
+    assert sys.platform == "win32" or script.stat().st_mode & 0o111  # Windows has no such bit
     assert not (tmp_path / "unpacked" / "tool" / "passwd").is_symlink()
     assert "Skipped 1 link and special files:\n  tool/passwd -> /etc/passwd (symlink)" in (
         output.content

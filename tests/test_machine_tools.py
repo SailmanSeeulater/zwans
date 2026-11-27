@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,8 @@ def run(tool: Any, args: Any, ctx: ToolContext) -> ToolOutput:
 
 def fake_program(folder: Path, name: str, script: str) -> Path:
     """A shell script on PATH standing in for a real program."""
+    if sys.platform == "win32":
+        pytest.skip("the fake programs are shell scripts, which Windows can't run")
     folder.mkdir(exist_ok=True)
     path = folder / name
     path.write_text("#!/bin/sh\n" + script)
