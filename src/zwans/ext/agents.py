@@ -10,6 +10,7 @@ Zwans, in src/zwans/agents/:
     model: claude-haiku-5-5
     tools: Read, Glob, Grep, History
     max_steps: 20
+    isolation: copy
     ---
     (its instructions)
 
@@ -17,8 +18,10 @@ The name is the file's unless the front matter gives one. Only the description i
 without one the model couldn't know when to use it. `model` is the model it runs on (left
 out, or "inherit", for the session's subagent model; Claude Code's "haiku", "sonnet" and
 "opus" stand for the latest of each); `tools` the tools it may use, of the session's (left
-out for all of them); `max_steps` how many model calls it gets. The rest of the file is its
-instructions, given to it on top of the session's prompt.
+out for all of them); `max_steps` how many model calls it gets; `isolation: copy` that it
+works in a copy of the workspace, its changes applied when it finishes (isolation.py), so
+several can edit at once ("worktree", as Claude Code calls it, means the same). The rest of
+the file is its instructions, given to it on top of the session's prompt.
 
 The model sees each type's name and description in the Task tool's description and starts
 one with Task(agent="reviewer", ...), so a cheap, read-only reviewer is the same every time
@@ -51,6 +54,7 @@ class AgentType:
     model: str | None = None  # None: the session's subagent model
     tools: tuple[str, ...] | None = None  # None: all the session's
     max_steps: int | None = None  # None: subagent_max_steps
+    isolated: bool = False  # works in a copy of the workspace (isolation.py)
 
 
 def find_agents(folders: list[Path]) -> list[AgentType]:
@@ -100,4 +104,5 @@ def load_agent(file: Path) -> AgentType | None:
         model=None if model.lower() in ("", "inherit") else model,
         tools=tuple(tools) if tools else None,
         max_steps=int(steps) if steps.isdigit() and int(steps) > 0 else None,
+        isolated=fields.get("isolation", "").strip().lower() in ("copy", "worktree"),
     )

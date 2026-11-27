@@ -115,6 +115,11 @@ class DockerExecutor(LocalExecutor):
 
     interactive = False  # `docker exec` is started without a way to write to the command
 
+    def at(self, root: Path) -> "LocalExecutor":
+        raise ValueError(
+            "Isolated subagents can't run here: the container sees only the workspace folder."
+        )
+
     def __init__(
         self,
         root: Path,

@@ -12,9 +12,15 @@ makes is checked like the parent's would be.
 A call can name an agent type (ext/agents.py): a subagent defined once, with its own
 instructions, model, tools and number of steps, so the same reviewer or searcher runs each
 time it's asked for.
+
+An isolated subagent (isolation.py) works in a copy of the workspace, and its changes are
+applied when it finishes, so subagents started together can edit at once.
 """
 
+import copy as copying
 from collections.abc import Sequence
+from dataclasses import replace
+from pathlib import Path
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
@@ -23,6 +29,7 @@ from zwans.config import ConfigError
 from zwans.events import Error, Event, SubagentEvent, TurnEnded, UsageUpdated
 from zwans.ext.agents import AgentType
 from zwans.ext.hooks import Hooks
+from zwans.isolation import Copy, Isolation, IsolationError
 from zwans.loop import run_turn
 from zwans.messages import Message, TextBlock
 from zwans.policy.engine import Permissions
@@ -37,6 +44,16 @@ final message, not your tool calls or what they returned. You can't ask it quest
 make reasonable choices and say what you assumed. Finish with a complete report: what you \
 found or did, with the file paths, names and details the task asks for."""
 
+ISOLATED_NOTE = """
+
+You work in a private copy of the workspace, at {folder}, so other subagents working at the \
+same time can't get in your way, nor you in theirs. Use paths relative to it. When you \
+finish, what you changed is applied to the real workspace. Change only what your task needs."""
+
+# Tools that belong to the session's own workspace rather than to a copy of it: its changes
+# so far, its Python session and its background commands.
+NOT_ISOLATED = frozenset({"ShowChanges", "Python", "BashOutput", "KillBash"})
+
 
 class TaskInput(BaseModel):
     description: str = Field(description="A few words on what the subagent is for.")
@@ -49,6 +66,11 @@ class TaskInput(BaseModel):
         description="The whole task. The subagent sees nothing of this conversation, so "
         "include what it needs: the goal, file paths, what you already know, and what its "
         "report should contain."
+    )
+    isolated: bool = Field(
+        default=False,
+        description="Work in a private copy of the workspace, its changes applied when it "
+        "finishes. Use it for subagents that edit files at the same time as others.",
     )
     tools: list[str] | None = Field(
         default=None,
@@ -87,8 +109,14 @@ class TaskTool:
     # own. Being read-only also lets several subagents run at once.
     read_only = True
 
-    def __init__(self, max_steps: int = 30, agents: Sequence[AgentType] = ()) -> None:
+    def __init__(
+        self,
+        max_steps: int = 30,
+        agents: Sequence[AgentType] = (),
+        isolation: Isolation | None = None,
+    ) -> None:
         self.max_steps = max_steps
+        self.isolation = isolation  # None: no copies here, as in a chat
         self.agents = {agent.name: agent for agent in agents}
         self.parent: Parent | None = None  # set by the Session it's given to
         if self.agents:
@@ -114,6 +142,11 @@ class TaskTool:
             max_steps = agent.max_steps or max_steps
             task = f"{agent.name}: {args.description}"
         tools = self._tools(parent.tools, args.tools, agent)
+        permissions = parent.permissions
+        isolated: Copy | None = None
+        if args.isolated or (agent is not None and agent.isolated):
+            isolated, ctx, tools, permissions = await self._isolate(ctx, tools, permissions)
+            system += ISOLATED_NOTE.format(folder=isolated.folder)
         messages = [Message(role="user", content=[TextBlock(text=args.prompt)])]
         hooks = parent.hooks.without("stop") if parent.hooks is not None else None
         stop_reason, problems = "error", []
@@ -124,7 +157,7 @@ class TaskTool:
             ctx,
             system=system,
             max_steps=max_steps,
-            permissions=parent.permissions,
+            permissions=permissions,
             hooks=hooks,
             repeat_limit=parent.repeat_limit,
         )
@@ -137,7 +170,64 @@ class TaskTool:
                 stop_reason = event.stop_reason
             elif isinstance(event, Error):
                 problems.append(event.message)
-        return _report(messages, stop_reason, problems)
+        if permissions is not None and parent.permissions is not None:
+            # What the subagent read stays read: its report may carry it.
+            parent.permissions.tainted |= permissions.tainted
+        report = _report(messages, stop_reason, problems)
+        if isolated is None:
+            return report
+        return await self._bring_back(isolated, report)
+
+    async def _isolate(
+        self, ctx: ToolContext, tools: list[Tool[Any]], permissions: Permissions | None
+    ) -> tuple[Copy, ToolContext, list[Tool[Any]], Permissions | None]:
+        """A copy of the workspace for a subagent, and its tools, context and permissions
+        moved there."""
+        isolation = self.isolation
+        if isolation is None or isolation.problem:
+            why = isolation.problem if isolation is not None else "this session has no workspace"
+            raise ToolError(f"An isolated subagent can't run here: {why}")
+        mover = getattr(ctx.executor, "at", None)
+        if mover is None:
+            raise ToolError("An isolated subagent can't run here: commands don't run locally.")
+        try:
+            executor = mover(isolation.workspace)  # checked before a copy is made
+        except ValueError as exc:
+            raise ToolError(str(exc)) from exc
+        try:
+            made = await isolation.open()
+        except IsolationError as exc:
+            raise ToolError(f"Couldn't copy the workspace for the subagent: {exc}") from exc
+        executor = mover(made.folder)
+        moved = [_moved(tool, made.folder) for tool in tools if tool.name not in NOT_ISOLATED]
+        context = ToolContext(executor=executor, jobs=None, ask=ctx.ask)
+        if permissions is not None:
+            permissions = replace(
+                permissions,
+                inside=executor.contains,
+                relative=executor.relative,
+                root=executor.root,
+            )
+        return made, context, moved, permissions
+
+    async def _bring_back(self, made: Copy, report: ToolOutput) -> ToolOutput:
+        """The report, with what applying the subagent's changes to the workspace did."""
+        assert self.isolation is not None
+        if report.is_error:
+            note = (
+                f"Its changes weren't applied, since it didn't finish. They're in its copy of "
+                f"the workspace, at {made.folder}."
+            )
+            return ToolOutput(content=f"{report.content}\n\n[{note}]", is_error=True)
+        try:
+            outcome = await self.isolation.bring_back(made)
+        except IsolationError as exc:
+            note = (
+                f"Its changes couldn't be applied to the workspace ({exc}). They're in its copy "
+                f"of the workspace, at {made.folder}."
+            )
+            return ToolOutput(content=f"{report.content}\n\n[{note}]", is_error=True)
+        return ToolOutput(content=f"{report.content}\n\n[{outcome.describe()}]")
 
     def _agent(self, name: str | None) -> AgentType | None:
         if not name:
@@ -199,3 +289,14 @@ def _report(messages: list[Message], stop_reason: str, problems: list[str]) -> T
     if text:
         return ToolOutput(content=f"{note} Its last message:\n\n{text}", is_error=True)
     return ToolOutput(content=note, is_error=True)
+
+
+def _moved(tool: Tool[Any], folder: Path) -> Tool[Any]:
+    """`tool` for a subagent in a copy of the workspace: one that keeps the workspace's
+    folder of its own (as RunTests does, to find the project's runner) gets a copy of itself
+    with the copy's folder. The others use the executor they're given."""
+    if not isinstance(getattr(tool, "root", None), Path):
+        return tool
+    clone = copying.copy(tool)
+    clone.root = folder  # type: ignore[attr-defined]
+    return clone

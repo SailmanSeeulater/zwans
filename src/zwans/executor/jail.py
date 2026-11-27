@@ -56,6 +56,11 @@ def find_jail() -> str:
 class JailExecutor(LocalExecutor):
     interactive = False  # a command's input is how the jail is told what to run
 
+    def at(self, root: Path) -> "LocalExecutor":
+        raise ValueError(
+            "Isolated subagents can't run here: the jail sees only the workspace folder."
+        )
+
     def __init__(
         self,
         root: Path,

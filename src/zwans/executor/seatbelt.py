@@ -83,8 +83,12 @@ class SeatbeltExecutor(LocalExecutor):
         home: Path | None = None,
     ) -> None:
         super().__init__(root, shell, spill_dir, max_output_bytes)
+        self.home = home
         self.sandbox = find_sandbox()
         self.profile = profile(self.root, home or Path.home())
+
+    def at(self, root: Path) -> "SeatbeltExecutor":
+        return SeatbeltExecutor(root, self._shell, self.spill_dir, self.max_output_bytes, self.home)
 
     async def _spawn(
         self, argv: Sequence[str], background: bool = False, stdin: int = asyncio.subprocess.DEVNULL

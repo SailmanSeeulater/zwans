@@ -564,7 +564,7 @@ their own model's prices.
 An agent type is a subagent defined once: its instructions, the model it runs on, the tools
 it may use and how many steps it gets. The model sees each type's name and description in
 the `Task` tool and starts one by name, so the same cheap, read-only reviewer runs each time
-it's asked for, rather than whatever brief the model thought to write that day. Two come
+it's asked for, rather than whatever brief the model thought to write that day. Three come
 with Zwans:
 
 - `explore` searches the codebase and reports where things are and how they work. It may
@@ -572,6 +572,8 @@ with Zwans:
 - `reviewer` reviews a change for bugs and reports each as `path:line` with the case that
   fails, checking each before it reports it. It reads, looks at the session's changes and
   runs the tests, and edits nothing.
+- `coder` implements a precise brief and checks it with the tests, in its own copy of the
+  workspace (see "Isolated subagents" below), so several can write code at once.
 
 Add your own as a Markdown file in a project's `.zwans/agents/` or in `~/.zwans/agents/`:
 
@@ -590,13 +592,14 @@ would send, and what they would get. Report only what you can show in the code.
 Only `description` is needed. The name is the file's unless `name` gives another. Without
 `model` (or with `inherit`) it runs on `subagent_model`, or the session's model; without
 `tools` it gets all the session's, except `Task`; without `max_steps`, `subagent_max_steps`.
+`isolation: copy` (or `worktree`, as Claude Code writes it) runs it in a copy of the workspace.
 A tool the file names that the session doesn't have is left out. The rest of the file is
 its instructions, given to it on top of the session's prompt. A project's type replaces
 the user's of the same name, and the user's replaces one that comes with Zwans.
 
 Claude Code's subagents, in `.claude/agents/`, work as they are: `model: haiku`, `sonnet`
 and `opus` stand for the latest of each. `zwans agents` lists the types a project has, with
-each one's model, tools and file. Set `builtin_agents = false` to leave out the two that
+each one's model, tools and file. Set `builtin_agents = false` to leave out the three that
 come with Zwans.
 
 To have the model split up a task, say how in the prompt:
@@ -604,6 +607,43 @@ To have the model split up a task, say how in the prompt:
 ```bash
 zwans run --mode read-only "Audit src/zwans/tools: start one reviewer agent per file, in parallel, then check what they report and list the real bugs."
 ```
+
+#### Isolated subagents
+
+Subagents started in one response run at the same time, and normally in the same folder, so
+two that edit the same file can undo each other's work. An isolated subagent works in a copy
+of the workspace instead, and when it finishes, what it changed is applied to the real
+workspace, one subagent at a time. Changes to different parts of a file are merged, as git
+merges them. Where two subagents changed the same lines, the file is left with conflict
+markers (`<<<<<<< ours` for what the workspace had, `>>>>>>> theirs` for this subagent's),
+the report says so, and the main model resolves them. A subagent is isolated when its agent
+type says `isolation: copy`, as `coder` does, or when the model passes `isolated: true`.
+
+The copy is made the way checkpoints are, in a git repository of Zwans's own under
+`~/.zwans/isolated/`, so the folder doesn't need to be a git repository and the project's
+branches, index and history are never touched. It holds your uncommitted changes and the
+main model's edits so far. Files `.gitignore` leaves out aren't copied; `node_modules`,
+`.venv` and `venv` are linked into the copy instead, so its tests can run, and what a
+subagent changes in them isn't brought back. The subagent can't reach the real workspace:
+its tools, commands and permission checks all work in the copy. A subagent that stops before
+finishing, or whose changes can't be applied (it changed a file that has since been
+deleted, say), leaves its copy in place and its report says where. Undoing the turn with
+`/rewind` undoes the applied changes too.
+
+This lets an expensive model plan and review while cheaper ones write the code:
+
+```toml
+model = "claude-opus-5-5"
+subagent_model = "ollama/qwen3-coder:30b"   # what coder runs on, unless its file names a model
+```
+
+```bash
+zwans run --mode auto "Add CSV export to the report command. Plan it, give each part to a coder agent with an exact brief, then have the reviewer check the result and fix what's wrong."
+```
+
+Isolation needs commands to run on this machine: the `local` or `seatbelt` executor. With
+`docker` or `jail`, which see only the workspace folder, an isolated subagent is refused
+with a message saying so.
 
 ### Rooms
 
@@ -1504,7 +1544,7 @@ environment variables:
 | `tools_on_demand` | `true` | Offer the everyday tools, and load the rest when the model asks |
 | `always_tools` | none | Tools to offer from the start, by name, with `tools_on_demand` |
 | `builtin_skills` | `true` | Offer the skills that come with Zwans, such as `debug` |
-| `builtin_agents` | `true` | Offer the agent types that come with Zwans, `explore` and `reviewer` |
+| `builtin_agents` | `true` | Offer the agent types that come with Zwans: `explore`, `reviewer` and `coder` |
 | `subagent_max_steps` | `30` | Model calls allowed in one subagent's task |
 | `subagent_model` | the session's | The model subagents run on, and the one that answers `WebFetch`'s questions about a page |
 | `follow_through` | `2` local, `0` other | Times a turn sends the model back when its final reply only announced the next step or showed code without writing it |

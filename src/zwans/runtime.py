@@ -30,6 +30,7 @@ from zwans.ext.agents import agent_folders, find_agents
 from zwans.ext.hooks import Hooks
 from zwans.ext.skills import find_skills, skill_folders
 from zwans.followthrough import follow_through_for
+from zwans.isolation import Isolation
 from zwans.mcp.tools import McpServers, McpTool
 from zwans.messages import Message
 from zwans.policy.engine import Approver, Permissions
@@ -367,7 +368,13 @@ def open_session(
             tools.append(SkillTool(skills))
         if config.subagents:
             agents = find_agents(agent_folders(root, config.home, config.builtin_agents))
-            tools.append(TaskTool(config.subagent_max_steps, agents))
+            no_copies = (
+                f"commands run in the {config.executor} executor, which sees only the workspace"
+                if config.executor in ("docker", "jail")
+                else None
+            )
+            isolation = Isolation(root, config.home, info.id, problem=no_copies)
+            tools.append(TaskTool(config.subagent_max_steps, agents, isolation))
     # Charts are drawn in the web UI, for a session or a chat; the terminal gets their summary.
     tools.append(ChartTool())
     if config.web:

@@ -47,6 +47,11 @@ class LocalExecutor:
         self.spill_dir = (spill_dir or default_spill).resolve()
         self.max_output_bytes = max_output_bytes
 
+    def at(self, root: Path) -> "LocalExecutor":
+        """The same kind of executor, working in another folder: an isolated subagent's copy
+        of the workspace (isolation.py)."""
+        return LocalExecutor(root, self._shell, self.spill_dir, self.max_output_bytes)
+
     def resolve(self, path: str, *, reading: bool = False) -> Path:
         """Turn a path from the model into an absolute path, refusing anything outside the root."""
         resolved = (self.root / path).resolve()

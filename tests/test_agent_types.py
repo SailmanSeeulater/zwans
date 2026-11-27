@@ -120,7 +120,8 @@ def test_a_projects_agent_replaces_the_users_and_the_builtin_one(tmp_path: Path)
 def test_the_builtin_agents_load() -> None:
     found = {a.name: a for a in find_agents([BUILTIN])}
 
-    assert set(found) == {"explore", "reviewer"}
+    assert set(found) == {"coder", "explore", "reviewer"}
+    assert found["coder"].isolated and not found["reviewer"].isolated
     assert found["explore"].tools is not None and "Edit" not in found["explore"].tools
     assert found["reviewer"].tools is not None and "Write" not in found["reviewer"].tools
     assert all(a.instructions and a.max_steps for a in found.values())
@@ -264,7 +265,7 @@ def test_a_session_offers_the_builtin_and_the_projects_agent_types(tmp_path: Pat
     )
     try:
         [tool] = [t for t in opened.session.tools if isinstance(t, TaskTool)]
-        assert set(tool.agents) == {"docs", "explore", "reviewer"}
+        assert set(tool.agents) == {"coder", "docs", "explore", "reviewer"}
     finally:
         asyncio.run(opened.close())
 
