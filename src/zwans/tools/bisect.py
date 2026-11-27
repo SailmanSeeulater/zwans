@@ -70,6 +70,8 @@ class Search:
     steps: list[Step] = field(default_factory=list)
     first_bad: str | None = None
     details: str = ""  # git show of the first bad commit
+    # The commits it could still be, when skipped ones leave more than one.
+    candidates: list[str] = field(default_factory=list)
 
 
 class BisectTool:
@@ -199,13 +201,50 @@ async def _search(
         found = FIRST_BAD.search(result.output)
     log = await ctx.executor.run(["git", *place, "bisect", "log"], GIT_TIMEOUT)
     search.steps = parse_bisect_log(log.output)
-    if found:
-        search.first_bad = found[1]
+    first_bad = found[1] if found else None
+    if first_bad is None and not search.timed_out:
+        # Git words its verdict differently from version to version, so when the words
+        # aren't found, ask its refs which commits are still in question.
+        remaining = await _remaining(ctx, place)
+        if len(remaining) == 1:
+            first_bad = remaining[0]
+        else:
+            search.candidates = remaining
+    if first_bad:
+        search.first_bad = first_bad
         shown = await ctx.executor.run(
-            ["git", *place, "show", "--no-color", "--stat=100", FORMAT, found[1]], GIT_TIMEOUT
+            ["git", *place, "show", "--no-color", "--stat=100", FORMAT, first_bad], GIT_TIMEOUT
         )
         search.details = shown.output
     return search
+
+
+async def _remaining(ctx: ToolContext, place: list[str]) -> list[str]:
+    """The commits a finished search leaves in question: the bad one, and the commits
+    between it and the good ones whose test was skipped. Empty when that can't be told."""
+    bad = await ctx.executor.run(
+        ["git", *place, "rev-parse", "--verify", "--quiet", "refs/bisect/bad"], GIT_TIMEOUT
+    )
+    goods = await ctx.executor.run(
+        ["git", *place, "for-each-ref", "--format=%(objectname)", "refs/bisect/good-*"],
+        GIT_TIMEOUT,
+    )
+    good = SHA.findall(goods.output)
+    if bad.exit_code != 0 or not good:
+        return []
+    between = await ctx.executor.run(
+        ["git", *place, "rev-list", bad.output.strip(), "--not", *good], GIT_TIMEOUT
+    )
+    skips = await ctx.executor.run(
+        ["git", *place, "for-each-ref", "--format=%(objectname)", "refs/bisect/skip-*"],
+        GIT_TIMEOUT,
+    )
+    remaining = SHA.findall(between.output)
+    skipped = set(SHA.findall(skips.output))
+    # Only a search that's over: every commit left but the bad one was skipped.
+    if between.exit_code != 0 or any(sha not in skipped for sha in remaining[1:]):
+        return []
+    return remaining
 
 
 def parse_bisect_log(log: str) -> list[Step]:
@@ -307,8 +346,10 @@ def _report(
         out.append("git bisect couldn't name a single first bad commit.")
         output = search.output.strip()
         candidates = output.split("The first bad commit could be any of:", 1)
+        shas = search.candidates
         if len(candidates) == 2:
             shas = SHA.findall(candidates[1].split("We cannot bisect more", 1)[0])
+        if shas:
             out.append(
                 f"The test was skipped (exit 125) on the commits that matter, so it's one of "
                 f"these {len(shas)}: " + ", ".join(sha[:10] for sha in shas)

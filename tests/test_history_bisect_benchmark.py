@@ -1,6 +1,7 @@
 """History, Bisect and Benchmark, on real git repositories made in a temporary folder."""
 
 import asyncio
+import dataclasses
 import os
 import subprocess
 from pathlib import Path
@@ -225,6 +226,29 @@ def test_bisect_warns_when_the_test_never_fails(broken: tuple[Path, list[str]]) 
     out = run(BisectTool(), BisectInput(good="v1", test="true"), context(repo))
     assert f"The first bad commit is {shas[-1][:10]}." in out.content
     assert "never failed" in out.content
+
+
+class OtherGit(LocalExecutor):
+    """A git that words its verdicts differently, as versions do: the tool must still find
+    the first bad commit, from the bisect refs."""
+
+    async def run(self, argv: Any, timeout: float, *args: Any, **kwargs: Any) -> Any:
+        result = await super().run(argv, timeout, *args, **kwargs)
+        reworded = result.output.replace("is the first bad commit", "was the first to go bad")
+        reworded = reworded.replace("The first bad commit could be any of:", "Candidates:")
+        return dataclasses.replace(result, output=reworded)
+
+
+def test_bisect_doesnt_depend_on_how_git_words_it(broken: tuple[Path, list[str]]) -> None:
+    repo, shas = broken
+    ctx = ToolContext(executor=OtherGit(repo))
+
+    out = run(BisectTool(), BisectInput(good="v1", test="grep -qx ok state"), ctx)
+    assert f"The first bad commit is {shas[4][:10]}." in out.content
+
+    out = run(BisectTool(), BisectInput(good="v1", test="exit 125"), ctx)
+    assert "skipped (exit 125)" in out.content and "one of these" in out.content
+    assert git(repo, "branch", "--show-current").strip() == "main"
 
 
 def test_bisect_commands_for_the_policy() -> None:
